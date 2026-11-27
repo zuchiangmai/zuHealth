@@ -1,0 +1,36 @@
+# The checks every change must pass. Tests are not ported yet (their own plan); the five-platform matrix comes
+# back with them.
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  rust:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with: { components: "rustfmt, clippy" }
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      # the default members (core, api, proto, connect, ocr, runtime, the health binary); the Tauri shell needs
+      # the platform web view SDKs and the staged sidecar
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: scripts/check-no-net.sh
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with: { command: check licenses }
+
+  ui:
+    runs-on: ubuntu-24.04
+    defaults:
+      run: { working-directory: gui }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: gui/package-lock.json }
+      - run: npm ci
+      - run: npx tsc --noEmit -p .
+      - run: node scripts/i18n.mjs
+      - run: npx vite build
