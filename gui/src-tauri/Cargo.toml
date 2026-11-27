@@ -1,0 +1,41 @@
+[package]
+name = "health-app"
+description = "The Tauri shell for desktop and mobile: one command and event contract, two hosts"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "health_app_lib"
+# staticlib: iOS, cdylib: Android, rlib: the desktop binary
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+serde_json.workspace = true
+tauri = { version = "2", features = [] }
+
+# Desktop runs the `health serve` sidecar and links none of the core. `preserve_order` keeps agents' MCP config
+# files in their own key order (clients.rs).
+[target.'cfg(not(any(target_os = "ios", target_os = "android")))'.dependencies]
+serde_json = { version = "1", features = ["preserve_order"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-window-state = "2"
+
+# macOS: an empty unified toolbar gives the window the system's toolbar-window shape (larger corners, taller
+# title area), as Apple's own apps have. Already in the tree through tauri.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSThread"] }
+objc2-app-kit = { version = "0.3", features = ["NSToolbar", "NSWindow", "NSResponder"] }
+
+# Mobile runs the runtime in this process.
+[target.'cfg(any(target_os = "ios", target_os = "android"))'.dependencies]
+hex = "0.4"
+health-runtime.workspace = true
+tauri-plugin-health-platform.workspace = true
+tauri-plugin-barcode-scanner = "2"
+tauri-plugin-opener = "2"

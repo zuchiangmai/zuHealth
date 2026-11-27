@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Every platform: the UI listens to the shell's events (status, changes, sync, menu). The shell's own commands (op, unlock, ...) are allowed by default.",
+  "windows": ["main"],
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
+}

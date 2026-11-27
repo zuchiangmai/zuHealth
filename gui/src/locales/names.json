@@ -1,0 +1,549 @@
+{
+ "about": "From the web code (pre-pol ff62d01a) by scripts/gen-names-i18n.ts; do not edit",
+ "names": {
+  "x:hrv_rmssd": {
+   "zh-Hans": "心率变异性（RMSSD）",
+   "zh-Hant": "心率變異性（RMSSD）"
+  },
+  "loinc:40443-4": {
+   "zh-Hans": "静息心率",
+   "zh-Hant": "靜息心率"
+  },
+  "loinc:59408-5": {
+   "zh-Hans": "血氧饱和度",
+   "zh-Hant": "血氧飽和度"
+  },
+  "x:skin_temperature": {
+   "zh-Hans": "皮肤温度",
+   "zh-Hant": "皮膚溫度"
+  },
+  "x:recovery_score": {
+   "zh-Hans": "恢复分数",
+   "zh-Hant": "恢復分數"
+  },
+  "x:strain": {
+   "zh-Hans": "全天负荷",
+   "zh-Hant": "全天負荷"
+  },
+  "x:daily_calories_total": {
+   "zh-Hans": "全天消耗",
+   "zh-Hant": "全天消耗"
+  },
+  "x:daily_heart_rate_avg": {
+   "zh-Hans": "全天平均心率",
+   "zh-Hant": "全天平均心率"
+  },
+  "x:daily_heart_rate_max": {
+   "zh-Hans": "全天最高心率",
+   "zh-Hant": "全天最高心率"
+  },
+  "x:daily_sleep_respiratory_rate": {
+   "zh-Hans": "睡眠呼吸频率",
+   "zh-Hant": "睡眠呼吸頻率"
+  },
+  "loinc:103213-5": {
+   "zh-Hans": "在床时长",
+   "zh-Hant": "在床時長"
+  },
+  "x:daily_awake_time": {
+   "zh-Hans": "清醒时长",
+   "zh-Hant": "清醒時長"
+  },
+  "x:daily_light_sleep": {
+   "zh-Hans": "浅睡",
+   "zh-Hant": "淺睡"
+  },
+  "x:daily_deep_sleep": {
+   "zh-Hans": "深睡",
+   "zh-Hant": "深睡"
+  },
+  "x:daily_rem_sleep": {
+   "zh-Hans": "快速眼动睡眠",
+   "zh-Hant": "快速眼動睡眠"
+  },
+  "x:daily_sleep_cycle_times": {
+   "zh-Hans": "睡眠周期数",
+   "zh-Hant": "睡眠週期數"
+  },
+  "loinc:103211-9": {
+   "zh-Hans": "夜间醒来次数",
+   "zh-Hant": "夜間醒來次數"
+  },
+  "x:sleep_efficiency": {
+   "zh-Hans": "睡眠效率",
+   "zh-Hant": "睡眠效率"
+  },
+  "x:sleep_performance": {
+   "zh-Hans": "睡眠表现",
+   "zh-Hant": "睡眠表現"
+  },
+  "x:sleep_consistency": {
+   "zh-Hans": "睡眠规律性",
+   "zh-Hant": "睡眠規律性"
+  },
+  "x:sleep_nap": {
+   "zh-Hans": "小睡",
+   "zh-Hant": "小睡"
+  },
+  "x:workout_strain": {
+   "zh-Hans": "运动负荷",
+   "zh-Hant": "運動負荷"
+  },
+  "x:heart_rate_max": {
+   "zh-Hans": "运动最高心率",
+   "zh-Hant": "運動最高心率"
+  },
+  "loinc:55412-1": {
+   "zh-Hans": "运动距离",
+   "zh-Hant": "運動距離"
+  },
+  "x:max_heart_rate_profile": {
+   "zh-Hans": "最大心率（档案）",
+   "zh-Hant": "最大心率（檔案）"
+  },
+  "loinc:112429-6": {
+   "zh-Hans": "心率变异性（SDNN）",
+   "zh-Hant": "心率變異性（SDNN）"
+  },
+  "x:walking_heart_rate": {
+   "zh-Hans": "步行平均心率",
+   "zh-Hant": "步行平均心率"
+  },
+  "x:recovery_time": {
+   "zh-Hans": "心率恢复（1 分钟）",
+   "zh-Hant": "心率恢復（1 分鐘）"
+  },
+  "loinc:9279-1": {
+   "zh-Hans": "呼吸频率",
+   "zh-Hant": "呼吸頻率"
+  },
+  "x:vo2_max": {
+   "zh-Hans": "最大摄氧量",
+   "zh-Hant": "最大攝氧量"
+  },
+  "x:walking_speed": {
+   "zh-Hans": "步行速度",
+   "zh-Hant": "步行速度"
+  },
+  "x:walking_asymmetry_percentage": {
+   "zh-Hans": "步行不对称性",
+   "zh-Hant": "步行不對稱性"
+  },
+  "loinc:112434-6": {
+   "zh-Hans": "双脚支撑时间",
+   "zh-Hant": "雙腳支撐時間"
+  },
+  "loinc:112431-2": {
+   "zh-Hans": "上楼速度",
+   "zh-Hant": "上樓速度"
+  },
+  "loinc:112430-4": {
+   "zh-Hans": "下楼速度",
+   "zh-Hant": "下樓速度"
+  },
+  "loinc:64098-7": {
+   "zh-Hans": "六分钟步行距离",
+   "zh-Hant": "六分鐘步行距離"
+  },
+  "loinc:41982-0": {
+   "zh-Hans": "体脂率",
+   "zh-Hant": "體脂率"
+  },
+  "loinc:91557-9": {
+   "zh-Hans": "去脂体重",
+   "zh-Hant": "去脂體重"
+  },
+  "x:waist_circumference": {
+   "zh-Hans": "腰围",
+   "zh-Hant": "腰圍"
+  },
+  "x:wrist_temperature": {
+   "zh-Hans": "睡眠时手腕温度",
+   "zh-Hant": "睡眠時手腕溫度"
+  },
+  "loinc:61006-3": {
+   "zh-Hans": "灌注指数",
+   "zh-Hant": "灌注指數"
+  },
+  "loinc:112427-0": {
+   "zh-Hans": "步行与跑步距离",
+   "zh-Hant": "步行與跑步距離"
+  },
+  "loinc:100304-5": {
+   "zh-Hans": "已爬楼层",
+   "zh-Hant": "已爬樓層"
+  },
+  "loinc:41981-2": {
+   "zh-Hans": "活动消耗",
+   "zh-Hant": "活動消耗"
+  },
+  "x:calories_basal": {
+   "zh-Hans": "静息消耗",
+   "zh-Hant": "靜息消耗"
+  },
+  "x:active_time": {
+   "zh-Hans": "锻炼时间",
+   "zh-Hant": "鍛鍊時間"
+  },
+  "x:sleep_asleep_rem": {
+   "zh-Hans": "快速眼动片段",
+   "zh-Hant": "快速眼動片段"
+  },
+  "x:sleep_asleep_deep": {
+   "zh-Hans": "深睡片段",
+   "zh-Hant": "深睡片段"
+  },
+  "x:sleep_asleep_core": {
+   "zh-Hans": "核心睡眠片段",
+   "zh-Hant": "核心睡眠片段"
+  },
+  "x:sleep_awake": {
+   "zh-Hans": "清醒片段",
+   "zh-Hant": "清醒片段"
+  },
+  "x:sleep_unspecified": {
+   "zh-Hans": "睡眠片段（未分期）",
+   "zh-Hant": "睡眠片段（未分期）"
+  },
+  "loinc:2339-0": {
+   "zh-Hans": "血糖",
+   "zh-Hant": "血糖"
+  },
+  "loinc:8867-4": {
+   "zh-Hans": "心率",
+   "zh-Hant": "心率"
+  },
+  "loinc:8302-2": {
+   "zh-Hans": "身高",
+   "zh-Hant": "身高"
+  },
+  "loinc:29463-7": {
+   "zh-Hans": "体重",
+   "zh-Hant": "體重"
+  },
+  "loinc:39156-5": {
+   "zh-Hans": "体重指数（BMI）",
+   "zh-Hant": "體重指數（BMI）"
+  },
+  "loinc:8480-6": {
+   "zh-Hans": "收缩压",
+   "zh-Hant": "收縮壓"
+  },
+  "loinc:8462-4": {
+   "zh-Hans": "舒张压",
+   "zh-Hant": "舒張壓"
+  },
+  "loinc:8310-5": {
+   "zh-Hans": "体温",
+   "zh-Hant": "體溫"
+  },
+  "loinc:55423-8": {
+   "zh-Hans": "步数",
+   "zh-Hant": "步數"
+  },
+  "loinc:26464-8": {
+   "zh-Hans": "白细胞计数",
+   "zh-Hant": "白細胞計數"
+  },
+  "loinc:789-8": {
+   "zh-Hans": "红细胞计数",
+   "zh-Hant": "紅細胞計數"
+  },
+  "loinc:718-7": {
+   "zh-Hans": "血红蛋白",
+   "zh-Hant": "血紅蛋白"
+  },
+  "loinc:4544-3": {
+   "zh-Hans": "红细胞压积",
+   "zh-Hant": "紅細胞壓積"
+  },
+  "loinc:20570-8": {
+   "zh-Hans": "红细胞压积",
+   "zh-Hant": "紅細胞壓積"
+  },
+  "loinc:787-2": {
+   "zh-Hans": "平均红细胞体积",
+   "zh-Hant": "平均紅細胞體積"
+  },
+  "loinc:785-6": {
+   "zh-Hans": "平均红细胞血红蛋白含量",
+   "zh-Hant": "平均紅細胞血紅蛋白含量"
+  },
+  "loinc:786-4": {
+   "zh-Hans": "平均红细胞血红蛋白浓度",
+   "zh-Hant": "平均紅細胞血紅蛋白濃度"
+  },
+  "loinc:26515-7": {
+   "zh-Hans": "血小板计数",
+   "zh-Hant": "血小板計數"
+  },
+  "loinc:770-8": {
+   "zh-Hans": "中性粒细胞百分比",
+   "zh-Hant": "中性粒細胞百分比"
+  },
+  "loinc:736-9": {
+   "zh-Hans": "淋巴细胞百分比",
+   "zh-Hant": "淋巴細胞百分比"
+  },
+  "loinc:5905-5": {
+   "zh-Hans": "单核细胞百分比",
+   "zh-Hant": "單核細胞百分比"
+  },
+  "loinc:713-8": {
+   "zh-Hans": "嗜酸性粒细胞百分比",
+   "zh-Hant": "嗜酸性粒細胞百分比"
+  },
+  "loinc:706-2": {
+   "zh-Hans": "嗜碱性粒细胞百分比",
+   "zh-Hant": "嗜鹼性粒細胞百分比"
+  },
+  "loinc:6742-1": {
+   "zh-Hans": "红细胞形态",
+   "zh-Hant": "紅細胞形態"
+  },
+  "loinc:2345-7": {
+   "zh-Hans": "血糖",
+   "zh-Hant": "血糖"
+  },
+  "loinc:1558-6": {
+   "zh-Hans": "空腹血糖",
+   "zh-Hant": "空腹血糖"
+  },
+  "loinc:4548-4": {
+   "zh-Hans": "糖化血红蛋白",
+   "zh-Hant": "糖化血紅蛋白"
+  },
+  "loinc:2093-3": {
+   "zh-Hans": "总胆固醇",
+   "zh-Hant": "總膽固醇"
+  },
+  "loinc:2085-9": {
+   "zh-Hans": "高密度脂蛋白胆固醇",
+   "zh-Hant": "高密度脂蛋白膽固醇"
+  },
+  "loinc:18262-6": {
+   "zh-Hans": "低密度脂蛋白胆固醇",
+   "zh-Hant": "低密度脂蛋白膽固醇"
+  },
+  "loinc:13457-7": {
+   "zh-Hans": "低密度脂蛋白胆固醇（计算）",
+   "zh-Hant": "低密度脂蛋白膽固醇（計算）"
+  },
+  "loinc:9830-1": {
+   "zh-Hans": "总胆固醇 / 高密度脂蛋白",
+   "zh-Hant": "總膽固醇 / 高密度脂蛋白"
+  },
+  "loinc:2571-8": {
+   "zh-Hans": "甘油三酯",
+   "zh-Hant": "甘油三酯"
+  },
+  "loinc:1742-6": {
+   "zh-Hans": "谷丙转氨酶（ALT）",
+   "zh-Hant": "谷丙轉氨酶（ALT）"
+  },
+  "loinc:1920-8": {
+   "zh-Hans": "谷草转氨酶（AST）",
+   "zh-Hant": "穀草轉氨酶（AST）"
+  },
+  "loinc:6768-6": {
+   "zh-Hans": "碱性磷酸酶",
+   "zh-Hant": "鹼性磷酸酶"
+  },
+  "loinc:1751-7": {
+   "zh-Hans": "白蛋白",
+   "zh-Hant": "白蛋白"
+  },
+  "loinc:2160-0": {
+   "zh-Hans": "肌酐",
+   "zh-Hant": "肌酐"
+  },
+  "loinc:3094-0": {
+   "zh-Hans": "尿素氮",
+   "zh-Hant": "尿素氮"
+  },
+  "loinc:3084-1": {
+   "zh-Hans": "尿酸",
+   "zh-Hant": "尿酸"
+  },
+  "loinc:62238-1": {
+   "zh-Hans": "估算肾小球滤过率（eGFR）",
+   "zh-Hant": "估算腎小球濾過率（eGFR）"
+  },
+  "loinc:98979-8": {
+   "zh-Hans": "估算肾小球滤过率（eGFR，2021）",
+   "zh-Hant": "估算腎小球濾過率（eGFR，2021）"
+  },
+  "loinc:2132-9": {
+   "zh-Hans": "维生素 B12",
+   "zh-Hant": "維生素 B12"
+  },
+  "loinc:62292-8": {
+   "zh-Hans": "25-羟基维生素 D",
+   "zh-Hant": "25-羥基維生素 D"
+  },
+  "loinc:19171-8": {
+   "zh-Hans": "甲胎蛋白（AFP）",
+   "zh-Hant": "甲胎蛋白（AFP）"
+  },
+  "loinc:16935-9": {
+   "zh-Hans": "乙肝表面抗体",
+   "zh-Hant": "乙肝表面抗體"
+  },
+  "loinc:22322-2": {
+   "zh-Hans": "乙肝表面抗体（定性）",
+   "zh-Hant": "乙肝表面抗體（定性）"
+  },
+  "loinc:5778-6": {
+   "zh-Hans": "尿颜色",
+   "zh-Hant": "尿顏色"
+  },
+  "loinc:5767-9": {
+   "zh-Hans": "尿外观",
+   "zh-Hant": "尿外觀"
+  },
+  "loinc:5811-5": {
+   "zh-Hans": "尿比重",
+   "zh-Hant": "尿比重"
+  },
+  "loinc:5803-2": {
+   "zh-Hans": "尿酸碱度（pH）",
+   "zh-Hant": "尿酸鹼度（pH）"
+  },
+  "loinc:20454-5": {
+   "zh-Hans": "尿蛋白",
+   "zh-Hant": "尿蛋白"
+  },
+  "loinc:25428-4": {
+   "zh-Hans": "尿糖",
+   "zh-Hant": "尿糖"
+  },
+  "loinc:5794-3": {
+   "zh-Hans": "尿隐血",
+   "zh-Hant": "尿隱血"
+  },
+  "loinc:5799-2": {
+   "zh-Hans": "尿白细胞酯酶",
+   "zh-Hant": "尿白細胞酯酶"
+  },
+  "loinc:5821-4": {
+   "zh-Hans": "尿白细胞（镜检）",
+   "zh-Hant": "尿白細胞（鏡檢）"
+  },
+  "loinc:13945-1": {
+   "zh-Hans": "尿红细胞（镜检）",
+   "zh-Hant": "尿紅細胞（鏡檢）"
+  },
+  "loinc:11277-1": {
+   "zh-Hans": "尿鳞状上皮细胞",
+   "zh-Hant": "尿鱗狀上皮細胞"
+  },
+  "loinc:24124-0": {
+   "zh-Hans": "尿管型",
+   "zh-Hant": "尿管型"
+  },
+  "loinc:49755-2": {
+   "zh-Hans": "尿结晶",
+   "zh-Hant": "尿結晶"
+  },
+  "loinc:25145-4": {
+   "zh-Hans": "尿细菌",
+   "zh-Hant": "尿細菌"
+  },
+  "loinc:32356-8": {
+   "zh-Hans": "尿酵母菌",
+   "zh-Hant": "尿酵母菌"
+  },
+  "loinc:8247-9": {
+   "zh-Hans": "尿黏液",
+   "zh-Hant": "尿黏液"
+  },
+  "x:fd/cmj/jump_height_imp_mom": {
+   "zh-Hans": "跳跃高度（冲量-动量法）",
+   "zh-Hant": "跳躍高度（衝量-動量法）"
+  },
+  "x:fd/cmj/jump_height_flight_time": {
+   "zh-Hans": "跳跃高度（腾空时间法）",
+   "zh-Hant": "跳躍高度（騰空時間法）"
+  },
+  "x:fd/cmj/rsi_modified": {
+   "zh-Hans": "改良反应力量指数（RSI-mod）",
+   "zh-Hant": "改良反應力量指數（RSI-mod）"
+  },
+  "x:fd/cmj/flight_time": {
+   "zh-Hans": "腾空时间",
+   "zh-Hant": "騰空時間"
+  },
+  "x:fd/cmj/contraction_time": {
+   "zh-Hans": "收缩时间",
+   "zh-Hant": "收縮時間"
+  },
+  "x:fd/cmj/eccentric_duration": {
+   "zh-Hans": "离心阶段时长",
+   "zh-Hant": "離心階段時長"
+  },
+  "x:fd/cmj/concentric_duration": {
+   "zh-Hans": "向心阶段时长",
+   "zh-Hant": "向心階段時長"
+  },
+  "x:fd/cmj/peak_power": {
+   "zh-Hans": "峰值功率",
+   "zh-Hant": "峰值功率"
+  },
+  "x:fd/cmj/peak_power_bm": {
+   "zh-Hans": "相对峰值功率（每公斤体重）",
+   "zh-Hant": "相對峰值功率（每公斤體重）"
+  },
+  "x:fd/cmj/concentric_mean_force_bm": {
+   "zh-Hans": "向心平均力（每公斤体重）",
+   "zh-Hant": "向心平均力（每公斤體重）"
+  },
+  "x:fd/cmj/concentric_impulse": {
+   "zh-Hans": "向心冲量",
+   "zh-Hant": "向心衝量"
+  },
+  "x:fd/cmj/countermovement_depth": {
+   "zh-Hans": "下蹲深度",
+   "zh-Hant": "下蹲深度"
+  },
+  "x:fd/cmj/concentric_peak_velocity": {
+   "zh-Hans": "向心峰值速度",
+   "zh-Hant": "向心峰值速度"
+  },
+  "x:fd/cmj/eccentric_braking_rfd": {
+   "zh-Hans": "离心制动发力率",
+   "zh-Hant": "離心制動發力率"
+  },
+  "x:fd/cmj/body_mass": {
+   "zh-Hans": "VALD ForceDecks 测得体重",
+   "zh-Hant": "VALD ForceDecks 測得體重"
+  },
+  "weakly positive": {
+   "zh-Hans": "弱阳性",
+   "zh-Hant": "弱陽性"
+  },
+  "non-reactive": {
+   "zh-Hans": "阴性",
+   "zh-Hant": "陰性"
+  },
+  "not detected": {
+   "zh-Hans": "未检出",
+   "zh-Hant": "未檢出"
+  },
+  "slightly turbid": {
+   "zh-Hans": "微浑",
+   "zh-Hant": "微渾"
+  },
+  "pale yellow": {
+   "zh-Hans": "淡黄色",
+   "zh-Hant": "淡黃色"
+  },
+  "light yellow": {
+   "zh-Hans": "淡黄色",
+   "zh-Hant": "淡黃色"
+  },
+  "dark yellow": {
+   "zh-Hans": "深黄色",
+   "zh-Hant": "深黃色"
+  }
+ }
+}

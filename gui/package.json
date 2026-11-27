@@ -1,0 +1,31 @@
+{
+  "name": "health-gui",
+  "private": true,
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "stage-core": "../scripts/stage-core.sh",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.12.5",
+    "@tauri-apps/plugin-barcode-scanner": "^2.5.3",
+    "@tauri-apps/plugin-dialog": "^2.8.4",
+    "i18next": "^25.10.10",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-i18next": "^15.7.4"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.6",
+    "@types/node": "^24.10.1",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^4.7.0",
+    "typescript": "^5.9.3",
+    "vite": "^6.4.6"
+  }
+}

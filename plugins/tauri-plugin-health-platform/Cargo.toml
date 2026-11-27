@@ -1,0 +1,15 @@
+[package]
+name = "tauri-plugin-health-platform"
+description = "Native platform services for the mobile shell (now: root keys in Keychain / Keystore). Rust API only, no JS commands."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+links = "tauri-plugin-health-platform"
+
+[dependencies]
+serde.workspace = true
+tauri = "2"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }

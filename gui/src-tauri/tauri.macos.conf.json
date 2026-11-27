@@ -1,0 +1,35 @@
+{
+  "identifier": "com.zuchiangmai.health.desktop",
+  "build": {
+    "beforeDevCommand": "npm run stage-core && npm run dev",
+    "beforeBuildCommand": "npm run stage-core -- release && npm run build"
+  },
+  "bundle": {
+    "externalBin": [
+      "binaries/health"
+    ],
+    "macOS": {
+      "files": {
+        "Resources/en.lproj/InfoPlist.strings": "lproj/en.lproj/InfoPlist.strings",
+        "Resources/zh-Hans.lproj/InfoPlist.strings": "lproj/zh-Hans.lproj/InfoPlist.strings",
+        "Resources/zh-Hant.lproj/InfoPlist.strings": "lproj/zh-Hant.lproj/InfoPlist.strings"
+      }
+    },
+    "shortDescription": "Your health data, on your computer"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "zu Health",
+        "width": 1200,
+        "height": 820,
+        "minWidth": 820,
+        "minHeight": 560,
+        "zoomHotkeysEnabled": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
+      }
+    ]
+  }
+}

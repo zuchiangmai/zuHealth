@@ -1,2 +1,7 @@
 .DS_Store
 CLAUDE.md
+/target
+/gui/node_modules
+/gui/dist
+*.tsbuildinfo
+/gui/src-tauri/gen/android/.idea

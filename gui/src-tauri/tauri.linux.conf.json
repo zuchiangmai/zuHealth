@@ -1,0 +1,26 @@
+{
+  "identifier": "com.zuchiangmai.health.desktop",
+  "build": {
+    "beforeDevCommand": "npm run stage-core && npm run dev",
+    "beforeBuildCommand": "npm run stage-core -- release && npm run build"
+  },
+  "bundle": {
+    "externalBin": [
+      "binaries/health"
+    ],
+    "shortDescription": "Your health data, on your computer"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "zu Health",
+        "width": 1200,
+        "height": 820,
+        "minWidth": 820,
+        "minHeight": 560,
+        "zoomHotkeysEnabled": true
+      }
+    ]
+  }
+}

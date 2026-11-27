@@ -1,0 +1,47 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/health-core",
+    "crates/health-api",
+    "crates/health-ocr",
+    "crates/health-connect",
+    "crates/health-proto",
+    "crates/health-runtime",
+    "crates/health",
+    "gui/src-tauri",
+    "plugins/tauri-plugin-health-platform",
+]
+# `cargo build` / `cargo test` skip the Tauri shell and plugin (they need the platform webview SDKs);
+# `--workspace` includes them. One lock file for everything, so mobile links the versions CI tests.
+default-members = [
+    "crates/health-core",
+    "crates/health-api",
+    "crates/health-ocr",
+    "crates/health-connect",
+    "crates/health-proto",
+    "crates/health-runtime",
+    "crates/health",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+rust-version = "1.90"
+
+[workspace.dependencies]
+health-core = { path = "crates/health-core" }
+health-api = { path = "crates/health-api" }
+health-ocr = { path = "crates/health-ocr" }
+health-connect = { path = "crates/health-connect" }
+health-proto = { path = "crates/health-proto" }
+health-runtime = { path = "crates/health-runtime" }
+tauri-plugin-health-platform = { path = "plugins/tauri-plugin-health-platform" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Dependencies optimised in dev builds too: tract runs the OCR models ~20× faster, and our crates stay debuggable.
+[profile.dev.package."*"]
+opt-level = 3
+[profile.dev.package.health-ocr]
+opt-level = 3

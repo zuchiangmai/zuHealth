@@ -1,0 +1,193 @@
+{
+ "about": "Chinese names for measures the web version doesn't name (body composition). Hand-written zh-Hans; zh-Hant from bun scripts/gen-zh-hant.ts",
+ "names": {
+  "x:body_skeletal_muscle_mass": {
+   "zh-Hans": "骨骼肌量",
+   "zh-Hant": "骨骼肌量"
+  },
+  "x:skeletal_muscle_mass_percentage": {
+   "zh-Hans": "骨骼肌占比",
+   "zh-Hant": "骨骼肌佔比"
+  },
+  "x:skeletal_muscle_index": {
+   "zh-Hans": "骨骼肌指数",
+   "zh-Hant": "骨骼肌指數"
+  },
+  "x:skeletal_muscle_mass_left_arm": {
+   "zh-Hans": "左臂骨骼肌量",
+   "zh-Hant": "左臂骨骼肌量"
+  },
+  "x:skeletal_muscle_mass_right_arm": {
+   "zh-Hans": "右臂骨骼肌量",
+   "zh-Hant": "右臂骨骼肌量"
+  },
+  "x:skeletal_muscle_mass_left_leg": {
+   "zh-Hans": "左腿骨骼肌量",
+   "zh-Hant": "左腿骨骼肌量"
+  },
+  "x:skeletal_muscle_mass_right_leg": {
+   "zh-Hans": "右腿骨骼肌量",
+   "zh-Hant": "右腿骨骼肌量"
+  },
+  "x:skeletal_muscle_mass_torso": {
+   "zh-Hans": "躯干骨骼肌量",
+   "zh-Hant": "軀幹骨骼肌量"
+  },
+  "x:appendicular_skeletal_muscle_mass": {
+   "zh-Hans": "四肢骨骼肌量",
+   "zh-Hant": "四肢骨骼肌量"
+  },
+  "x:appendicular_skeletal_muscle_index": {
+   "zh-Hans": "四肢骨骼肌指数",
+   "zh-Hant": "四肢骨骼肌指數"
+  },
+  "x:appendicular_skeletal_muscle_percentage": {
+   "zh-Hans": "四肢骨骼肌占比",
+   "zh-Hant": "四肢骨骼肌佔比"
+  },
+  "x:muscle_percentage": {
+   "zh-Hans": "肌肉占比",
+   "zh-Hant": "肌肉佔比"
+  },
+  "x:fat_mass": {
+   "zh-Hans": "脂肪量",
+   "zh-Hant": "脂肪量"
+  },
+  "x:fat_mass_index": {
+   "zh-Hans": "脂肪量指数",
+   "zh-Hant": "脂肪量指數"
+  },
+  "x:fat_free_mass": {
+   "zh-Hans": "去脂体重",
+   "zh-Hant": "去脂體重"
+  },
+  "x:fat_free_mass_index": {
+   "zh-Hans": "去脂体重指数",
+   "zh-Hant": "去脂體重指數"
+  },
+  "x:fat_free_mass_percentage": {
+   "zh-Hans": "去脂体重占比",
+   "zh-Hant": "去脂體重佔比"
+  },
+  "x:visceral_adipose_tissue": {
+   "zh-Hans": "内脏脂肪",
+   "zh-Hant": "內臟脂肪"
+  },
+  "x:total_body_water": {
+   "zh-Hans": "身体总水分",
+   "zh-Hant": "身體總水分"
+  },
+  "x:total_body_water_percentage": {
+   "zh-Hans": "身体总水分占比",
+   "zh-Hant": "身體總水分佔比"
+  },
+  "x:extracellular_water": {
+   "zh-Hans": "细胞外水分",
+   "zh-Hant": "細胞外水分"
+  },
+  "x:extracellular_water_percentage": {
+   "zh-Hans": "细胞外水分占比",
+   "zh-Hant": "細胞外水分佔比"
+  },
+  "x:ecw_tbw_ratio": {
+   "zh-Hans": "细胞外水分比率（ECW/TBW）",
+   "zh-Hant": "細胞外水分比率（ECW/TBW）"
+  },
+  "x:phase_angle": {
+   "zh-Hans": "相位角",
+   "zh-Hant": "相位角"
+  },
+  "x:bia_resistance": {
+   "zh-Hans": "电阻（生物电阻抗）",
+   "zh-Hant": "電阻（生物電阻抗）"
+  },
+  "x:bia_reactance": {
+   "zh-Hans": "电抗（生物电阻抗）",
+   "zh-Hant": "電抗（生物電阻抗）"
+  },
+  "x:resting_energy_expenditure": {
+   "zh-Hans": "静息能量消耗",
+   "zh-Hant": "靜息能量消耗"
+  },
+  "x:total_energy_expenditure": {
+   "zh-Hans": "总能量消耗",
+   "zh-Hant": "總能量消耗"
+  },
+  "x:daily_weight": {
+   "zh-Hans": "每日体重",
+   "zh-Hant": "每日體重"
+  },
+  "x:seca/bcc": {
+   "zh-Hans": "身体成分图：分类",
+   "zh-Hant": "身體成分圖：分類"
+  },
+  "x:seca/bcc_muscle": {
+   "zh-Hans": "身体成分图：肌肉等级",
+   "zh-Hant": "身體成分圖：肌肉等級"
+  },
+  "x:seca/bcc_muscle_value": {
+   "zh-Hans": "身体成分图：肌肉数值",
+   "zh-Hant": "身體成分圖：肌肉數值"
+  },
+  "x:seca/bcc_weight": {
+   "zh-Hans": "身体成分图：体重等级",
+   "zh-Hant": "身體成分圖：體重等級"
+  },
+  "x:seca/bcc_weight_value": {
+   "zh-Hans": "身体成分图：体重数值",
+   "zh-Hant": "身體成分圖：體重數值"
+  },
+  "x:seca/biva_z_r_h": {
+   "zh-Hans": "BIVA 电阻 Z 值（R/H）",
+   "zh-Hant": "BIVA 電阻 Z 值（R/H）"
+  },
+  "x:seca/biva_z_xc_h": {
+   "zh-Hans": "BIVA 电抗 Z 值（Xc/H）",
+   "zh-Hant": "BIVA 電抗 Z 值（Xc/H）"
+  },
+  "x:seca/smm_over_age": {
+   "zh-Hans": "骨骼肌量（按年龄）",
+   "zh-Hant": "骨骼肌量（按年齡）"
+  },
+  "x:seca/smm_over_age_bmi_independent": {
+   "zh-Hans": "骨骼肌量（按年龄，不依赖 BMI）",
+   "zh-Hant": "骨骼肌量（按年齡，不依賴 BMI）"
+  },
+  "x:seca/ssmm_left_arm_bmi_independent": {
+   "zh-Hans": "左臂骨骼肌量（不依赖 BMI）",
+   "zh-Hant": "左臂骨骼肌量（不依賴 BMI）"
+  },
+  "x:seca/ssmm_right_arm_bmi_independent": {
+   "zh-Hans": "右臂骨骼肌量（不依赖 BMI）",
+   "zh-Hant": "右臂骨骼肌量（不依賴 BMI）"
+  },
+  "x:seca/ssmm_left_leg_bmi_independent": {
+   "zh-Hans": "左腿骨骼肌量（不依赖 BMI）",
+   "zh-Hant": "左腿骨骼肌量（不依賴 BMI）"
+  },
+  "x:seca/ssmm_right_leg_bmi_independent": {
+   "zh-Hans": "右腿骨骼肌量（不依赖 BMI）",
+   "zh-Hant": "右腿骨骼肌量（不依賴 BMI）"
+  },
+  "x:seca/ssmm_torso_bmi_independent": {
+   "zh-Hans": "躯干骨骼肌量（不依赖 BMI）",
+   "zh-Hant": "軀幹骨骼肌量（不依賴 BMI）"
+  },
+  "x:seca/tbs": {
+   "zh-Hans": "TRU 身体评分",
+   "zh-Hant": "TRU 身體評分"
+  },
+  "x:seca/tbs_fat": {
+   "zh-Hans": "TRU 体脂评分",
+   "zh-Hant": "TRU 體脂評分"
+  },
+  "x:seca/tbs_muscle": {
+   "zh-Hans": "TRU 肌肉评分",
+   "zh-Hant": "TRU 肌肉評分"
+  },
+  "x:seca/zsmi": {
+   "zh-Hans": "骨骼肌 Z 值",
+   "zh-Hant": "骨骼肌 Z 值"
+  }
+ }
+}

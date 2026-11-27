@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Merged into the iOS app's Info.plist by Tauri: why the app asks for the camera and the local network (LAN sync). -->
+<plist version="1.0">
+<dict>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>Sync health data directly with your other devices on the same network.</string>
+  <key>NSCameraUsageDescription</key>
+  <string>Scan a lab device's code or another device's link code, and photograph lab reports.</string>
+</dict>
+</plist>
