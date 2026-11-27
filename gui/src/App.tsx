@@ -73,7 +73,14 @@ import {
   resultText,
 } from "./format";
 
-type Page = "readings" | "data" | "backup" | "profile" | "account" | "agents" | "about" | "review";
+type Page = "readings" | "data" | "backup" | "profile" | "account" | "agents" | "about" | "review" | "more";
+/** Narrow screens (phones): the floating tab bar's pages; the other sections are reached from More. */
+type Tab = "readings" | "data" | "more";
+const TABS: { key: Tab; label: string; icon: string }[] = [
+  { key: "readings", label: tk("Readings"), icon: "readings" },
+  { key: "data", label: tk("Add"), icon: "add" },
+  { key: "more", label: tk("More"), icon: "more" },
+];
 /** The sections, in shortcut order (⌘1…⌘6). */
 const PAGES: { key: Page; label: string }[] = [
   { key: "readings", label: tk("Readings") },
@@ -150,6 +157,13 @@ const ICON: Record<string, ReactNode> = {
       <path d="M8 7.2v3.8M8 5h0" />
     </>
   ),
+  add: (
+    <>
+      <circle cx="8" cy="8" r="6" />
+      <path d="M8 5.2v5.6M5.2 8h5.6" />
+    </>
+  ),
+  more: <path d="M3.5 8h0M8 8h0M12.5 8h0" strokeWidth="2.2" />,
   shield: <path d="M8 2.2 3.2 4v3.6c0 3 2.1 5.2 4.8 6.2 2.7-1 4.8-3.2 4.8-6.2V4z" />,
   scale: <path d="M8 2.5v11M4.5 13.5h7M3 5h10M3 5 1.5 9h3zM13 5l-1.5 4h3z" />,
   device: (
@@ -198,66 +212,79 @@ function useOp<T>(fn: () => Promise<T>, deps: unknown[]): [T | undefined, string
   return [data, err, reload];
 }
 
-function FirstRun({ done }: { done: () => void }) {
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string>();
+/** The waiting screen while the data opens (as the web's 正在解密数据): a pulsing lock, why it takes a moment, and
+ *  cards standing in for the page. `err` replaces the wait with what went wrong and a way to try again. */
+function Hold({ title, body, err, retry }: { title: string; body: string; err?: string; retry?: () => void }) {
   return (
-    <main className="gate">
-      <h2>{t("Welcome")}</h2>
-      <p className="lede">
-        {(isMobile ? t("Your health data will live in one encrypted file on this device. The key is kept in the device's secure storage. Nothing is sent anywhere.") : t("Your health data will live in one encrypted file on this computer. The key is kept in your system keychain. Nothing is sent anywhere."))}
-      </p>
-      <Problem text={err} />
-      <button
-        type="button"
-        className="primary"
-        disabled={busy}
-        onClick={async () => {
-          setBusy(true);
-          try {
-            await initProfile();
-            done();
-          } catch (e) {
-            setErr(e instanceof OpError ? e.message : String(e));
-            setBusy(false);
-          }
-        }}
-      >
-        {busy ? t("Creating…") : t("Create my health store")}
-      </button>
+    <main className="gate hold" role="status" aria-label={title}>
+      <span className="hold-ico" data-pulse={err ? undefined : ""} aria-hidden="true">
+        <svg className="icon" viewBox="0 0 16 16" width="28" height="28">
+          <rect x="3.5" y="7" width="9" height="6.5" rx="1.5" />
+          <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2M8 9.6v1.4" />
+        </svg>
+      </span>
+      <p className="hold-t">{title}</p>
+      {err ? (
+        <>
+          <Problem text={err} />
+          {retry && (
+            <button type="button" className="primary" onClick={retry}>
+              {t("Try again")}
+            </button>
+          )}
+        </>
+      ) : (
+        <>
+          <p className="hold-b">{body}</p>
+          <div className="hold-skel" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </div>
+        </>
+      )}
     </main>
+  );
+}
+
+const decrypting = () =>
+  isMobile
+    ? t("Your health data is stored encrypted on this device and is decrypted here each time you open Health. Just a moment.")
+    : t("Your health data is stored encrypted on this computer and is decrypted here each time you open Health. Just a moment.");
+
+/** Runs `fn` once per mount and again on `retry` (StrictMode's second mount reuses the call in flight). */
+function useOnce(fn: () => Promise<void>): [string | undefined, () => void] {
+  const [err, setErr] = useState<string>();
+  const [round, setRound] = useState(0);
+  const running = useRef<Promise<void>>();
+  useEffect(() => {
+    running.current ??= fn().finally(() => (running.current = undefined));
+    running.current.catch((e) => setErr(errText(e)));
+  }, [round]);
+  return [err, () => (setErr(undefined), setRound((n) => n + 1))];
+}
+
+/** No data yet: it is created at once, as the web does (nothing to choose). */
+function FirstRun({ done }: { done: () => void }) {
+  const [err, retry] = useOnce(async () => {
+    await initProfile();
+    done();
+  });
+  return (
+    <Hold
+      title={t("Getting Health ready")}
+      body={isMobile ? t("Your data will be kept encrypted on this device. Nothing is sent anywhere.") : t("Your data will be kept encrypted on this computer. Nothing is sent anywhere.")}
+      err={err}
+      retry={retry}
+    />
   );
 }
 
 function Unlock({ done }: { done: () => void }) {
   const [p, setP] = useState("");
   const [err, setErr] = useState<string>();
-  // a phone has no passphrase: the shell opens the data when asked (and will ask for Face ID / fingerprint first)
-  if (isMobile)
-    return (
-      <main className="gate">
-        <div className="form">
-          <h2>{t("Health is locked")}</h2>
-          <p className="lede">{t("For your privacy, Health locks after a while in the background.")}</p>
-          <Problem text={err} />
-          <button
-            type="button"
-            className="primary"
-            autoFocus
-            onClick={async () => {
-              try {
-                await unlock("");
-                done();
-              } catch (x) {
-                setErr(errText(x));
-              }
-            }}
-          >
-            {t("Unlock")}
-          </button>
-        </div>
-      </main>
-    );
+  // a phone has no passphrase: the data opens as Health opens (Face ID / fingerprint will come first, in the shell)
+  if (isMobile) return <AutoUnlock done={done} />;
   return (
     <main className="gate">
       <form
@@ -288,6 +315,14 @@ function Unlock({ done }: { done: () => void }) {
   );
 }
 
+function AutoUnlock({ done }: { done: () => void }) {
+  const [err, retry] = useOnce(async () => {
+    await unlock("");
+    done();
+  });
+  return <Hold title={t("Decrypting your data")} body={decrypting()} err={err} retry={retry} />;
+}
+
 export function App() {
   // redraw everything when the language changes; the menu bar follows
   const { i18n } = useTranslation();
@@ -306,9 +341,11 @@ export function App() {
   const syncLive = useSyncLive();
   const [latest, latestErr] = useOp(() => op<Point[]>("obs.latest"), []);
   const [cats, setCats] = useState(true);
-  // narrow screens (phones): the side panel is a full-screen menu opened from the top bar
-  const [menu, setMenu] = useState(false);
-  useEffect(() => setMenu(false), [page]);
+  // narrow screens: the tab a section was opened from, where its back button returns
+  const tab = useRef<Tab>("readings");
+  useEffect(() => {
+    if (TABS.some((x) => x.key === page)) tab.current = page as Tab;
+  }, [page]);
   // the category scrolled into view on Readings (null: its top)
   const [inView, setInView] = useState<string | null>(null);
   const [core, setCore] = useState<{ up: boolean; error?: string; need_init?: boolean }>({ up: true });
@@ -391,16 +428,20 @@ export function App() {
   if (core.need_init || statusErr?.includes("no_profile")) return <FirstRun done={reload} />;
   if (starting)
     return (
-      <main className="gate" role="status">
-        <h2>{t("Starting the health core…")}</h2>
-        <p className="lede">{core.error ?? t("This takes a moment. Your data is safe on disk.")}</p>
+      <>
+        <Hold title={t("Decrypting your data")} body={decrypting()} err={core.error} />
         {/* a database that no longer opens: starting over is one way out */}
-        {core.error && isDesktop && <ClearDataRow />}
-      </main>
+        {core.error && isDesktop && (
+          <div className="gate">
+            <ClearDataRow />
+          </div>
+        )}
+      </>
     );
   const open = (code: string) => setMetric(code);
   const present = HOME_GROUPS.filter((g) => latest?.some((p) => p.category === g.key));
   const syncAsking = !!syncLive?.peers.some((x) => x.state === "asking");
+  const isTab = TABS.some((x) => x.key === page);
   const navItem = (p: { key: Page; label: string }, hint?: string, quiet = false) => (
     <li key={p.key}>
       <button
@@ -422,16 +463,8 @@ export function App() {
     return `${t(PAGES[i]!.label)} (${MOD}${i + 1})`;
   };
   return (
-    <div className={`app${isDesktop ? " desktop" : ""}${isDesktop && MAC ? " mac" : ""}${page === "readings" ? " dash" : ""}${menu ? " menu-open" : ""}`}>
+    <div className={`app${isDesktop ? " desktop" : ""}${isDesktop && MAC ? " mac" : ""}${page === "readings" ? " dash" : ""}`}>
       <div className="backdrop" aria-hidden="true" />
-      <header className="phonebar">
-        <button type="button" className="menu-btn" aria-expanded={menu} aria-label={t("Sections")} onClick={() => setMenu(!menu)}>
-          <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
-            {menu ? <path d="M4 4l10 10M14 4L4 14" /> : <path d="M2 4.5h14M2 9h14M2 13.5h14" />}
-          </svg>
-        </button>
-        <span className="phonebar-title">{t(PAGES.find((p) => p.key === page)?.label ?? "")}</span>
-      </header>
       {isDesktop && MAC && <div className="titlebar" data-tauri-drag-region />}
       {hovering && (
         <div className="drop-overlay" aria-hidden="true">
@@ -439,14 +472,7 @@ export function App() {
           <p className="fine">{t("Apple Health export, Health backup, WHOOP data")}</p>
         </div>
       )}
-      <nav
-        className="rail"
-        aria-label={t("Sections")}
-        onClick={(e) => {
-          // a choice in the menu closes it (a category on the page already open, too)
-          if ((e.target as HTMLElement).closest("li button")) setMenu(false);
-        }}
-      >
+      <nav className="rail" aria-label={t("Sections")}>
         <ul>
           {navItem(PAGES[0]!, hint("readings"), page === "readings" && !!inView)}
           {status && status.reviews > 0 && navItem({ key: "review", label: tk("Waiting for you") })}
@@ -508,27 +534,18 @@ export function App() {
           <ul>{navItem(PAGES[6]!, hint("about"))}</ul>
         </div>
         <div className="rail-foot">
-          {status && (
-            <p className="fine">
-              {t("{{obs}} entries from {{count}} sources", {
-                obs: status.observations.toLocaleString(i18n.language),
-                count: status.sources,
-              })}
-            </p>
-          )}
-          <label className="fine lang">
-            {t("Language")}
-            <select value={choice()} onChange={(e) => choose(e.target.value as Parameters<typeof choose>[0])}>
-              {LANGS.map((l) => (
-                <option key={l.key} value={l.key}>
-                  {l.key === "system" ? t("System") : l.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          <Totals status={status} />
+          <LangSelect />
         </div>
       </nav>
       <main className="main">
+        {/* narrow screens: a section opened from More (or Readings' notice) leads back there */}
+        {!isTab && (
+          <button type="button" className="back-btn" onClick={() => setPage(tab.current)}>
+            <Chevron open={false} />
+            {t(TABS.find((x) => x.key === tab.current)!.label)}
+          </button>
+        )}
         <div className="view" key={`${page}-${i18n.language}`}>
           {page === "readings" && (
             <Readings
@@ -549,16 +566,148 @@ export function App() {
           {page === "data" && <DataSources file={dropped} onFile={setDropped} go={setPage} done={open} want={want as SourceSheet | undefined} />}
           {page === "review" && <Review />}
           {page === "agents" && <Agents />}
-          {page === "backup" && <Backup />}
+          {page === "backup" && <Backup want={want} />}
           {page === "profile" && <ProfilePage />}
-          {page === "account" && <HealthAccount go={setPage} connect={want === "connect"} />}
-          {page === "about" && <About version={status?.version} />}
+          {page === "account" && <HealthAccount go={setPage} want={want} />}
+          {page === "about" && <About version={status?.version} want={want} />}
+          {page === "more" && (
+            <More
+              go={(p, w) => {
+                setPage(p);
+                setWant(w);
+              }}
+              status={status}
+              syncAsking={syncAsking}
+            />
+          )}
         </div>
       </main>
+      <nav className="tabbar" aria-label={t("Sections")}>
+        {TABS.map((x) => (
+          // a section opened from a tab keeps that tab marked
+          <button key={x.key} type="button" aria-current={page === x.key ? "page" : !isTab && tab.current === x.key ? "true" : undefined} onClick={() => setPage(x.key)}>
+            <Icon k={x.icon} />
+            <span>{t(x.label)}</span>
+            {x.key === "more" && ((status?.reviews ?? 0) > 0 || syncAsking) && <span className="dot" role="img" aria-label={t("Waiting for you")} />}
+          </button>
+        ))}
+      </nav>
       {metric && <Sheet label={t("History")} close={() => setMetric(undefined)}>
         <Record code={metric} pick={setMetric} />
       </Sheet>}
     </div>
+  );
+}
+
+/** How much is here: the side panel's foot, More's on narrow screens. */
+function Totals({ status }: { status?: Status }) {
+  const { i18n } = useTranslation();
+  if (!status) return null;
+  return (
+    <p className="fine">
+      {t("{{obs}} entries from {{count}} sources", {
+        obs: status.observations.toLocaleString(i18n.language),
+        count: status.sources,
+      })}
+    </p>
+  );
+}
+
+/** The language choice; `bare`: the select alone, in a row that names it. */
+function LangSelect({ bare }: { bare?: boolean }) {
+  const select = (
+    <select aria-label={bare ? t("Language") : undefined} value={choice()} onChange={(e) => choose(e.target.value as Parameters<typeof choose>[0])}>
+      {LANGS.map((l) => (
+        <option key={l.key} value={l.key}>
+          {l.key === "system" ? t("System") : l.label}
+        </option>
+      ))}
+    </select>
+  );
+  if (bare) return select;
+  return (
+    <label className="fine lang">
+      {t("Language")}
+      {select}
+    </label>
+  );
+}
+
+/** More (narrow screens), as the web's 更多: one card per part (profile, data sources, backup and export, other
+ *  devices, about), each row opening its section at the right place. */
+function More({ go, status, syncAsking }: { go: (p: Page, want?: string) => void; status?: Status; syncAsking: boolean }) {
+  const reviews = status?.reviews ?? 0;
+  const row = (icon: ReactNode, label: string, p: Page, want?: string, value?: ReactNode) => (
+    <Row key={label} icon={icon} label={label} value={value} onClick={() => go(p, want)} />
+  );
+  const card = (title: string, rows: ReactNode) => (
+    <>
+      <h3 className="rows-title">{title}</h3>
+      <ul className="rows-card">{rows}</ul>
+    </>
+  );
+  return (
+    <section className="page more">
+      <h2>{t("More")}</h2>
+      {reviews > 0 && <ul className="rows-card">{row(<Icon k="review" />, t("Waiting for you"), "review", undefined, <span className="count">{reviews}</span>)}</ul>}
+      <ul className="rows-card">{row(<Icon k="profile" />, t("Profile"), "profile")}</ul>
+      {card(
+        t("Data sources"),
+        <>
+          {row(<Icon k="data" />, t("Manage data"), "data", "manage")}
+          {row(<GroupIcon k="cardio" />, "WHOOP", "data", "whoop")}
+          {row(<GroupIcon k="activity" />, t("Apple Health"), "data", "apple")}
+          {row(<GroupIcon k="lab" />, t("Lab report"), "data", "report")}
+          {row(<GroupIcon k="infectious" />, t("Lab self-service"), "data", "lab")}
+        </>,
+      )}
+      {card(
+        t("Backup and export"),
+        <>
+          {row(<Icon k="backup" />, t("Save a backup"), "backup", "save")}
+          {row(<Icon k="data" />, t("Restore a backup"), "backup", "restore")}
+          {row(<GroupIcon k="other" />, t("Export a table (CSV)"), "backup", "csv")}
+        </>,
+      )}
+      {card(
+        t("Other devices"),
+        <>
+          {row(<Icon k="account" />, t("Health account"), "account", undefined, syncAsking ? <span className="dot" role="img" aria-label={t("Waiting for you")} /> : undefined)}
+          {row(<Icon k="wifi" />, t("Local network sync"), "account", "sync")}
+          {row(<Icon k="link" />, t("Connect another device"), "account", "connect")}
+        </>,
+      )}
+      {/* agent apps on this computer (a narrow desktop window) */}
+      {!isMobile && card(t("Sharing"), row(<Icon k="agents" />, t("Agent access"), "agents"))}
+      {card(
+        t("About"),
+        <>
+          {row(<Icon k="shield" />, t("Privacy"), "about", "privacy")}
+          {row(<Icon k="scale" />, t("Open-source licenses"), "about", "licenses")}
+          <li>
+            <div className="row-static">
+              <Icon k="about" />
+              <span className="row-l">
+                <strong>{t("Version")}</strong>
+              </span>
+              <span className="row-v fine">{status?.version ?? "–"}</span>
+            </div>
+          </li>
+          <li>
+            <div className="row-static">
+              <Icon k="list" />
+              <span className="row-l">
+                <strong>{t("Language")}</strong>
+              </span>
+              <LangSelect bare />
+            </div>
+          </li>
+        </>,
+      )}
+      <div className="more-foot">
+        <Totals status={status} />
+      </div>
+    </section>
   );
 }
 
@@ -1271,7 +1420,8 @@ function useColumns(): [React.RefObject<HTMLDivElement>, number] {
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const ro = new ResizeObserver(([e]) => setCols(Math.max(1, Math.floor((e!.contentRect.width + 10) / (176 + 10)))));
+    // the columns the grid laid out (its minimum tile width is in the CSS, narrower on phones)
+    const ro = new ResizeObserver(() => setCols(Math.max(1, getComputedStyle(el).gridTemplateColumns.split(" ").length)));
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
@@ -1360,7 +1510,8 @@ function Start({ start }: { start: (p: Page, want: string) => void }) {
           <Row icon={<Icon k="link" />} label={t("Connect another device")} onClick={() => start("account", "connect")} />
         </ul>
       </div>
-      <p className="fine start-foot">{t("You can also drop a file anywhere on this window.")}</p>
+      {/* dropping a file on the window is the desktop's */}
+      {isDesktop && <p className="fine start-foot">{t("You can also drop a file anywhere on this window.")}</p>}
     </section>
   );
 }
@@ -1453,7 +1604,7 @@ function Readings({
           <input
             ref={search}
             type="search"
-            placeholder={`${t("Find a measure")} (${MOD}F)`}
+            placeholder={isMobile ? t("Find a measure") : `${t("Find a measure")} (${MOD}F)`}
             aria-label={t("Find a measure")}
             value={q}
             onChange={(e) => setQ(e.target.value)}
@@ -2746,8 +2897,8 @@ function AuditLog() {
 }
 
 /** Backup and export (as the web's 备份与导出): save a backup, restore one, or write a table for other tools. */
-function Backup() {
-  const [sheet, setSheet] = useState<"save" | "restore" | "csv">();
+function Backup({ want }: { want?: string }) {
+  const [sheet, setSheet] = useState<"save" | "restore" | "csv" | undefined>(want === "save" || want === "restore" || want === "csv" ? want : undefined);
   const [file, setFile] = useState<string>();
   const titles = { save: t("Save a backup"), restore: t("Restore a backup"), csv: t("Export a table (CSV)") };
   return (
@@ -2994,11 +3145,13 @@ type AccountSheet = "identity" | "results" | "history";
 
 /** The health account, as the web's 更多 groups it: the identity, results, and other devices, each a row with its
  *  state; details in a sheet, connecting and LAN sync on their own pages. */
-function HealthAccount({ go, connect }: { go: (p: Page) => void; connect?: boolean }) {
+function HealthAccount({ go, want }: { go: (p: Page) => void; want?: string }) {
   const [acc, setAcc] = useState<AccountInfo | null>();
   const [err, setErr] = useState<string>();
   const [busy, setBusy] = useState(false);
-  const [view, setView] = useState<"main" | "connect" | "join" | "give" | "sync">(connect ? "connect" : "main");
+  const [view, setView] = useState<"main" | "connect" | "join" | "give" | "sync">(want === "connect" || want === "sync" ? want : "main");
+  // the view it was opened at: on a narrow screen the shell's back button leads out of it, so its own goes
+  const [entry] = useState(view);
   const [sheet, setSheet] = useState<AccountSheet>();
   const [polled, setPolled] = useState<string>();
   const [waiting, setWaiting] = useState(false);
@@ -3047,11 +3200,11 @@ function HealthAccount({ go, connect }: { go: (p: Page) => void; connect?: boole
     load();
   };
   if (view === "connect")
-    return <ConnectDevice hasAccount={!!acc} back={back} join={() => setView("join")} give={() => setView("give")} />;
+    return <ConnectDevice hasAccount={!!acc} back={back} entry={entry === "connect"} join={() => setView("join")} give={() => setView("give")} />;
   // joined: on to sync, the reason most people connect a device
   if (view === "join") return <LinkThis done={(ok) => { load(); setView(ok ? "sync" : "connect"); }} />;
   if (view === "give") return <GiveAccount done={() => setView("connect")} />;
-  if (view === "sync") return <SyncPage back={back} />;
+  if (view === "sync") return <SyncPage back={back} entry={entry === "sync"} />;
   const entries = history?.state === "ok" ? history.entries.length : undefined;
   return (
     <section className="page narrow">
@@ -3174,10 +3327,10 @@ function SyncValue({ st, live }: { st?: SyncShown; live?: SyncLive }) {
 }
 
 /** One entry for connecting devices (as the web's 连接其他设备): which side is this one? */
-function ConnectDevice({ hasAccount, back, join, give }: { hasAccount: boolean; back: () => void; join: () => void; give: () => void }) {
+function ConnectDevice({ hasAccount, back, entry, join, give }: { hasAccount: boolean; back: () => void; entry?: boolean; join: () => void; give: () => void }) {
   return (
     <section className="page narrow">
-      <button type="button" className="link back" onClick={back}>
+      <button type="button" className={`link back${entry ? " entry" : ""}`} onClick={back}>
         ‹ {t("Health account")}
       </button>
       <h2>{t("Connect another device")}</h2>
@@ -3952,7 +4105,7 @@ function peerState(p: LivePeer): string {
 
 /** LAN sync (docs/lan-sync.md §11) on its own page: the switch, a row per device with its state, and the two
  *  questions as a dialog that says what happens. */
-function SyncPage({ back }: { back: () => void }) {
+function SyncPage({ back, entry }: { back: () => void; entry?: boolean }) {
   const [st, err, reload] = useOp(() => op<SyncShown>("sync.state"), []);
   const live = useSyncLive();
   const [busy, setBusy] = useState(false);
@@ -3972,7 +4125,7 @@ function SyncPage({ back }: { back: () => void }) {
   const answer = (device: string, allow: boolean) => run(() => op("sync.answer", { device, allow }));
   return (
     <section className="page narrow">
-      <button type="button" className="link back" onClick={back}>
+      <button type="button" className={`link back${entry ? " entry" : ""}`} onClick={back}>
         ‹ {t("Health account")}
       </button>
       <h2>{t("Local network sync")}</h2>
@@ -4239,12 +4392,13 @@ function Licenses() {
 }
 
 /** About (as the web's 更多 › 关于): the version, privacy and open-source licenses. */
-function About({ version }: { version?: string }) {
-  const [view, setView] = useState<"privacy" | "licenses">();
+function About({ version, want }: { version?: string; want?: string }) {
+  const [view, setView] = useState<"privacy" | "licenses" | undefined>(want === "privacy" || want === "licenses" ? want : undefined);
+  const [entry] = useState(view);
   if (view)
     return (
       <section className="page narrow">
-        <button type="button" className="link back" onClick={() => setView(undefined)}>
+        <button type="button" className={`link back${view === entry ? " entry" : ""}`} onClick={() => setView(undefined)}>
           ‹ {t("About")}
         </button>
         <h2>{view === "privacy" ? t("Privacy") : t("Open-source licenses")}</h2>

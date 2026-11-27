@@ -102,7 +102,7 @@ fn percent_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
+#[cfg_attr(target_os = "android", tauri::mobile_entry_point)]
 pub fn run() {
     host::run(tauri::Builder::default().invoke_handler(tauri::generate_handler![
         host::op,
@@ -121,4 +121,17 @@ pub fn run() {
         stage_file,
         export_path
     ]));
+}
+
+/// The iOS entry point (`main.mm` calls it), as `tauri::mobile_entry_point` writes it but without
+/// `tauri::log_stdout()`. That pipes stdout and stderr into os_log, and under Xcode's log hook (which writes os_log
+/// back to stderr) the pipe fills and deadlocks the app: a `<select>` opening the keyboard logs enough. Output stays
+/// on the process's stderr, which Xcode shows.
+#[cfg(target_os = "ios")]
+#[unsafe(no_mangle)]
+pub extern "C" fn start_app() {
+    // a panic must not unwind into Objective-C
+    if std::panic::catch_unwind(run).is_err() {
+        std::process::abort();
+    }
 }

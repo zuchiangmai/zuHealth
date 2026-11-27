@@ -1,17 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-  <!-- The app icon (the owner's artwork), drawn on the macOS icon grid: 824 px tile, 100 px margin.
-       Regenerate every size: (cd gui && npx tauri icon src-tauri/icons/app-icon.svg) -->
-  <g transform="translate(100 100) scale(0.8046875)">
-    <defs>
+  <!-- The app icon (the owner's artwork). Every size comes from it: python3 scripts/gen-icons.py -->
+  <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-    <stop offset="0" stop-color="#FF8F73"/>
-    <stop offset="1" stop-color="#E5484D"/>
+      <stop offset="0" stop-color="#FF8F73"/>
+      <stop offset="1" stop-color="#E5484D"/>
     </linearGradient>
-    </defs>
-    <rect width="1024" height="1024" rx="228" fill="url(#bg)"/>
-    <path d="M512 500 L812 650 L512 800 L212 650 Z" fill="#FFFFFF" fill-opacity="0.45" stroke="#FFFFFF" stroke-opacity="0.45" stroke-width="24" stroke-linejoin="round"/>
-    <path d="M512 380 L812 530 L512 680 L212 530 Z" fill="#FFFFFF" fill-opacity="0.72" stroke="#FFFFFF" stroke-opacity="0.72" stroke-width="24" stroke-linejoin="round"/>
-    <path d="M512 240 L812 390 L512 540 L212 390 Z" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="24" stroke-linejoin="round"/>
-    <polyline points="332,390 440,390 470,336 520,450 556,360 582,390 692,390" fill="none" stroke="#EA5A55" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
-  </g>
-</svg>
+  </defs>
+  <rect width="1024" height="1024" rx="228" fill="url(#bg)"/>
+  <path d="M512 500 L812 650 L512 800 L212 650 Z" fill="#FFFFFF" fill-opacity="0.45" stroke="#FFFFFF" stroke-opacity="0.45" stroke-width="24" stroke-linejoin="round"/>
+  <path d="M512 380 L812 530 L512 680 L212 530 Z" fill="#FFFFFF" fill-opacity="0.72" stroke="#FFFFFF" stroke-opacity="0.72" stroke-width="24" stroke-linejoin="round"/>
+  <path d="M512 240 L812 390 L512 540 L212 390 Z" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="24" stroke-linejoin="round"/>
+  <polyline points="332,390 440,390 470,336 520,450 556,360 582,390 692,390" fill="none" stroke="#EA5A55" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/></svg>

@@ -54,8 +54,10 @@ plugins/tauri-plugin-health-platform   native services for mobile (now: root key
 - Link a new device by scanning its `ZUHL1:` code (pasting still works, decision 65).
 - Import: the system's file picker, or the camera for a lab report; OCR runs on the device.
 - Export (CSV, backup): written in the app's cache, then the system share sheet (save to Files, send, AirDrop).
-- Layout: under 760 px wide, a top bar and the side panel as a full-screen menu; safe areas for the notch and the
-  home indicator; 16 px fields. Agent access (desktop agent apps) is hidden on phones.
+- Layout (any narrow window, decision 88): under 760 px wide, a floating tab bar at the bottom (Readings, Add, More)
+  instead of the side panel; More holds the other sections, each with a way back. Wider (desktop, iPad) keeps the
+  side panel. Safe areas for the notch and the home indicator; 16 px fields. Agent access (desktop agent apps) is
+  hidden on phones.
 - The camera permission text is in `Info.ios.plist` (merged by Tauri) and `gen/apple/project.yml`.
 
 ## Locking (mobile)
@@ -64,6 +66,7 @@ plugins/tauri-plugin-health-platform   native services for mobile (now: root key
 records the time (one atomic store); `Resumed` / `Focused(true)` clear it on a worker thread and close the profile
 first if the grace period has passed; every call checks too. This gives "no access after expiry", not "key wiped at
 expiry". Reopening runs the core's writer-open recovery, which sweeps `tmp/`: plan P1c changes that in the core.
+The UI unlocks as soon as it sees the lock, behind a "Decrypting your data" wait (decision 90): nothing to tap.
 
 ## Data and keys
 
@@ -80,11 +83,11 @@ cd gui && npx tauri ios dev --open
 . scripts/mobile-env.sh && cd gui && npx tauri android dev --open
 ```
 
-The Xcode "Build Rust Code" phase (`gen/apple/project.yml`) adds `~/.cargo/bin`, Homebrew and nvm to PATH itself;
+iOS doesn't use `tauri::mobile_entry_point` (decision 89: its stdout pipe deadlocks under Xcode). The Xcode "Build Rust Code" phase (`gen/apple/project.yml`) adds `~/.cargo/bin`, Homebrew and nvm to PATH itself;
 after regenerating `gen/apple`, put those lines back and run `xcodegen generate` with an empty `Externals/`.
-`tauri ios|android init` writes Tauri's default app icon into `gen/`: after regenerating, copy ours back in
-(`icons/ios/*.png` into `gen/apple/Assets.xcassets/AppIcon.appiconset/`, `icons/android/*` into
-`gen/android/app/src/main/res/`). `gen/android/gradle.properties` limits Android Studio builds to arm64 and x86_64. `scripts/mobile-env.sh` points
+`tauri ios|android init` writes Tauri's default app icon into `gen/`: after regenerating, run
+`python3 scripts/gen-icons.py`, which makes every icon from `icons/app-icon.svg` and writes them into `icons/` and
+`gen/` (decision 92). `gen/android/gradle.properties` limits Android Studio builds to arm64 and x86_64. `buildSrc/.../RustPlugin.kt` makes ABI flavors for those only (Tauri's template makes all four, and Android Studio then picks `armDebug`, which has no library); put that back after regenerating. `scripts/mobile-env.sh` points
 `RANLIB_<target>` at the NDK's `llvm-ranlib` (vendored OpenSSL for SQLCipher).
 
 ## Verified (2026-11-27)

@@ -35,11 +35,13 @@ open class RustPlugin : Plugin<Project> {
                         abiFilters += abiList
                     }
                 }
-                defaultArchList.forEachIndexed { index, arch ->
+                // only the configured ABIs (gradle.properties): a flavor for an ABI the build skips holds no
+                // library, and Android Studio would pick it (armDebug) for an arm64 device
+                archList.forEachIndexed { index, arch ->
                     create(arch) {
                         dimension = "abi"
                         ndk {
-                            abiFilters.add(defaultAbiList[index])
+                            abiFilters.add(abiList[index])
                         }
                     }
                 }

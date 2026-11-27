@@ -17,7 +17,7 @@
         "title": "zu Health",
         "width": 1200,
         "height": 820,
-        "minWidth": 820,
+        "minWidth": 400,
         "minHeight": 560,
         "zoomHotkeysEnabled": true
       }
