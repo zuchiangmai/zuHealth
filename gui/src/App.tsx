@@ -693,7 +693,9 @@ function Shell() {
           )}
         </div>
       </main>
-      <Tabbar labels icons className="fixed! bottom-0 left-0 wide:hidden">
+      {/* iOS 26's tab bar sits 13 pt into the home indicator's area (21 pt from the edge on a Face ID iPhone; Files,
+          2026-11-27), not 16 pt above it as Konsta's default (pb-safe-4); Material's already sits on the edge */}
+      <Tabbar labels icons className="fixed! bottom-0 left-0 wide:hidden ios:pb-[max(8px,calc(var(--k-safe-area-bottom)-13px))]!">
         <ToolbarPane>
         {TABS.map((x) => (
           // a section opened from a tab keeps that tab marked
