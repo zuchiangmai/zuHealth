@@ -1,5 +1,5 @@
 //! One-click "connect" for agents whose MCP config is a plain JSON file with an `mcpServers` map at a known
-//! place (formats from each vendor's docs, Nov 2026; see docs/decisions.md). Other agents get a snippet or a CLI
+//! place (formats from each vendor's docs, Nov 2026). Other agents get a snippet or a CLI
 //! command in the UI instead. A write merges our one entry (`health`) into the file: other servers and keys stay,
 //! the original is kept once as `<name>.health-bak`, the new one replaces it atomically, and a file we can't parse (e.g. JSON
 //! with comments) is left alone.

@@ -264,7 +264,7 @@ function useOp<T>(fn: () => Promise<T>, deps: unknown[]): [T | undefined, string
  *  cards standing in for the page. `err` replaces the wait with what went wrong and a way to try again. */
 function Hold({ title, body, err, retry }: { title: string; body: string; err?: string; retry?: () => void }) {
   return (
-    <main className="mx-auto mt-[16vh] max-w-md px-4 mx-auto mt-[14vh] flex max-w-[26rem] flex-col items-center gap-2.5 text-center" role="status" aria-label={title}>
+    <main className="mx-auto mt-[14vh] flex max-w-[26rem] flex-col items-center gap-2.5 px-4 text-center transition-opacity delay-300 duration-300 starting:opacity-0" role="status" aria-label={title}>
       <span className="mb-1.5 grid h-16 w-16 place-items-center rounded-full bg-primary/15 text-primary data-[pulse]:animate-pulse" data-pulse={err ? undefined : ""} aria-hidden="true">
         <svg className="h-5 w-5 shrink-0" viewBox="0 0 16 16" width="28" height="28">
           <rect x="3.5" y="7" width="9" height="6.5" rx="1.5" />
@@ -331,8 +331,6 @@ function FirstRun({ done }: { done: () => void }) {
 function Unlock({ done }: { done: () => void }) {
   const [p, setP] = useState("");
   const [err, setErr] = useState<string>();
-  // a phone has no passphrase: the data opens as Health opens (Face ID / fingerprint will come first, in the shell)
-  if (isMobile) return <AutoUnlock done={done} />;
   return (
     <main className="mx-auto mt-[16vh] max-w-md px-4">
       <form
@@ -363,15 +361,57 @@ function Unlock({ done }: { done: () => void }) {
   );
 }
 
-function AutoUnlock({ done }: { done: () => void }) {
-  const [err, retry] = useOnce(async () => {
-    await unlock("");
-    done();
-  });
-  return <Hold title={t("Decrypting your data")} body={decrypting()} err={err} retry={retry} />;
+/** Opening Health: asks the core how the data is, then opens it (a phone unlocks it as Health opens; a computer
+ *  may ask for the passphrase) or creates it. Only then is the app drawn, so nothing it reads runs against data
+ *  that's still shut (no screen first drawn and then taken back, no "locked" left on it). One screen throughout:
+ *  the page's background, then "Decrypting" if it takes a moment. */
+export function App() {
+  const [status, err, reload] = useOp(() => op<Status>("status"), []);
+  const [core, setCore] = useState<{ up: boolean; error?: string; need_init?: boolean }>({ up: true });
+  useEffect(() => onStatus((s) => (setCore(s), reload())), [reload]);
+  const starting = !core.up || err?.startsWith("unavailable:");
+  // the start-up event can fire before the listener exists: ask again until the core answers
+  useEffect(() => {
+    if (!starting) return;
+    const t = setInterval(reload, 1000);
+    return () => clearInterval(t);
+  }, [starting, reload]);
+  // a phone has no passphrase: its data opens as Health opens (Face ID / fingerprint will come first, in the shell)
+  const locked = !!err?.startsWith("locked:");
+  const [unlockErr, setUnlockErr] = useState<string>();
+  const unlocking = useRef(false);
+  const autoUnlock = useCallback(() => {
+    if (unlocking.current) return; // StrictMode's second run
+    unlocking.current = true;
+    setUnlockErr(undefined);
+    unlock("")
+      .then(reload, (e) => setUnlockErr(errText(e)))
+      .finally(() => (unlocking.current = false));
+  }, [reload]);
+  useEffect(() => {
+    if (locked && isMobile) autoUnlock();
+  }, [locked, autoUnlock]);
+  // the dashboard's background, fetched while the data opens
+  useEffect(() => void Object.assign(new Image(), { src: matchMedia("(prefers-color-scheme: dark)").matches ? meadowDark : meadowLight }), []);
+  if (locked && !isMobile) return <Unlock done={reload} />;
+  if (core.need_init || err?.includes("no_profile")) return <FirstRun done={reload} />;
+  if (starting || locked || (!status && !err))
+    return (
+      <>
+        <Hold title={t("Decrypting your data")} body={decrypting()} err={core.error ?? unlockErr} retry={unlockErr ? autoUnlock : undefined} />
+        {/* a database that no longer opens: starting over is one way out */}
+        {core.error && isDesktop && (
+          <div className="mx-auto mt-[16vh] max-w-md px-4">
+            <ClearDataRow />
+          </div>
+        )}
+      </>
+    );
+  return <Shell />;
 }
 
-export function App() {
+/** The app, once its data is open. */
+function Shell() {
   // redraw everything when the language changes; the menu bar follows
   const { i18n } = useTranslation();
   useEffect(() => setShellLanguage(i18n.language), [i18n.language]);
@@ -392,14 +432,9 @@ export function App() {
   }, [page]);
   const setMetric = (code: string) => nav(`metric/${encodeURIComponent(code)}`, !!metric);
   useInbox();
-  const [status, statusErr, reload] = useOp(() => op<Status>("status"), []);
+  const [status] = useOp(() => op<Status>("status"), []);
   const syncLive = useSyncLive();
-  const [latest, latestErr, reloadLatest] = useOp(() => op<Point[]>("obs.latest"), []);
-  // the data just opened (unlocked or created): what was read while it was shut failed, so read it again
-  const opened = () => {
-    reload();
-    reloadLatest();
-  };
+  const [latest, latestErr] = useOp(() => op<Point[]>("obs.latest"), []);
   const [cats, setCats] = useState(true);
   // a screen opens at its top, wherever the last one was scrolled to
   useLayoutEffect(() => toTop(), [route.join("/")]);
@@ -417,7 +452,6 @@ export function App() {
   }, [page]);
   // the category scrolled into view on Readings (null: its top)
   const [inView, setInView] = useState<string | null>(null);
-  const [core, setCore] = useState<{ up: boolean; error?: string; need_init?: boolean }>({ up: true });
   const [dropped, setDropped] = useState<string>();
   const [hovering, setHovering] = useState(false);
   // a file dropped anywhere on the window opens Import with it
@@ -434,7 +468,6 @@ export function App() {
       }),
     [],
   );
-  useEffect(() => onStatus((s) => (setCore(s), reload())), [reload]);
   useEffect(() => setBadge(status?.reviews ?? 0), [status?.reviews]);
   // the same commands from the macOS menu or, elsewhere, from the keyboard
   const command = useCallback((id: string) => {
@@ -482,27 +515,6 @@ export function App() {
     document.addEventListener("contextmenu", menu);
     return () => document.removeEventListener("contextmenu", menu);
   }, []);
-  const starting = !core.up || statusErr?.startsWith("unavailable:");
-  // the start-up event can fire before the listener exists: ask again until the core answers
-  useEffect(() => {
-    if (!starting) return;
-    const t = setInterval(reload, 1000);
-    return () => clearInterval(t);
-  }, [starting, reload]);
-  if (statusErr?.startsWith("locked:")) return <Unlock done={opened} />;
-  if (core.need_init || statusErr?.includes("no_profile")) return <FirstRun done={opened} />;
-  if (starting)
-    return (
-      <>
-        <Hold title={t("Decrypting your data")} body={decrypting()} err={core.error} />
-        {/* a database that no longer opens: starting over is one way out */}
-        {core.error && isDesktop && (
-          <div className="mx-auto mt-[16vh] max-w-md px-4">
-            <ClearDataRow />
-          </div>
-        )}
-      </>
-    );
   const open = (code: string) => setMetric(code);
   const present = HOME_GROUPS.filter((g) => latest?.some((p) => p.category === g.key));
   const syncAsking = !!syncLive?.peers.some((x) => x.state === "asking");
@@ -511,7 +523,7 @@ export function App() {
   const navButton = (on: boolean, label: ReactNode, icon: ReactNode, onClick: () => void, extra?: ReactNode, hint?: string, current?: "page" | "location") => (
     <button
       type="button"
-      className={`flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2 text-start text-[15px] ${on ? "bg-primary font-medium text-white" : "hover:bg-black/5 dark:hover:bg-white/10"}`}
+      className={`select-none flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2 text-start text-[15px] ${on ? "bg-primary font-medium text-white" : "hover:bg-black/5 dark:hover:bg-white/10"}`}
       aria-current={current}
       onClick={onClick}
       title={hint}
@@ -569,7 +581,7 @@ export function App() {
         </ul>
         {present.length > 0 && (
           <div>
-            <button type="button" className={`${railHead} flex w-full items-center justify-between`} aria-expanded={cats} onClick={() => setCats(!cats)}>
+            <button type="button" className={`select-none ${railHead} flex w-full items-center justify-between`} aria-expanded={cats} onClick={() => setCats(!cats)}>
               {t("Categories")}
               <Chevron open={cats} />
             </button>
@@ -628,7 +640,7 @@ export function App() {
       </nav>
       <main
         id="content"
-        className={`h-dvh min-w-0 overflow-y-auto px-4 pb-[calc(env(safe-area-inset-bottom)+108px)] wide:h-auto wide:overflow-visible wide:px-9 wide:pt-6 wide:pb-16 ${MAC && isDesktop ? "wide:pt-[4.4rem]" : ""}`}
+        className={`h-dvh min-w-0 overflow-y-auto px-4 pb-[calc(var(--k-safe-area-bottom)+108px)] wide:h-auto wide:overflow-visible wide:px-9 wide:pt-6 wide:pb-16 ${MAC && isDesktop ? "wide:pt-[4.4rem]" : ""}`}
         ref={mainEl}
       >
         {/* the top bar (Konsta's): a phone's every screen; a wide window's screens inside a section (its side panel
@@ -750,7 +762,7 @@ function Choice<K extends string>({
   return (
     <>
       {small ? (
-        <button type="button" className="flex w-full items-center justify-between gap-2 py-1 text-[13px] text-black/55 dark:text-white/55" onClick={() => setOpen(true)}>
+        <button type="button" className="select-none flex w-full items-center justify-between gap-2 py-1 text-[13px] text-black/55 dark:text-white/55" onClick={() => setOpen(true)}>
           {label}
           <span className="inline-flex items-center gap-1">
             {current}
@@ -974,7 +986,7 @@ function Sheet({ label, close: done, children }: { label: string; close: () => v
   const body = (
     <KPage>
       <Navbar transparent title={label} left={<NavbarBackLink text={t("Back")} showText={theme === "ios"} onClick={close} />} />
-      <div className="px-4 pt-2 pb-[calc(env(safe-area-inset-bottom)+32px)] md:px-6">{children}</div>
+      <div className="px-4 pt-2 pb-[calc(var(--k-safe-area-bottom)+32px)] md:px-6">{children}</div>
     </KPage>
   );
   // a wide window: a large window over the page; a phone: a page of its own, pushed in from the side
@@ -993,7 +1005,8 @@ function Sheet({ label, close: done, children }: { label: string; close: () => v
         {body}
       </div>
     ),
-    document.body,
+    // inside Konsta's App, as its sheets are meant to be: its look and safe areas apply
+    document.querySelector(".k-app") ?? document.body,
   );
 }
 
@@ -1087,7 +1100,7 @@ function FilePick({ path, onPath, kind }: { path?: string; onPath: (p: string) =
     isDesktop ? (
       <Item key={title} color={color} icon={<Icon k={icon} />} title={title} onClick={async () => { const p = await chooseImportFile(types); if (p) chosen(p); }} />
     ) : (
-      <label key={title} className="flex min-h-[64px] w-full cursor-pointer items-center gap-4 px-4 py-3 transition-colors active:bg-black/5 dark:active:bg-white/10">
+      <label key={title} className="select-none flex min-h-[64px] w-full cursor-pointer items-center gap-4 px-4 py-3 transition-colors active:bg-black/5 dark:active:bg-white/10">
         <IconDot color={color}>
           <Icon k={icon} />
         </IconDot>
@@ -1642,7 +1655,7 @@ function TileBody({
   const trend = !old && !!days && toPts(p.agg, days).length >= 2;
   const note = s.note ?? ago(p.start_ms);
   return (
-    <button type="button" className="flex w-full min-h-[64px] items-center gap-3 px-4 py-2.5 text-start transition-colors active:bg-black/5 dark:active:bg-white/10" onClick={() => open(p.metric)}>
+    <button type="button" className="select-none flex w-full min-h-[64px] items-center gap-3 px-4 py-2.5 text-start transition-colors active:bg-black/5 dark:active:bg-white/10" onClick={() => open(p.metric)}>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[16px] leading-snug">{nameOf(p.metric, p.name)}</span>
         <span className="block text-[13px] text-black/55 dark:text-white/55">
@@ -1817,7 +1830,7 @@ function Readings({
     };
   }, [latest, onSection]);
   if (err) return <Problem text={err} />;
-  if (!latest) return <p className="text-black/55 dark:text-white/55" aria-busy="true">{t("Loading your readings…")}</p>;
+  if (!latest) return <section aria-busy="true" aria-label={t("Loading your readings…")} />;
   // the lab devices' reports, each a screen of its own (#/report/seca, #/report/forcedecks)
   if (want === "seca") return <Screen title={t("Body composition")}>{scans && <SecaReport scans={scans} />}</Screen>;
   if (want === "forcedecks")
@@ -2373,7 +2386,7 @@ function Sources({ go, path: [kind, id] }: { go: (p: Page) => void; path: string
         </>
       )}
       <details className="group/prio mt-6 mb-4">
-        <summary className={`flex min-h-[56px] cursor-pointer list-none items-center gap-3 rounded-3xl px-4 [&::-webkit-details-marker]:hidden ${rowBg}`}>
+        <summary className={`select-none flex min-h-[56px] cursor-pointer list-none items-center gap-3 rounded-3xl px-4 [&::-webkit-details-marker]:hidden ${rowBg}`}>
           <span className="flex-1 text-[16px] font-medium">{t("Source priority")}</span>
           <span className="text-black/40 transition-transform group-open/prio:rotate-90 dark:text-white/40">
             <Chevron open={false} />
@@ -2563,7 +2576,7 @@ function OcrReview({ b, done, discard }: { b: BatchDetail; done: (text: string) 
     const state = p.skip ? t("Skipped") : p.new ? t("New measure") : p.code ? label(p.code) : t("Choose a measure");
     return (
       <li key={i} className={p.skip ? "opacity-50" : ""}>
-        <button type="button" className="flex min-h-[64px] w-full items-center gap-3 px-4 py-2.5 text-start transition-colors active:bg-black/5 dark:active:bg-white/10" aria-expanded={open === i} onClick={() => setOpen(open === i ? undefined : i)}>
+        <button type="button" className="select-none flex min-h-[64px] w-full items-center gap-3 px-4 py-2.5 text-start transition-colors active:bg-black/5 dark:active:bg-white/10" aria-expanded={open === i} onClick={() => setOpen(open === i ? undefined : i)}>
           <span className="min-w-0 flex-1">
             <strong>{it.name}</strong>
             <span className="text-[13px] text-black/55 dark:text-white/55">
@@ -2636,7 +2649,7 @@ function OcrReview({ b, done, discard }: { b: BatchDetail; done: (text: string) 
       {/* what matched by itself folds into one row (as the web's): open it to check or change */}
       {matched.length > 0 && (
         <Group>
-          <button type="button" className="flex min-h-[56px] w-full items-center gap-3 px-4 text-start" aria-expanded={showMatched} onClick={() => setShowMatched(!showMatched)}>
+          <button type="button" className="select-none flex min-h-[56px] w-full items-center gap-3 px-4 text-start" aria-expanded={showMatched} onClick={() => setShowMatched(!showMatched)}>
             <span className="flex-1 text-[16px] font-medium">{t("{{n}} matched", { n: matched.length })}</span>
             <span className="text-black/40 dark:text-white/40">
               <Chevron open={showMatched} />
@@ -2965,7 +2978,7 @@ function Agents({ want, path }: { want?: string; path?: string[] }) {
                 ] as const
               ).map(([k, label, sub]) => (
                 <li key={k}>
-                  <label className="flex items-center gap-3 px-4 py-3 relative cursor-default [&_input[type=radio]]:pointer-events-none [&_input[type=radio]]:absolute [&_input[type=radio]]:opacity-0">
+                  <label className="select-none flex items-center gap-3 px-4 py-3 relative cursor-default [&_input[type=radio]]:pointer-events-none [&_input[type=radio]]:absolute [&_input[type=radio]]:opacity-0">
                     <input type="radio" name="write" checked={write === k} onChange={() => setWrite(k)} />
                     <span className="me-auto grid min-w-0 gap-px">
                       <strong>{label}</strong>
@@ -3190,7 +3203,7 @@ function CsvExport() {
         {[false, true].map((sensitive) => (
           <Group key={String(sensitive)} title={sensitive ? t("Sensitive: tick only what you need") : t("What to include")}>
             {GROUPS.filter((g) => g.sensitive === sensitive).map((g) => (
-              <label key={g.key} className="flex min-h-[52px] cursor-pointer items-center gap-4 px-4">
+              <label key={g.key} className="select-none flex min-h-[52px] cursor-pointer items-center gap-4 px-4">
                 <Checkbox
                   component="span"
                   checked={groups.includes(g.key)}
@@ -4057,7 +4070,7 @@ function ProfileEdit({ field, me, done }: { field: ProfileField; me: Personal; d
               <li key={s}>
                 <button
                   type="button"
-                  className="flex w-full items-center gap-3 px-4 py-3 text-start"
+                  className="select-none flex w-full items-center gap-3 px-4 py-3 text-start"
                   role="radio"
                   aria-checked={me.sex === s}
                   disabled={busy}
@@ -4366,7 +4379,7 @@ function SyncPage() {
                   )}
                   {p.state === "ended" && p.code && (
                     <details className="text-[13px] text-black/55 dark:text-white/55">
-                      <summary className="cursor-pointer py-1.5">{t("Details")}</summary>
+                      <summary className="select-none cursor-pointer py-1.5">{t("Details")}</summary>
                       <span className="font-mono text-[13px] break-all">{p.code}</span>
                     </details>
                   )}
@@ -4551,17 +4564,17 @@ function Licenses() {
         <>
           <h3 className="mt-6 mb-2 px-4 text-[13px] font-semibold text-black/55 dark:text-white/55">{t("All components")}</h3>
           <details className="mb-2 [&_summary]:cursor-pointer [&_summary]:py-1.5 [&_pre]:max-h-96 [&_pre]:overflow-auto [&_pre]:text-xs [&_pre]:leading-snug [&_pre]:whitespace-pre-wrap [&_pre]:text-black/55">
-            <summary className="cursor-pointer py-1.5">{t("{{count}} Rust crates", { count: all.crates.length })}</summary>
+            <summary className="select-none cursor-pointer py-1.5">{t("{{count}} Rust crates", { count: all.crates.length })}</summary>
             {list(all.crates)}
           </details>
           <details className="mb-2 [&_summary]:cursor-pointer [&_summary]:py-1.5 [&_pre]:max-h-96 [&_pre]:overflow-auto [&_pre]:text-xs [&_pre]:leading-snug [&_pre]:whitespace-pre-wrap [&_pre]:text-black/55">
-            <summary className="cursor-pointer py-1.5">{t("{{count}} JavaScript packages", { count: all.npm.length })}</summary>
+            <summary className="select-none cursor-pointer py-1.5">{t("{{count}} JavaScript packages", { count: all.npm.length })}</summary>
             {list(all.npm)}
           </details>
           <h3 className="mt-6 mb-2 px-4 text-[13px] font-semibold text-black/55 dark:text-white/55">{t("License texts")}</h3>
           {Object.entries(all.texts).map(([name, text]) => (
             <details key={name} className="mb-2 [&_summary]:cursor-pointer [&_summary]:py-1.5 [&_pre]:max-h-96 [&_pre]:overflow-auto [&_pre]:text-xs [&_pre]:leading-snug [&_pre]:whitespace-pre-wrap [&_pre]:text-black/55">
-              <summary className="cursor-pointer py-1.5">{name}</summary>
+              <summary className="select-none cursor-pointer py-1.5">{name}</summary>
               <pre className="overflow-x-auto rounded-xl bg-black/5 p-3 font-mono text-xs whitespace-pre-wrap break-all dark:bg-white/10">{text}</pre>
             </details>
           ))}
@@ -4695,7 +4708,7 @@ function FdCard({ session, open }: { session: FdSession; open: () => void }) {
 /** A lab device's report on the dashboard: what it is and when, its key figures side by side; a tap opens it. */
 function LabCard({ color, icon, title, text, stats, open }: { color: string; icon: ReactNode; title: string; text: string; stats: [string, string, string][]; open: () => void }) {
   return (
-    <button type="button" className="flex w-full flex-col gap-3 px-4 py-3.5 text-start transition-colors active:bg-black/5 dark:active:bg-white/10" onClick={open}>
+    <button type="button" className="select-none flex w-full flex-col gap-3 px-4 py-3.5 text-start transition-colors active:bg-black/5 dark:active:bg-white/10" onClick={open}>
       <span className="flex w-full items-center gap-3">
         <IconDot color={color}>{icon}</IconDot>
         <span className="min-w-0 flex-1">
@@ -4795,7 +4808,7 @@ function FdReport({ sessions, names }: { sessions: FdSession[]; names?: Record<s
         <Group aria-label={t("Test history")}>
           {sessions.map((s, n) => (
             <li key={`${s.device}|${s.test}|${fdStart(s)}`}>
-              <button type="button" className="flex w-full items-center gap-3 px-4 py-3 text-start" aria-current={n === at ? "true" : undefined} onClick={() => pick(n)}>
+              <button type="button" className="select-none flex w-full items-center gap-3 px-4 py-3 text-start" aria-current={n === at ? "true" : undefined} onClick={() => pick(n)}>
                 <span className="me-auto grid min-w-0 gap-px">
                   <strong>{when(fdStart(s))}</strong>
                   <span className="text-[13px] text-black/55 dark:text-white/55">
@@ -5270,7 +5283,7 @@ function SecaReport({ scans }: { scans: Measurement[] }) {
             <li key={`${s.device}|${s.start_ms}`}>
               <button
                 type="button"
-                className="flex w-full items-center gap-3 px-4 py-3 text-start"
+                className="select-none flex w-full items-center gap-3 px-4 py-3 text-start"
                 aria-current={k === at ? "true" : undefined}
                 onClick={() => {
                   setI(k);

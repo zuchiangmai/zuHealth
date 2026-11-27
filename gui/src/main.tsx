@@ -1,5 +1,5 @@
 import "./i18n";
-import { KonstaProvider } from "konsta/react";
+import { App as KonstaApp } from "konsta/react";
 import { StrictMode, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
@@ -11,19 +11,16 @@ const root = document.documentElement;
 root.classList.add("max-wide:h-full", "max-wide:overflow-hidden", "max-wide:overscroll-none");
 document.body.classList.add("max-wide:h-full", "max-wide:overflow-hidden", "max-wide:overscroll-none");
 
-/** Konsta's look (iOS's or Material's) and dark mode, as More › Appearance has them (the platform's by default):
- *  Konsta reads `k-ios` / `k-material` and `.dark` on an ancestor. */
+/** Konsta's root, as Konsta has it: its App sets the look (iOS's or Material's, as More › Appearance has them,
+ *  the platform's by default) and, with `safeAreas`, the safe areas its bars and sheets pad by (the notch, the
+ *  Dynamic Island, the home indicator). Dark mode is `.dark` on an ancestor, which Konsta's App doesn't set. */
 function Root() {
   const { theme, dark } = useAppearance();
-  useEffect(() => {
-    root.classList.toggle("k-ios", theme === "ios");
-    root.classList.toggle("k-material", theme === "material");
-    root.classList.toggle("dark", dark);
-  }, [theme, dark]);
+  useEffect(() => void root.classList.toggle("dark", dark), [dark]);
   return (
-    <KonstaProvider theme={theme} dark={dark}>
+    <KonstaApp theme={theme} dark={dark} safeAreas>
       <App />
-    </KonstaProvider>
+    </KonstaApp>
   );
 }
 

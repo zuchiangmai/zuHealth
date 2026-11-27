@@ -548,7 +548,7 @@ Conclusions:
      LAN, so the real `zuchiangmai.com` origin can still prompt);
    - the macOS Local Network prompt for a signed app;
    - Firefox, Windows and Android;
-   - a 1M-row profile (risk 5): measured in S1 (`docs/perf.md`, "Sync at scale"). The inventory with fingerprints
+   - a 1M-row profile (risk 5): measured in S1. The inventory with fingerprints
      takes 0.9 s; the subset export of a 1M-row import takes 0.9 s (32 MB); merging it takes 2.2 s.
 
 ## 14. Owner decisions (2026-11-23)
@@ -571,7 +571,7 @@ Conclusions:
 
 | Step | Content | Tests |
 |---|---|---|
-| S0 | Spike: §13 with a throwaway page, a str0m binary and a local stand-in relay | manual, results recorded here and in `perf.md` |
+| S0 | Spike: §13 with a throwaway page, a str0m binary and a local stand-in relay | manual, results recorded here |
 | S1 ✓ (2026-11-23) | core: inventory, fingerprints, `export_subset`, R1–R6, R7 on the desktop side (one import per manual entry), G3, R3's stamps and upgrade. Moved to S2, where they have users: the sync state file, the negative cache, using `lacks`/blob wants, splitting and resuming large imports, the `profile` and `whoop/stopped` settings, waveform blobs in `lacks`, not wanting an import that is `running` here | property test with three profiles, synced in random pairings and orders; then compare **table contents** (`v_observation`, genotypes, corrections, sources, `import.blob`, blob files), not digests, and check every session ends. Random steps: imports, overlapping imports, edits then removes, erases, review confirm/discard (also confirmed differently on two devices), corrections, priority changes, duplicate files, NULL `end_ms`/`detail`, 5 vs 5.0. Parity fixtures for R1–R8 with the web |
 | S2 ✓ (2026-11-23) | sync engine in `health-api` over an in-memory transport: the sync state file, device id, framing, sessions, batches, split imports and resume, files, the `profile` and `whoop/stopped` settings, the negative cache, confirmations, limits. Moved to S4, where serve runs sessions: the in-memory fingerprint cache, `changed` messages, ops and UI | `health-api/tests/sync_engine.rs` (each rule) and `sync_random.rs`: the three-device random changes through real sessions with random interleavings, cuts and changes mid-session, then identical tables |
 | S3 ✓ (2026-11-23) | signalling (day keys and rids, sealed messages, checks on receipt, private host candidates) in `health-proto::lan`; the str0m data channel in `health-connect::lan` (host candidates only, data only to private or loopback addresses) | `health-proto` lan tests; `health-connect` two peers on loopback move 5 MB both ways and notice a close |
@@ -579,4 +579,4 @@ Conclusions:
 | S5 | the web side (W) | cross-implementation: the web merges Rust-made subset packs (as `web-import-check`); shared inventory and fingerprint vectors |
 | S6 | the endpoint on the dev backend (backend commit 7d02a8f, protocol §3.7), a live test on a real network | manual. 2026-11-24, desktop to desktop: two serves on one Mac over its real LAN address, signalling through the dev relay, link, ask once, up to date, each holds both readings (PASS; LuLu had to be off: a per-app firewall blocks a new unsigned binary). Web to desktop, 2026-11-24: the web (pre-pol 2cde991c, Chrome on localhost:4102) and a throwaway desktop profile on the same Mac, linked by 「连接新设备」, signalling through the dev relay: both reached up to date; the desktop holds the web's readings (142 measures), the web shows the desktop's 69.9 kg and its last sync time (PASS, round 5). Rounds 1–4 found and fixed: a person's answer taken for a stall (26cbe53), frames of a replaced session reaching the next one (606370f, 5b5bb50; web 864092b5, 2c31b69e), a slow peer's merge taken for a stall (cbb1e69, 48572c1, 9a306f0; web 8c027e84), a start race on the web (2cde991c), a closed channel taken for one that never connected (85d9719). Web hashes here are from before pre-pol squashed them into 646120d0; they remain on its branch `backup/before-squash-2026-11-24` |
 
-Each step lands as its own commit, with its decisions recorded in `docs/decisions.md`.
+Each step lands as its own commit.

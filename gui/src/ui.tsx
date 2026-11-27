@@ -171,7 +171,7 @@ export function Item({
   const cls = `flex w-full min-h-[64px] items-center gap-4 px-4 py-3 text-start ${className}`;
   if (!onClick) return <div className={cls}>{body}</div>;
   return (
-    <button type="button" className={`${cls} transition-colors active:bg-black/5 dark:active:bg-white/10`} onClick={onClick} {...rest}>
+    <button type="button" className={`select-none ${cls} transition-colors active:bg-black/5 dark:active:bg-white/10`} onClick={onClick} {...rest}>
       {body}
     </button>
   );
@@ -199,7 +199,7 @@ export const SearchPill = ({ className = "", ...rest }: ComponentProps<"input">)
 export const Callout = ({ icon, title, text, onClick }: { icon: ReactNode; title: ReactNode; text?: ReactNode; onClick: () => void }) => (
   <button
     type="button"
-    className="mb-5 flex w-full items-center gap-4 rounded-3xl bg-amber-400/20 px-4 py-3.5 text-start transition-colors active:bg-amber-400/30"
+    className="select-none mb-5 flex w-full items-center gap-4 rounded-3xl bg-amber-400/20 px-4 py-3.5 text-start transition-colors active:bg-amber-400/30"
     onClick={onClick}
   >
     <IconDot color="#b45309">{icon}</IconDot>

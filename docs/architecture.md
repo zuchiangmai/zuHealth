@@ -1,6 +1,6 @@
 # Architecture (M0 + M1)
 
-Implementation design for the first two milestones of `架構與實施計畫.md`. That plan and `健康數據庫設計.md` remain the specs; this file says how the code is laid out and where each rule lives. Judgment calls and open questions are logged in `decisions.md`. An independent review (2026-11-21) shaped this revision.
+Implementation design for the first two milestones of `架構與實施計畫.md`. That plan and `健康數據庫設計.md` remain the specs; this file says how the code is laid out and where each rule lives. An independent review (2026-11-21) shaped this revision.
 
 ## Principles
 
@@ -27,7 +27,7 @@ crates/
   health/        bin: clap CLI, OS keychain KeyStore, clock and timezone
 ```
 
-`docs/health-schema.sql` is compiled in. Its PRAGMA lines are stripped before it runs inside the init transaction; `db.rs` sets those PRAGMAs per connection.
+`docs/health-schema.sql` is compiled in. Its tables match the web version's `schema.sql` exactly; its comments are the web's Chinese ones with English added under each (both sides compare schemas with comments ignored). Its PRAGMA lines are stripped before it runs inside the init transaction; `db.rs` sets those PRAGMAs per connection.
 
 ## Transactions and side effects
 

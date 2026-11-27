@@ -72,7 +72,7 @@ WHERE u_new > u_old
 ## R2 A confirmed review reaches devices still holding it as review
 
 **Today.** Local `review` meeting remote `done` is left alone (Rust `Some(_) => {}`; W `merge.ts:213`, "对方没擦除的
-review：不碰"). The confirmation never reaches the other device. Logged in `docs/decisions.md` Known gaps.
+review：不碰"). The confirmation never reaches the other device (a known gap).
 
 **Change.** Local `review` and remote `done` with the same uid: the local import becomes the remote one.
 

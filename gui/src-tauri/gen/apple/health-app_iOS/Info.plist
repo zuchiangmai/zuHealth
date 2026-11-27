@@ -3,13 +3,19 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
-	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<string>en</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>en</string>
+		<string>zh-Hans</string>
+		<string>zh-Hant</string>
+	</array>
 	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundlePackageType</key>
@@ -23,7 +29,7 @@
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Connect to health devices such as scales and blood pressure monitors.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Scan a lab device's code or another device's link code, and photograph lab reports.</string>
+	<string>Scan a lab device&apos;s code or another device&apos;s link code, and photograph lab reports.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Sync health data directly with your other devices on the same network.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

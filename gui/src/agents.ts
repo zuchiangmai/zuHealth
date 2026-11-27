@@ -1,5 +1,5 @@
 // How each agent app registers a local (stdio) MCP server: `<bin> mcp` with HEALTH_TOKEN set. Formats come from
-// each vendor's docs (checked Nov 2026; see docs/decisions.md). Apps marked `oneClick` can be written by the shell
+// each vendor's docs (checked Nov 2026). Apps marked `oneClick` can be written by the shell
 // (gui/src-tauri/src/clients.rs); for the rest the UI shows a command or a snippet to paste.
 
 import { t as tr } from "./i18n";
