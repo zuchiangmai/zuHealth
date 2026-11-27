@@ -41,7 +41,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 # Dependencies optimised in dev builds too: tract runs the OCR models ~20× faster, and our crates stay debuggable.
+# Their debug info is line tables only (backtraces keep file and line): in full, the Android library was ~1 GB and
+# filled an emulator's storage on reinstall.
 [profile.dev.package."*"]
 opt-level = 3
+debug = "line-tables-only"
 [profile.dev.package.health-ocr]
 opt-level = 3

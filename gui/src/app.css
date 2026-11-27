@@ -1,0 +1,12 @@
+/* The UI's styles: Konsta UI's components on Tailwind CSS (owner, 2026-11-27: Konsta only for now; custom CSS
+   comes back later, where a screen needs it). */
+@import "tailwindcss";
+@import "konsta/react/theme.css";
+
+/* Konsta reads only --color-brand-* (primary for buttons, links, selections; red for what deletes) */
+@theme {
+  /* narrow (a phone, a narrow window: the tab bar) and wide (the side panel) */
+  --breakpoint-wide: 761px;
+  --color-brand-primary: #0a7397;
+  --color-brand-red: #d93a2b;
+}

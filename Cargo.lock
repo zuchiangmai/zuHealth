@@ -2737,6 +2737,7 @@ dependencies = [
 name = "health-app"
 version = "0.1.0"
 dependencies = [
+ "base64 0.23.1",
  "health-runtime",
  "hex",
  "objc2",

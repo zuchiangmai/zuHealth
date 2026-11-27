@@ -4694,6 +4694,14 @@
    "url": "https://github.com/rustls/webpki-roots"
   },
   {
+   "name": "webpki-roots",
+   "versions": [
+    "1.0.12"
+   ],
+   "license": "CDLA-Permissive-2.0",
+   "url": "https://github.com/rustls/webpki-roots"
+  },
+  {
    "name": "webview2-com",
    "versions": [
     "0.39.1"
@@ -5300,36 +5308,28 @@
    "url": "https://www.i18next.com"
   },
   {
-   "name": "js-tokens",
+   "name": "konsta",
    "versions": [
-    "4.0.0"
+    "5.5.0"
    ],
    "license": "MIT",
-   "url": "lydell/js-tokens"
-  },
-  {
-   "name": "loose-envify",
-   "versions": [
-    "1.4.0"
-   ],
-   "license": "MIT",
-   "url": "https://github.com/zertosh/loose-envify"
+   "url": "https://konstaui.com"
   },
   {
    "name": "react",
    "versions": [
-    "18.3.1"
+    "19.3.1"
    ],
    "license": "MIT",
-   "url": "https://reactjs.org/"
+   "url": "https://react.dev/"
   },
   {
    "name": "react-dom",
    "versions": [
-    "18.3.1"
+    "19.3.1"
    ],
    "license": "MIT",
-   "url": "https://reactjs.org/"
+   "url": "https://react.dev/"
   },
   {
    "name": "react-i18next",
@@ -5342,10 +5342,18 @@
   {
    "name": "scheduler",
    "versions": [
-    "0.23.2"
+    "0.28.0"
    ],
    "license": "MIT",
-   "url": "https://reactjs.org/"
+   "url": "https://react.dev/"
+  },
+  {
+   "name": "tailwind-merge",
+   "versions": [
+    "3.7.1"
+   ],
+   "license": "MIT",
+   "url": "https://github.com/dcastil/tailwind-merge"
   },
   {
    "name": "void-elements",

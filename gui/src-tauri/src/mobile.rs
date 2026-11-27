@@ -71,7 +71,16 @@ pub(crate) fn ocr_status(app: AppHandle) -> std::result::Result<Value, Value> {
 /// Downloads and checks the OCR component (health-connect, the one crate that opens connections).
 #[tauri::command(async)]
 pub(crate) fn ocr_install(app: AppHandle, matching: bool) -> std::result::Result<Value, Value> {
-    health_runtime::ocr::install(runtime(&app)?.data_dir(), None, matching).map_err(|e| error_json(&e))
+    let mut last = u64::MAX;
+    health_runtime::ocr::install(runtime(&app)?.data_dir(), None, matching, &mut |done, total| {
+        // a percent at a time: the bar needs no more
+        let pct = done * 100 / total.max(1);
+        if pct != last {
+            last = pct;
+            relay("ocr_progress", json!({ "stage": "download", "done": done, "total": total }));
+        }
+    })
+    .map_err(|e| error_json(&e))
 }
 
 #[tauri::command]
@@ -162,7 +171,11 @@ pub(crate) fn run(builder: tauri::Builder<Wry>) {
             }
             let data_dir = app.path().app_data_dir()?;
             std::thread::spawn(move || {
+                let recognize = health_runtime::ocr::in_process(&data_dir, |page, pages| {
+                    relay("ocr_progress", json!({ "stage": "read", "done": page, "total": pages }));
+                });
                 let mut platform = Platform::system(data_dir, Box::new(NativeKeys(handle)), Some(LOCK_AFTER_MS));
+                platform.recognize = recognize;
                 platform.device_name = device_name();
                 let _ = RUNTIME.set(Runtime::new(platform, relay));
             });

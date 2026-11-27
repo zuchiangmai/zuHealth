@@ -39,3 +39,7 @@ health-runtime.workspace = true
 tauri-plugin-health-platform.workspace = true
 tauri-plugin-barcode-scanner = "2"
 tauri-plugin-opener = "2"
+
+# Android sends a picked file in base64 chunks (its IPC can't carry raw bytes): lib.rs stage_file.
+[target.'cfg(target_os = "android")'.dependencies]
+base64 = "0.23"

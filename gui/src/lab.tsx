@@ -7,7 +7,10 @@ import forcedecksPhoto from "./devices/forcedecks.webp";
 import secaPhoto from "./devices/seca-mbca.webp";
 import { OpError, deviceFromCode, isMobile, op, scanCode } from "./api";
 import { when } from "./format";
+import { BirthWheels, isTouch } from "./pickers";
+import { go } from "./router";
 import { t } from "./i18n";
+import { Btn, card } from "./ui";
 
 type Kind = { kind: "seca" | "forcedecks" | "lab"; name: string; state?: string; since?: number };
 type Fail = (e: unknown) => string;
@@ -26,7 +29,7 @@ const ethnicityLabel = (e: string) =>
 function DevicePhoto({ kind }: { kind: "seca" | "forcedecks" }) {
   const p = kind === "seca" ? { src: secaPhoto, alt: "seca mBCA Pro", w: 344, h: 640 } : { src: forcedecksPhoto, alt: "VALD ForceDecks", w: 720, h: 403 };
   return (
-    <figure className={`dev-photo ${kind}`}>
+    <figure className="my-3 [&_img]:block [&_img]:h-auto [&_img]:max-h-60 [&_img]:w-auto [&_img]:max-w-full [&_img]:rounded-2xl">
       <img src={p.src} alt={p.alt} width={p.w} height={p.h} decoding="async" />
     </figure>
   );
@@ -34,7 +37,7 @@ function DevicePhoto({ kind }: { kind: "seca" | "forcedecks" }) {
 
 function Problem({ text }: { text?: string }) {
   return text ? (
-    <p className="problem" role="alert">
+    <p className="text-[15px] text-brand-red" role="alert">
       {text}
     </p>
   ) : null;
@@ -58,21 +61,40 @@ function useOnce() {
   return { busy, once };
 }
 
-/** Lab self-service: scan or type a device, then its page. `showResults` opens the readings once results arrived. */
-export function LabSelfService({ errText, showResults, showIdentity, pollFast }: { errText: Fail; showResults: () => void; showIdentity: () => void; pollFast: () => void }) {
+/** Lab self-service: scan or type a device, then its page, a screen of its own (#/data/lab/s/<device>).
+ *  `showResults` opens the readings once results arrived. */
+export function LabSelfService({
+  errText,
+  showResults,
+  showIdentity,
+  pollFast,
+  path: [page, id],
+}: {
+  errText: Fail;
+  showResults: () => void;
+  showIdentity: () => void;
+  pollFast: () => void;
+  /** the device open: its page ("s" a lab device, "d" a short code) and id */
+  path: string[];
+}) {
   const [typed, setTyped] = useState("");
-  const [device, setDevice] = useState<{ id: string; page: "s" | "d" }>();
+  const device = id && (page === "s" || page === "d") ? { id, page } : undefined;
   const [kind, setKind] = useState<Kind>();
   const [err, setErr] = useState<string>();
   const { busy, once } = useOnce();
+  // a lab device's page needs what the device is (asked here when its address was opened directly)
+  useEffect(() => {
+    if (device?.page !== "s" || kind) return;
+    op<Kind>("lab.device", { device: device.id }).then(setKind, (e) => setErr(errText(e)));
+  }, [device?.page, device?.id]);
+  const setDevice = (d: { id: string; page: "s" | "d" }) => go(`data/lab/${d.page}/${encodeURIComponent(d.id)}`);
 
   const open = (id: string, page: "s" | "d") =>
     once(async () => {
       setErr(undefined);
       if (page === "d") return setDevice({ id, page });
       try {
-        const k = await op<Kind>("lab.device", { device: id });
-        setKind(k);
+        setKind(await op<Kind>("lab.device", { device: id }));
         setDevice({ id, page });
       } catch (e) {
         setErr(errText(e));
@@ -87,68 +109,63 @@ export function LabSelfService({ errText, showResults, showIdentity, pollFast }:
         if (!text) return;
         const d = deviceFromCode(text);
         if (!d) return setErr(t("That isn't a lab device's code."));
-        setDevice(undefined);
-        const k = d.page === "s" ? await op<Kind>("lab.device", { device: d.device }) : undefined;
-        setKind(k);
+        if (d.page === "s") setKind(await op<Kind>("lab.device", { device: d.device }));
         setDevice({ id: d.device, page: d.page });
       } catch (e) {
         setErr(errText(e));
       }
     });
 
-  const back = () => {
-    setDevice(undefined);
-    setKind(undefined);
-  };
-  if (device && kind?.kind === "seca") return <SecaSelf device={device.id} errText={errText} back={back} showResults={showResults} />;
-  if (device && kind?.kind === "forcedecks") return <FdSelf device={device.id} kind={kind} errText={errText} back={back} showResults={showResults} />;
-  if (device) return <ShortCode device={device.id} errText={errText} back={back} pollFast={pollFast} />;
+  if (device?.page === "s" && !kind) return err ? <Problem text={err} /> : <p aria-busy="true" />;
+  if (device && kind?.kind === "seca") return <SecaSelf device={device.id} errText={errText} showResults={showResults} />;
+  if (device && kind?.kind === "forcedecks") return <FdSelf device={device.id} kind={kind} errText={errText} showResults={showResults} />;
+  if (device) return <ShortCode device={device.id} errText={errText} pollFast={pollFast} />;
   return (
-    <section className="record">
-      <h2>{t("Lab self-service")}</h2>
-      <p className="lede">
+    <section className="[&_h3]:mt-6">
+      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Lab self-service")}</h2>
+      <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55">
         {isMobile
           ? t("Scan the code on the lab device. Your results are stored here, on this device.")
           : t("Type the id beside the lab device's code. Your results are stored here, on this computer.")}
       </p>
       {isMobile && (
-        <div className="actions">
-          <button type="button" className="primary" disabled={busy} onClick={() => void scan()}>
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+          <Btn type="button" primary disabled={busy} onClick={() => void scan()}>
             {t("Scan the device's code")}
-          </button>
+          </Btn>
         </div>
       )}
       <form
-        className="form"
+        className="flex flex-col gap-3"
         onSubmit={(e) => {
           e.preventDefault();
           const d = deviceFromCode(typed);
           void open(d?.device ?? typed.trim(), d?.page ?? "s");
         }}
       >
-        <label>
+        <label className="flex flex-col gap-1.5 text-[13px] text-black/60 dark:text-white/60">
           {t("Device id (beside its QR code)")}
-          <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="seca-mbca-01" spellCheck={false} autoCapitalize="none" required />
+          <input className="w-full rounded-xl bg-black/5 px-3 py-2.5 text-base text-black outline-none focus:ring-2 focus:ring-primary dark:bg-white/10 dark:text-white" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="seca-mbca-01" spellCheck={false} autoCapitalize="none" required />
         </label>
         <Problem text={err} />
-        <div className="actions">
-          <button type="submit" className={isMobile ? "" : "primary"} disabled={busy}>
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+          <Btn type="submit" primary={!isMobile} disabled={busy}>
             {busy ? t("Contacting the service…") : t("Open")}
-          </button>
+          </Btn>
         </div>
       </form>
-      <p className="fine">
+      <p className="text-[13px] text-black/55 dark:text-white/55">
         {t("Staff can also scan your identity code instead.")}{" "}
-        <button type="button" className="link" onClick={showIdentity}>
+        <Btn type="button" link onClick={showIdentity}>
           {t("Show my identity code")}
-        </button>
+        </Btn>
       </p>
     </section>
   );
 }
 
 /** A device without its own page: a 6-digit code to type at it; the result comes through the inbox. */
-function ShortCode({ device, errText, back, pollFast }: { device: string; errText: Fail; back: () => void; pollFast: () => void }) {
+function ShortCode({ device, errText, pollFast }: { device: string; errText: Fail; pollFast: () => void }) {
   const [code, setCode] = useState<{ code: string; until: number }>();
   const [err, setErr] = useState<string>();
   const { busy, once } = useOnce();
@@ -168,41 +185,32 @@ function ShortCode({ device, errText, back, pollFast }: { device: string; errTex
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [device]);
   return (
-    <section className="record">
-      <BackLink back={back} />
-      <h2>{t("Lab self-service")}</h2>
+    <section className="[&_h3]:mt-6">
+      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Lab self-service")}</h2>
       {code ? (
-        <div className="group form">
-          <p className="self-code" aria-label={t("Code {{code}}", { code: code.code })}>
+        <div className={`${card} flex flex-col gap-3`}>
+          <p className="text-[34px] font-semibold tracking-[0.1em] tabular-nums" aria-label={t("Code {{code}}", { code: code.code })}>
             {code.code}
           </p>
-          <p className="fine">{t("Valid until {{when}}.", { when: when(code.until) })}</p>
-          <ol className="steps">
+          <p className="text-[13px] text-black/55 dark:text-white/55">{t("Valid until {{when}}.", { when: when(code.until) })}</p>
+          <ol className="list-decimal ps-5 leading-relaxed [&_li+li]:mt-3">
             <li>{t("Type this code at the device.")}</li>
             <li>{t("Do the measurement.")}</li>
             <li>{t("The result arrives here within minutes.")}</li>
           </ol>
         </div>
       ) : (
-        <p className="lede">{busy ? t("Contacting the service…") : ""}</p>
+        <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55">{busy ? t("Contacting the service…") : ""}</p>
       )}
       <Problem text={err} />
       {err && (
-        <div className="actions">
-          <button type="button" onClick={() => void get()}>
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+          <Btn type="button" onClick={() => void get()}>
             {t("Try again")}
-          </button>
+          </Btn>
         </div>
       )}
     </section>
-  );
-}
-
-function BackLink({ back }: { back: () => void }) {
-  return (
-    <button type="button" className="link back" onClick={back}>
-      ‹ {t("Lab self-service")}
-    </button>
   );
 }
 
@@ -225,34 +233,41 @@ function BirthAndSex({
   const thisYear = new Date().getFullYear();
   return (
     <>
-      <label>
-        {t("Birth year")}
-        <select value={year} onChange={(e) => setYear(e.target.value)}>
-          <option value="">{t("Choose")}</option>
-          {Array.from({ length: thisYear - 1900 + 1 }, (_, k) => thisYear - k).map((y) => (
-            <option key={y} value={String(y)}>
-              {y}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label>
-        {t("Birth month")}
-        <select value={month} onChange={(e) => setMonth(e.target.value)}>
-          <option value="">{t("Choose")}</option>
-          {Array.from({ length: 12 }, (_, k) => k + 1).map((m) => (
-            <option key={m} value={String(m).padStart(2, "0")}>
-              {m}
-            </option>
-          ))}
-        </select>
-      </label>
-      <fieldset className="segmented-row">
+      {isTouch ? (
+        // the wheels take months as "1"…"12"; this form keeps "01"…"12"
+        <BirthWheels year={year} month={month ? String(Number(month)) : ""} setYear={setYear} setMonth={(m) => setMonth(m.padStart(2, "0"))} />
+      ) : (
+        <>
+          <label className="flex flex-col gap-1.5 text-[13px] text-black/60 dark:text-white/60">
+            {t("Birth year")}
+            <select className="w-full rounded-xl bg-black/5 px-3 py-2.5 text-base text-black outline-none focus:ring-2 focus:ring-primary dark:bg-white/10 dark:text-white" value={year} onChange={(e) => setYear(e.target.value)}>
+              <option value="">{t("Choose")}</option>
+              {Array.from({ length: thisYear - 1900 + 1 }, (_, k) => thisYear - k).map((y) => (
+                <option key={y} value={String(y)}>
+                  {y}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1.5 text-[13px] text-black/60 dark:text-white/60">
+            {t("Birth month")}
+            <select className="w-full rounded-xl bg-black/5 px-3 py-2.5 text-base text-black outline-none focus:ring-2 focus:ring-primary dark:bg-white/10 dark:text-white" value={month} onChange={(e) => setMonth(e.target.value)}>
+              <option value="">{t("Choose")}</option>
+              {Array.from({ length: 12 }, (_, k) => k + 1).map((m) => (
+                <option key={m} value={String(m).padStart(2, "0")}>
+                  {m}
+                </option>
+              ))}
+            </select>
+          </label>
+        </>
+      )}
+      <fieldset className="m-0 flex flex-wrap gap-2 border-0 p-0 [&_legend]:mb-1.5 [&_legend]:text-[13px]">
         <legend>{t("Sex")}</legend>
         {(["Male", "Female"] as const).map((g) => (
-          <button key={g} type="button" className={gender === g ? "primary" : ""} aria-pressed={gender === g} onClick={() => setGender(g)}>
+          <Btn key={g} type="button" on={gender === g} aria-pressed={gender === g} onClick={() => setGender(g)}>
             {g === "Male" ? t("Male") : t("Female")}
-          </button>
+          </Btn>
         ))}
       </fieldset>
     </>
@@ -269,7 +284,7 @@ type SecaState =
   | { s: "done" };
 
 /** seca mBCA Pro: register once (birth month, sex, ethnicity), start, stand on the device, wait for the report. */
-function SecaSelf({ device, errText, back, showResults }: { device: string; errText: Fail; back: () => void; showResults: () => void }) {
+function SecaSelf({ device, errText, showResults }: { device: string; errText: Fail; showResults: () => void }) {
   const [st, setSt] = useState<SecaState>({ s: "loading" });
   const [year, setYear] = useState("");
   const [month, setMonth] = useState("");
@@ -370,100 +385,99 @@ function SecaSelf({ device, errText, back, showResults }: { device: string; errT
   const ready = /^\d{4}$/.test(year) && /^\d{2}$/.test(month) && !!gender && !!eth;
   const mins = st.s === "waiting" ? Math.max(0, Math.floor((now - st.since) / 60_000)) : 0;
   return (
-    <section className="record lab-self">
-      <BackLink back={back} />
-      <h2>{t("Body composition")}</h2>
-      <p className="fine">seca mBCA Pro</p>
+    <section className="[&_h3]:mt-6">
+      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Body composition")}</h2>
+      <p className="text-[13px] text-black/55 dark:text-white/55">seca mBCA Pro</p>
       <DevicePhoto kind="seca" />
-      {st.s === "loading" && <p className="lede">{t("Opening…")}</p>}
+      {st.s === "loading" && <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55">{t("Opening…")}</p>}
       {st.s === "registering" && (
-        <div className="group notice" role="status">
+        <div className="mb-4 rounded-2xl bg-amber-500/15 px-4 py-3 text-[15px]" role="status">
           <p>{t("Registering, one moment…")}</p>
-          <p className="fine">{t("The first time, your details are registered on the device. This usually takes a few seconds.")}</p>
+          <p className="text-[13px] text-black/55 dark:text-white/55">{t("The first time, your details are registered on the device. This usually takes a few seconds.")}</p>
         </div>
       )}
       {st.s === "form" && (
         <form
-          className="form"
+          className="flex flex-col gap-3"
           onSubmit={(e) => {
             e.preventDefault();
             if (ready) void once(() => register({ birth: `${year}-${month}`, gender, ethnicity: eth }));
           }}
         >
-          <h3>{t("Before measuring")}</h3>
-          <p className="fine">{t("Used to work out your body composition. Asked only once.")}</p>
+          <h3 className="mb-2 text-[17px] font-semibold">{t("Before measuring")}</h3>
+          <p className="text-[13px] text-black/55 dark:text-white/55">{t("Used to work out your body composition. Asked only once.")}</p>
           {!(known.birth && known.gender) && <BirthAndSex year={year} month={month} gender={gender} setYear={setYear} setMonth={setMonth} setGender={setGender} />}
-          <fieldset className="segmented-row wrap">
+          <fieldset className="m-0 flex flex-wrap gap-2 border-0 p-0 [&_legend]:mb-1.5 [&_legend]:text-[13px]">
             <legend>{t("Ethnicity")}</legend>
             {ETHNICITIES.map((e) => (
-              <button key={e} type="button" className={eth === e ? "primary" : ""} aria-pressed={eth === e} onClick={() => setEth(e)}>
+              <Btn key={e} type="button" on={eth === e} aria-pressed={eth === e} onClick={() => setEth(e)}>
                 {ethnicityLabel(e)}
-              </button>
+              </Btn>
             ))}
           </fieldset>
           <Problem text={st.err} />
-          <div className="actions">
-            <button type="submit" className="primary" disabled={!ready || busy}>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+            <Btn type="submit" primary disabled={!ready || busy}>
               {t("Save")}
-            </button>
+            </Btn>
           </div>
         </form>
       )}
       {(st.s === "ready" || st.s === "confirm") && (
         <>
-          {st.s === "ready" && st.note === "timeout" && <p className="problem">{t("No new measurement arrived.")}</p>}
-          {st.s === "ready" && st.note === "replaced" && <p className="problem">{t("You started again elsewhere, so this wait ended.")}</p>}
-          {st.s === "ready" && (st.note === "failed" || st.note === "error") && <p className="problem">{t("This result couldn't be fetched.")}</p>}
+          {st.s === "ready" && st.note === "timeout" && <p className="text-[15px] text-brand-red">{t("No new measurement arrived.")}</p>}
+          {st.s === "ready" && st.note === "replaced" && <p className="text-[15px] text-brand-red">{t("You started again elsewhere, so this wait ended.")}</p>}
+          {st.s === "ready" && (st.note === "failed" || st.note === "error") && <p className="text-[15px] text-brand-red">{t("This result couldn't be fetched.")}</p>}
           <Problem text={st.s === "ready" ? st.err : undefined} />
           {st.s === "confirm" ? (
-            <div className="group notice" role="alertdialog">
+            <div className="mb-4 rounded-2xl bg-amber-500/15 px-4 py-3 text-[15px]" role="alertdialog">
               <p>{t("Someone may still be measuring. Check nobody is on the device before you start.")}</p>
-              {st.queue > 0 && <p className="fine">{t("{{count}} people are waiting for results ahead of you: please measure in turn.", { count: st.queue })}</p>}
-              <div className="actions">
-                <button type="button" onClick={() => setSt({ s: "ready" })}>
+              {st.queue > 0 && <p className="text-[13px] text-black/55 dark:text-white/55">{t("{{count}} people are waiting for results ahead of you: please measure in turn.", { count: st.queue })}</p>}
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                <Btn type="button" onClick={() => setSt({ s: "ready" })}>
                   {t("Cancel")}
-                </button>
-                <button type="button" className="primary" disabled={busy} onClick={() => void go()}>
+                </Btn>
+                <Btn type="button" primary disabled={busy} onClick={() => void go()}>
                   {t("Continue")}
-                </button>
+                </Btn>
               </div>
             </div>
           ) : (
-            <div className="actions">
-              <button type="button" className="primary" disabled={busy} onClick={() => void begin()}>
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+              <Btn type="button" primary disabled={busy} onClick={() => void begin()}>
                 {busy ? t("Starting…") : t("Start measuring")}
-              </button>
+              </Btn>
             </div>
           )}
         </>
       )}
       {st.s === "waiting" && (
-        <div className="group notice">
+        <div className="mb-4 rounded-2xl bg-amber-500/15 px-4 py-3 text-[15px]">
           <p>
             <strong>{t("Take off your socks: stand on the device barefoot.")}</strong>
           </p>
-          <ol className="steps">
+          <ol className="list-decimal ps-5 leading-relaxed [&_li+li]:mt-3">
             <li>{t("Stand on the device.")}</li>
             <li>{t("After about ten seconds the screen shows BIA: tap the tick at the bottom right.")}</li>
             <li>{t("When it says “Authorized personnel only”, tap the tick at the bottom right.")}</li>
             <li>{t("On “Date of birth”, enter your date of birth and tap the tick below; the device submits the data (Submitting data).")}</li>
             <li>{t("About 30 seconds after it finishes, the report appears here.")}</li>
           </ol>
-          <p className="fine">{t("Waiting for the result: {{count}} min so far (10 at most).", { count: mins })}</p>
-          <div className="actions">
-            <button type="button" onClick={() => void cancel()}>
+          <p className="text-[13px] text-black/55 dark:text-white/55">{t("Waiting for the result: {{count}} min so far (10 at most).", { count: mins })}</p>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+            <Btn type="button" onClick={() => void cancel()}>
               {t("Stop waiting")}
-            </button>
+            </Btn>
           </div>
         </div>
       )}
       {st.s === "done" && (
-        <div className="group notice">
+        <div className="mb-4 rounded-2xl bg-amber-500/15 px-4 py-3 text-[15px]">
           <p>{t("Your body composition report is here.")}</p>
-          <div className="actions">
-            <button type="button" className="primary" onClick={showResults}>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+            <Btn type="button" primary onClick={showResults}>
               {t("Show the results")}
-            </button>
+            </Btn>
           </div>
         </div>
       )}
@@ -478,7 +492,7 @@ type FdView = {
 type FdState = { s: "loading" } | { s: "form"; err?: string } | { s: "registering" } | { s: "profile"; view?: FdView; err?: string };
 
 /** VALD ForceDecks: a profile per device (birth month and sex), start, then the person works the device's screen. */
-function FdSelf({ device, kind, errText, back, showResults }: { device: string; kind: Kind; errText: Fail; back: () => void; showResults: () => void }) {
+function FdSelf({ device, kind, errText, showResults }: { device: string; kind: Kind; errText: Fail; showResults: () => void }) {
   const [st, setSt] = useState<FdState>({ s: "loading" });
   const [year, setYear] = useState("");
   const [month, setMonth] = useState("");
@@ -590,77 +604,76 @@ function FdSelf({ device, kind, errText, back, showResults }: { device: string; 
   const lease = view?.lease;
   const ready = /^\d{4}$/.test(year) && /^\d{2}$/.test(month) && !!gender;
   return (
-    <section className="record lab-self">
-      <BackLink back={back} />
-      <h2>{t("VALD ForceDecks self-service")}</h2>
+    <section className="[&_h3]:mt-6">
+      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("VALD ForceDecks self-service")}</h2>
       <DevicePhoto kind="forcedecks" />
-      {devState === "unavailable" && <p className="problem">{t("The device is offline for now: please ask the staff for help.")}</p>}
-      {st.s === "loading" && <p className="lede">{t("Opening…")}</p>}
+      {devState === "unavailable" && <p className="text-[15px] text-brand-red">{t("The device is offline for now: please ask the staff for help.")}</p>}
+      {st.s === "loading" && <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55">{t("Opening…")}</p>}
       {st.s === "form" && (
         <form
-          className="form"
+          className="flex flex-col gap-3"
           onSubmit={(e) => {
             e.preventDefault();
             if (ready) void once(() => register({ birth: `${year}-${month}`, gender }));
           }}
         >
-          <p className="fine">{t("The test needs your birth month and sex.")}</p>
+          <p className="text-[13px] text-black/55 dark:text-white/55">{t("The test needs your birth month and sex.")}</p>
           <BirthAndSex year={year} month={month} gender={gender} setYear={setYear} setMonth={setMonth} setGender={setGender} />
           <Problem text={st.err} />
-          <div className="actions">
-            <button type="submit" className="primary" disabled={!ready || busy}>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+            <Btn type="submit" primary disabled={!ready || busy}>
               {t("Next")}
-            </button>
+            </Btn>
           </div>
         </form>
       )}
-      {(st.s === "registering" || view?.profile.state === "creating") && <p className="lede" role="status">{t("Making your profile on the device, about half a minute…")}</p>}
+      {(st.s === "registering" || view?.profile.state === "creating") && <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55" role="status">{t("Making your profile on the device, about half a minute…")}</p>}
       {view?.profile.state === "failed" && (
-        <div className="actions">
-          <p className="problem">{t("The profile wasn't made. Please try again.")}</p>
-          <button type="button" onClick={() => void once(() => register())}>
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+          <p className="text-[15px] text-brand-red">{t("The profile wasn't made. Please try again.")}</p>
+          <Btn type="button" onClick={() => void once(() => register())}>
             {t("Try again")}
-          </button>
+          </Btn>
         </div>
       )}
       {st.s === "profile" && view?.profile.state !== "creating" && view?.profile.state !== "failed" && (
         <>
-          {devState === "in_use" && !(lease && (lease.state === "opening" || lease.state === "open")) && <p className="problem">{t("The device is in use: please try again shortly.")}</p>}
-          {lease?.state === "failed" && <p className="problem">{t("The device can't be used right now: please ask the staff.")}</p>}
+          {devState === "in_use" && !(lease && (lease.state === "opening" || lease.state === "open")) && <p className="text-[15px] text-brand-red">{t("The device is in use: please try again shortly.")}</p>}
+          {lease?.state === "failed" && <p className="text-[15px] text-brand-red">{t("The device can't be used right now: please ask the staff.")}</p>}
           {lease && (lease.state === "opening" || lease.state === "open") ? (
-            <div className="group notice">
+            <div className="mb-4 rounded-2xl bg-amber-500/15 px-4 py-3 text-[15px]">
               {lease.state === "opening" && <p role="status">{t("Opening the test on the device…")}</p>}
               <p>
                 <strong>{t("Work on the device's screen")}</strong>
               </p>
-              <ol className="steps">
+              <ol className="list-decimal ps-5 leading-relaxed [&_li+li]:mt-3">
                 <li>{t("Don't stand on VALD ForceDecks yet: tap Zero Platforms.")}</li>
                 <li>{t("Stand on VALD ForceDecks and keep still.")}</li>
                 <li>{t("Tap Start Recording, do your test, then stand still.")}</li>
                 <li>{t("Tap Stop Recording, then Analyse & Save.")}</li>
               </ol>
               {view?.profile.name && <p>{t("Check that the name at the top of the screen is {{name}}.", { name: view.profile.name })}</p>}
-              <p className="fine">{t("The test type is your choice: pick it on the device's screen, or keep Auto Detect and let the device tell.")}</p>
-              <p className="fine">{t("Once saved, the results appear here.")}</p>
+              <p className="text-[13px] text-black/55 dark:text-white/55">{t("The test type is your choice: pick it on the device's screen, or keep Auto Detect and let the device tell.")}</p>
+              <p className="text-[13px] text-black/55 dark:text-white/55">{t("Once saved, the results appear here.")}</p>
             </div>
           ) : (
             <>
-              {lease && <p className="fine">{t("The test has ended.")}</p>}
-              <p className="lede">{t("You can start the test now.")}</p>
-              <div className="actions">
-                <button type="button" className="primary" disabled={busy || devState === "in_use"} onClick={() => void start()}>
+              {lease && <p className="text-[13px] text-black/55 dark:text-white/55">{t("The test has ended.")}</p>}
+              <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55">{t("You can start the test now.")}</p>
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                <Btn type="button" primary disabled={busy || devState === "in_use"} onClick={() => void start()}>
                   {t("Start the test")}
-                </button>
+                </Btn>
               </div>
             </>
           )}
           {taken > 0 && (
-            <div className="group notice">
+            <div className="mb-4 rounded-2xl bg-amber-500/15 px-4 py-3 text-[15px]">
               <p>{t("Results from {{count}} tests arrived.", { count: taken })}</p>
-              <div className="actions">
-                <button type="button" className="primary" onClick={showResults}>
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                <Btn type="button" primary onClick={showResults}>
                   {t("Show the results")}
-                </button>
+                </Btn>
               </div>
             </div>
           )}

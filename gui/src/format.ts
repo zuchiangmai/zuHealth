@@ -259,7 +259,8 @@ export const REPORT_EXTENSIONS = ["jpg", "jpeg", "png", "webp", "tif", "tiff", "
 export function importKind(path: string): ImportKind | null {
   const p = path.toLowerCase();
   if (REPORT_EXTENSIONS.some((e) => p.endsWith(`.${e}`))) return "report";
-  if (p.endsWith(".zuhealth")) return "backup";
+  // the web version names its backups .zuhealth.bin (a browser download), this app .zuhealth
+  if (p.endsWith(".zuhealth") || p.endsWith(".zuhealth.bin")) return "backup";
   if (p.endsWith(".zip")) return "apple";
   if (p.endsWith(".jsonl")) return "rows";
   if (p.endsWith(".json")) return "whoop";

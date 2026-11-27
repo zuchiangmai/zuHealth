@@ -3,6 +3,7 @@
 // min–max band for instant metrics, and a table view so identity never rests on the picture alone.
 import { useMemo, useState } from "react";
 import { t } from "./i18n";
+import { Btn } from "./ui";
 
 export interface Pt {
   day: string;
@@ -28,14 +29,14 @@ function scale(pts: Pt[], w: number, h: number, pad: number, left = pad) {
 export function Spark({ pts, label, latest }: { pts: Pt[]; label: string; latest?: string }) {
   const w = 120;
   const h = 28;
-  if (pts.length < 2) return <svg className="spark" width={w} height={h} role="img" aria-label={t("{{name}}: not enough days for a trend", { name: label })} />;
+  if (pts.length < 2) return <svg className="ms-auto h-[26px] w-24" width={w} height={h} role="img" aria-label={t("{{name}}: not enough days for a trend", { name: label })} />;
   const { x, y } = scale(pts, w, h, 4);
   const d = pts.map((p, i) => `${i ? "L" : "M"}${x(p.day).toFixed(1)},${y(p.v).toFixed(1)}`).join("");
   const last = pts[pts.length - 1]!;
   return (
-    <svg className="spark" width={w} height={h} viewBox={`0 0 ${w} ${h}`} role="img" aria-label={t("{{name}}: {{count}} days, latest {{v}}", { name: label, count: pts.length, v: latest ?? last.v })}>
-      <path d={d} className="trace" />
-      <circle cx={x(last.day)} cy={y(last.v)} r={4} className="dot" />
+    <svg className="ms-auto h-[26px] w-24" width={w} height={h} viewBox={`0 0 ${w} ${h}`} role="img" aria-label={t("{{name}}: {{count}} days, latest {{v}}", { name: label, count: pts.length, v: latest ?? last.v })}>
+      <path d={d} className="fill-none stroke-primary [stroke-linecap:round] [stroke-linejoin:round] [stroke-width:2]" />
+      <circle cx={x(last.day)} cy={y(last.v)} r={4} className="fill-primary stroke-white [stroke-width:2] dark:stroke-black" />
     </svg>
   );
 }
@@ -48,7 +49,7 @@ export function DailyChart({ pts, unit, fmt }: { pts: Pt[]; unit: string; fmt: (
   const pad = 28;
   const left = 56;
   const s = useMemo(() => (pts.length ? scale(pts, w, h, pad, left) : null), [pts]);
-  if (!pts.length || !s) return <p className="empty">No daily values in this range yet.</p>;
+  if (!pts.length || !s) return <p className="text-black/55 dark:text-white/55">No daily values in this range yet.</p>;
   const band = pts.some((p) => p.lo != null && p.hi != null && p.lo !== p.hi);
   const line = pts.map((p, i) => `${i ? "L" : "M"}${s.x(p.day).toFixed(1)},${s.y(p.v).toFixed(1)}`).join("");
   const area = band
@@ -68,27 +69,27 @@ export function DailyChart({ pts, unit, fmt }: { pts: Pt[]; unit: string; fmt: (
   };
   const hp = hover === null ? null : pts[hover]!;
   return (
-    <figure className="daily">
-      <div className="chart-tools">
-        <button type="button" className="link" onClick={() => setTable(!table)} aria-pressed={table}>
+    <figure className="relative mt-4 mb-6">
+      <div className="flex justify-end">
+        <Btn type="button" link onClick={() => setTable(!table)} aria-pressed={table}>
           {table ? t("Show chart") : t("Show table")}
-        </button>
+        </Btn>
       </div>
       {table ? (
-        <table className="rows">
+        <table className="w-full text-sm">
           <thead>
             <tr>
               <th>{t("Day")}</th>
-              <th className="n">{unit ? t("Value ({{unit}})", { unit }) : t("Value")}</th>
-              {band && <th className="n">{t("Range")}</th>}
+              <th className="font-semibold tabular-nums">{unit ? t("Value ({{unit}})", { unit }) : t("Value")}</th>
+              {band && <th className="font-semibold tabular-nums">{t("Range")}</th>}
             </tr>
           </thead>
           <tbody>
             {[...pts].reverse().map((p) => (
               <tr key={p.day}>
                 <td>{p.day}</td>
-                <td className="n">{fmt(p.v)}</td>
-                {band && <td className="n">{p.lo != null && p.hi != null ? `${fmt(p.lo)}–${fmt(p.hi)}` : ""}</td>}
+                <td className="font-semibold tabular-nums">{fmt(p.v)}</td>
+                {band && <td className="font-semibold tabular-nums">{p.lo != null && p.hi != null ? `${fmt(p.lo)}–${fmt(p.hi)}` : ""}</td>}
               </tr>
             ))}
           </tbody>
@@ -96,7 +97,7 @@ export function DailyChart({ pts, unit, fmt }: { pts: Pt[]; unit: string; fmt: (
       ) : (
         <svg
           viewBox={`0 0 ${w} ${h}`}
-          className="chart"
+          className="block h-auto w-full"
           role="img"
           aria-label={t("Daily values, {{count}} days", { count: pts.length })}
           onMouseMove={(e) => setHover(near(e.clientX, e.currentTarget.getBoundingClientRect()))}
@@ -104,31 +105,31 @@ export function DailyChart({ pts, unit, fmt }: { pts: Pt[]; unit: string; fmt: (
         >
           {ticks.map((t) => (
             <g key={t}>
-              <line x1={left} x2={w - pad} y1={s.y(t)} y2={s.y(t)} className="grid" />
-              <text x={left - 8} y={s.y(t) + 4} className="tick" textAnchor="end">
+              <line x1={left} x2={w - pad} y1={s.y(t)} y2={s.y(t)} className="stroke-black/10 dark:stroke-white/10" />
+              <text x={left - 8} y={s.y(t) + 4} className="fill-black/55 text-xs dark:fill-white/55" textAnchor="end">
                 {fmt(t)}
               </text>
             </g>
           ))}
-          <text x={left} y={h - 6} className="tick">
+          <text x={left} y={h - 6} className="fill-black/55 text-xs dark:fill-white/55">
             {pts[0]!.day}
           </text>
-          <text x={w - pad} y={h - 6} className="tick" textAnchor="end">
+          <text x={w - pad} y={h - 6} className="fill-black/55 text-xs dark:fill-white/55" textAnchor="end">
             {pts[pts.length - 1]!.day}
           </text>
-          {band && <path d={area} className="band" />}
-          <path d={line} className="trace" />
-          <circle cx={s.x(pts[pts.length - 1]!.day)} cy={s.y(pts[pts.length - 1]!.v)} r={4} className="dot" />
+          {band && <path d={area} className="fill-primary opacity-15" />}
+          <path d={line} className="fill-none stroke-primary [stroke-linecap:round] [stroke-linejoin:round] [stroke-width:2]" />
+          <circle cx={s.x(pts[pts.length - 1]!.day)} cy={s.y(pts[pts.length - 1]!.v)} r={4} className="fill-primary stroke-white [stroke-width:2] dark:stroke-black" />
           {hp && (
             <g>
-              <line x1={s.x(hp.day)} x2={s.x(hp.day)} y1={pad / 2} y2={h - pad} className="cross" />
-              <circle cx={s.x(hp.day)} cy={s.y(hp.v)} r={5} className="dot ring" />
+              <line x1={s.x(hp.day)} x2={s.x(hp.day)} y1={pad / 2} y2={h - pad} className="stroke-black/50 [stroke-dasharray:2_3] dark:stroke-white/50" />
+              <circle cx={s.x(hp.day)} cy={s.y(hp.v)} r={5} className="fill-primary stroke-white [stroke-width:2] dark:stroke-black" />
             </g>
           )}
         </svg>
       )}
       {hp && !table && (
-        <figcaption className="tip" role="status">
+        <figcaption className="ms-14 mt-1 text-black/55 dark:text-white/55 [&_strong]:text-black dark:[&_strong]:text-white" role="status">
           {hp.day}: <strong>{fmt(hp.v)}</strong> {unit}
           {band && hp.lo != null && hp.hi != null ? ` (range ${fmt(hp.lo)}–${fmt(hp.hi)})` : ""}
         </figcaption>

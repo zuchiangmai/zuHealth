@@ -15,6 +15,7 @@ const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
 export const isMobile = inTauri && (/Android|iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1));
 /** Desktop app: native file dialogs and drag and drop exist; in the browser preview, paths are typed. */
 export const isDesktop = inTauri && !isMobile;
+export const isAndroid = isMobile && /Android/.test(ua);
 
 export class OpError extends Error {
   constructor(
@@ -119,7 +120,6 @@ export async function corePath(): Promise<string> {
   return inTauri ? invoke<string>("core_path") : "health";
 }
 
-/** Calls `fn` after every committed write (SSE through the shell in Tauri; polling in the browser). */
 /** LAN sync's live state changed (Tauri); in the browser, every 2 s. */
 export function onSync(fn: () => void): () => void {
   if (inTauri) return listenAll(["health:sync", "health:changed"], fn);
@@ -127,6 +127,7 @@ export function onSync(fn: () => void): () => void {
   return () => clearInterval(t);
 }
 
+/** Calls `fn` after every committed write (SSE through the shell in Tauri; polling in the browser). */
 export function onChange(fn: () => void): () => void {
   if (inTauri) return listenAll(["health:changed", "health:unlocked", "health:locked", "health:status"], fn);
   const t = setInterval(fn, 5000);
@@ -232,22 +233,42 @@ export interface Status {
   observations: number;
 }
 
-/** Native "Open" dialog for anything Health can import. */
-export async function chooseImportFile(): Promise<string | null> {
+/** The file types each way in takes, for the desktop's open dialog. */
+export const FILE_TYPES = {
+  photo: ["jpg", "jpeg", "png", "webp", "heic", "tif", "tiff", "bmp", "gif"],
+  report: ["jpg", "jpeg", "png", "webp", "heic", "tif", "tiff", "bmp", "gif", "pdf"],
+  apple: ["zip"],
+  restore: ["zuhealth", "bin"],
+  file: ["zip", "zuhealth", "bin", "json", "jsonl", "jpg", "jpeg", "png", "webp", "heic", "tif", "tiff", "bmp", "gif", "pdf"],
+} as const;
+
+/** Desktop: the system's open dialog; the file is imported where it is (a large export isn't copied). */
+export async function chooseImportFile(types: keyof typeof FILE_TYPES = "file"): Promise<string | null> {
   const { open } = await import("@tauri-apps/plugin-dialog");
-  const r = await open({
-    multiple: false,
-    directory: false,
-    title: t("Import health data"),
-    filters: [{ name: t("Health data"), extensions: ["zip", "zuhealth", "json", "jsonl", "jpg", "jpeg", "png", "webp", "tif", "tiff", "bmp", "gif", "pdf"] }],
-  });
+  const r = await open({ multiple: false, directory: false, title: t("Import health data"), filters: [{ name: t("Health data"), extensions: [...FILE_TYPES[types]] }] });
   return typeof r === "string" ? r : null;
 }
 
-/** Native "Save" dialog. */
-export async function chooseSavePath(defaultPath: string, name: string, ext: string): Promise<string | null> {
-  const { save } = await import("@tauri-apps/plugin-dialog");
-  return save({ defaultPath, title: `Save ${name}`, filters: [{ name, extensions: [ext] }] });
+/** Saves an export where the person chooses, once it's asked for: the desktop's save dialog first; a phone writes
+ *  it in the app's own folder, then the share sheet (Save to Files, send...); the browser preview downloads it.
+ *  `write` makes the file at the path given and returns where it went. Null: the dialog was cancelled. */
+export async function saveExport(name: string, mime: string, kind: { name: string; ext: string }, write: (path: string) => Promise<string>): Promise<string | null> {
+  if (isDesktop) {
+    const { save } = await import("@tauri-apps/plugin-dialog");
+    const path = await save({ defaultPath: name, title: kind.name, filters: [{ name: kind.name, extensions: [kind.ext] }] });
+    return path ? write(path) : null;
+  }
+  if (isMobile) {
+    const path = await write(await invoke<string>("export_path", { name }));
+    await invoke("share_file", { path, mime });
+    return path;
+  }
+  const path = await write(await (await fetch(`/dev/export?name=${encodeURIComponent(name)}`, { method: "POST" })).text());
+  const a = document.createElement("a");
+  a.href = `/dev/download?name=${encodeURIComponent(name)}`;
+  a.download = name;
+  a.click();
+  return path;
 }
 
 /** Files dragged onto the window (desktop only): `over` while hovering, `drop` with the paths. */
@@ -315,7 +336,6 @@ export interface OcrItem {
   suggest?: { code: string; score: number }[];
 }
 
-/** The OCR component (models) on this computer: desktop only. */
 /** The shell's menu bar and window title follow the UI's language (desktop only). */
 export function setShellLanguage(lang: string): void {
   if (isDesktop) invoke("set_language", { lang }).catch(() => {});
@@ -327,8 +347,24 @@ export function openLink(url: string): void {
   else window.open(url, "_blank", "noopener");
 }
 
-export async function ocrComponent(): Promise<{ ready: boolean } | null> {
+export interface OcrComponent {
+  ready: boolean;
+  files: { name: string; bytes: number; installed: boolean; required: boolean }[];
+}
+
+/** The OCR component (models) on this device: what's installed, what a first read would download. */
+export async function ocrComponent(): Promise<OcrComponent | null> {
   return inTauri ? invoke("ocr_status") : null;
+}
+
+/** The models downloading (bytes) or a report being read (pages), for a progress bar. */
+export interface OcrProgress {
+  stage: "download" | "read";
+  done: number;
+  total: number;
+}
+export function onOcrProgress(fn: (p: OcrProgress) => void): () => void {
+  return inTauri ? listenAll(["health:ocr_progress"], (p) => fn(p as OcrProgress)) : () => {};
 }
 
 /** Downloads and checks the OCR component (desktop only); `matching` adds the 135 MB matching model. */
@@ -356,9 +392,16 @@ export interface FdSession {
   best: number;
 }
 
-/** Mobile: a file the person picked or photographed, handed to the core as a path it can import. */
+/** A file the person picked, photographed or dropped in the page, handed to the core as a path it can import
+ *  (the app's own folder; the browser preview's dev server). */
 export async function stageFile(file: File): Promise<string> {
+  if (!inTauri) {
+    const r = await fetch("/dev/stage", { method: "POST", headers: { "x-file-name": encodeURIComponent(file.name || "file") }, body: file });
+    if (!r.ok) throw new OpError("stage_failed", `HTTP ${r.status}`);
+    return r.text();
+  }
   try {
+    if (isAndroid) return await stageInChunks(file);
     return await invoke<string>("stage_file", new Uint8Array(await file.arrayBuffer()), {
       headers: { "x-file-name": encodeURIComponent(file.name || "file") },
     });
@@ -368,14 +411,23 @@ export async function stageFile(file: File): Promise<string> {
   }
 }
 
-/** Mobile: where to write an export before the share sheet takes it. */
-export async function exportPath(name: string): Promise<string> {
-  return invoke<string>("export_path", { name });
-}
-
-/** Mobile: the system share sheet (save to Files, send, AirDrop, ...) for a file the core wrote. */
-export async function shareFile(path: string, mime = "application/octet-stream"): Promise<void> {
-  await invoke("share_file", { path, mime });
+/** Android's IPC can't carry raw bytes: the file goes in base64 chunks, so a large export never sits in memory whole. */
+const CHUNK = 2 * 1024 * 1024;
+async function stageInChunks(file: File): Promise<string> {
+  const id = Math.random().toString(36).slice(2, 12) || "f";
+  const base64 = (blob: Blob) =>
+    new Promise<string>((ok, bad) => {
+      const r = new FileReader();
+      r.onload = () => ok(String(r.result).slice(String(r.result).indexOf(",") + 1));
+      r.onerror = () => bad(r.error);
+      r.readAsDataURL(blob);
+    });
+  let path = "";
+  for (let at = 0; at === 0 || at < file.size; at += CHUNK) {
+    const data = await base64(file.slice(at, at + CHUNK));
+    path = await invoke<string>("stage_file", { id, name: file.name || "file", data, first: at === 0 });
+  }
+  return path;
 }
 
 /** Mobile: scans a QR code with the camera; null if the person closed the scanner. */

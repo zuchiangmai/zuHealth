@@ -24,8 +24,9 @@ pub fn file_sha(path: &str) -> Result<String> {
     Ok(health_ocr::input::sha256_hex(&std::fs::read(path)?))
 }
 
-/// Recognition in this process, with the OCR component under `data_dir`.
-pub fn in_process(data_dir: &Path) -> Recognize {
+/// Recognition in this process, with the OCR component under `data_dir`. `on_page(page, pages)` before each page,
+/// for a progress bar.
+pub fn in_process(data_dir: &Path, on_page: impl Fn(usize, usize) + Send + Sync + 'static) -> Recognize {
     let dir = components::dir(data_dir);
     Box::new(move |path, this_year| {
         if !components::ready(&dir) {
@@ -35,8 +36,8 @@ pub fn in_process(data_dir: &Path) -> Recognize {
         let bytes = std::fs::read(path).map_err(|_| Error::not_found("no_file", path.to_string_lossy()))?;
         let input = health_ocr::input::read_input(&bytes).map_err(|e| Error::invalid(e.code(), ""))?;
         let models = components::load(&dir).map_err(|e| Error::other("ocr_component", e.to_string()))?;
-        let rec =
-            health_ocr::recognize(&models, &input, this_year, &mut |_, _| {}).map_err(|e| Error::other("ocr_engine", e.to_string()))?;
+        let rec = health_ocr::recognize(&models, &input, this_year, &mut |page, pages| on_page(page, pages))
+            .map_err(|e| Error::other("ocr_engine", e.to_string()))?;
         if rec.items.is_empty() {
             return Err(Error::invalid("empty", "no lab results were found in this file"));
         }
@@ -45,8 +46,9 @@ pub fn in_process(data_dir: &Path) -> Recognize {
 }
 
 /// Installs the OCR component: from a folder of the pinned files, or downloaded (health-connect).
-/// `with_matching` adds the optional embedding model (~135 MB) that ranks measure candidates.
-pub fn install(data_dir: &Path, from: Option<&Path>, with_matching: bool) -> Result<Value> {
+/// `with_matching` adds the optional embedding model (~135 MB) that ranks measure candidates. `progress(done, total)`
+/// in bytes over everything this call downloads.
+pub fn install(data_dir: &Path, from: Option<&Path>, with_matching: bool, progress: &mut dyn FnMut(u64, u64)) -> Result<Value> {
     let dir = components::dir(data_dir);
     std::fs::create_dir_all(&dir)?;
     if let Some(from) = from {
@@ -54,27 +56,21 @@ pub fn install(data_dir: &Path, from: Option<&Path>, with_matching: bool) -> Res
         return Ok(json!({ "installed": names, "ready": components::ready(&dir) }));
     }
     let mut done = Vec::new();
-    for f in components::FILES.iter().filter(|f| f.required || with_matching) {
+    let todo: Vec<_> =
+        components::FILES.iter().filter(|f| (f.required || with_matching) && !components::verify(&dir.join(f.name), f)).collect();
+    let total: u64 = todo.iter().map(|f| f.bytes).sum();
+    let mut before = 0; // the bytes of the files already fetched in this call
+    for f in todo {
         let dest = dir.join(f.name);
-        if components::verify(&dest, f) {
-            continue;
-        }
-        let mut last = 0;
         // tests only (debug builds): the same files from a local server, by name
         let mirror = if cfg!(debug_assertions) { std::env::var("HEALTH_COMPONENT_MIRROR").ok() } else { None };
         let url = mirror.map_or_else(|| f.url.to_string(), |m| format!("{}/{}", m.trim_end_matches('/'), f.name));
-        health_connect::download(&url, &dest, f.sha256, f.bytes, &mut |n, total| {
-            let pct = n * 100 / total.max(1);
-            if pct >= last + 10 {
-                last = pct;
-                eprintln!("{}: {pct}%", f.name);
-            }
-        })
-        .map_err(|e| match e {
+        health_connect::download(&url, &dest, f.sha256, f.bytes, &mut |n, _| progress(before + n, total)).map_err(|e| match e {
             health_connect::Error::Network(m) => Error::other("network", m),
             health_connect::Error::Integrity(m) => Error::other("integrity", m),
             health_connect::Error::Io(e) => Error::from(e),
         })?;
+        before += f.bytes;
         done.push(f.name);
     }
     Ok(json!({ "installed": done, "ready": components::ready(&dir) }))

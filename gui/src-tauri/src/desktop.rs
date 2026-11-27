@@ -208,14 +208,37 @@ pub(crate) fn ocr_status() -> Result<Value, Value> {
     core_json(&["component", "list"])
 }
 
-/** Downloads and checks the OCR component (the core does it; only health-connect opens connections). */
+/** Downloads and checks the OCR component (the core does it; only health-connect opens connections). Its stderr
+ *  lines "progress <done> <total>" become `health:ocr_progress` events, as the mobile shell emits them. */
 #[tauri::command(async)]
-pub(crate) fn ocr_install(matching: bool) -> Result<Value, Value> {
-    let mut args = vec!["component", "install", "ocr"];
+pub(crate) fn ocr_install(app: AppHandle, matching: bool) -> Result<Value, Value> {
+    let fail = |e: std::io::Error| json!({ "code": "unavailable", "message": e.to_string() });
+    let mut c = core_command();
+    c.args(["--json", "component", "install", "ocr"]);
     if !matching {
-        args.push("--no-matching");
+        c.arg("--no-matching");
     }
-    core_json(&args)
+    let mut child = c.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(fail)?;
+    let stderr = child.stderr.take();
+    // read stderr to its end (an undrained pipe would stall the core), passing on the progress lines
+    let relay = std::thread::spawn(move || {
+        let Some(stderr) = stderr else { return };
+        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+            let Some(rest) = line.strip_prefix("progress ") else { continue };
+            let mut n = rest.split(' ').map(|x| x.parse::<u64>().ok());
+            if let (Some(Some(done)), Some(Some(total))) = (n.next(), n.next()) {
+                let _ = app.emit("health:ocr_progress", json!({ "stage": "download", "done": done, "total": total }));
+            }
+        }
+    });
+    let mut out = Vec::new();
+    if let Some(mut so) = child.stdout.take() {
+        so.read_to_end(&mut out).map_err(fail)?;
+    }
+    let ok = child.wait().map_err(fail)?.success();
+    let _ = relay.join();
+    let v: Value = serde_json::from_slice(&out).unwrap_or(Value::Null);
+    if ok { Ok(v) } else { Err(v.get("error").cloned().unwrap_or_else(|| json!({ "code": "error", "message": "the core failed" }))) }
 }
 
 #[tauri::command]
@@ -382,7 +405,7 @@ fn words(lang: &str) -> impl Fn(&str) -> String + '_ {
             "View" => ("显示", "顯示方式"),
             "Enter Full Screen" => ("进入全屏幕", "進入全螢幕"),
             "Go" => ("前往", "前往"),
-            "Readings" => ("读数", "讀數"),
+            "Dashboard" => ("看板", "看板"),
             "Data sources" => ("数据来源", "數據來源"),
             "Profile" => ("个人资料", "個人資料"),
             "Backup" => ("备份", "備份"),
@@ -447,7 +470,7 @@ fn menu(app: &AppHandle, lang: &str) -> tauri::Result<tauri::menu::Menu<tauri::W
         w("Go"),
         true,
         &[
-            &item("readings", "Readings", "CmdOrCtrl+1")?,
+            &item("readings", "Dashboard", "CmdOrCtrl+1")?,
             &item("data", "Data sources", "CmdOrCtrl+2")?,
             &item("backup", "Backup", "CmdOrCtrl+3")?,
             &item("profile", "Profile", "CmdOrCtrl+4")?,

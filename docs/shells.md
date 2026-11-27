@@ -52,10 +52,15 @@ plugins/tauri-plugin-health-platform   native services for mobile (now: root key
   vault (`LabSelf`), per device, never synced. On opening, ForceDecks results of the last 7 days and a waiting seca
   measurement are fetched. Device photos are bundled (`gui/src/devices`).
 - Link a new device by scanning its `ZUHL1:` code (pasting still works, decision 65).
-- Import: the system's file picker, or the camera for a lab report; OCR runs on the device.
-- Export (CSV, backup): written in the app's cache, then the system share sheet (save to Files, send, AirDrop).
-- Layout (any narrow window, decision 88): under 760 px wide, a floating tab bar at the bottom (Readings, Add, More)
-  instead of the side panel; More holds the other sections, each with a way back. Wider (desktop, iPad) keeps the
+- Import (decision 106): the same choices everywhere: a lab report from the camera (touch screens), the photos or
+  the files; an export or a backup from the files. Phones use the system's picker (the bytes are staged in the app's
+  cache); the desktop uses the open dialog (the file is imported where it is) and takes a file dropped on the window.
+  OCR runs on the device.
+- Export (CSV, backup, decision 106): asked for first (password, choices), then saved where the person chooses: the
+  desktop's save dialog; on a phone, written in the app's cache, then the system share sheet (save to Files, send).
+- Look: Konsta UI on Tailwind (decision 103): iOS's on iPhone, iPad and desktop, Material's on Android.
+- Layout (any narrow window, decisions 88, 97): under 760 px wide, a floating tab bar at the bottom (Dashboard, Add,
+  More) instead of the side panel; every screen has an address and one way back at the top (decisions 105, 106). Wider (desktop, iPad) keeps the
   side panel. Safe areas for the notch and the home indicator; 16 px fields. Agent access (desktop agent apps) is
   hidden on phones.
 - The camera permission text is in `Info.ios.plist` (merged by Tauri) and `gen/apple/project.yml`.
@@ -87,7 +92,7 @@ iOS doesn't use `tauri::mobile_entry_point` (decision 89: its stdout pipe deadlo
 after regenerating `gen/apple`, put those lines back and run `xcodegen generate` with an empty `Externals/`.
 `tauri ios|android init` writes Tauri's default app icon into `gen/`: after regenerating, run
 `python3 scripts/gen-icons.py`, which makes every icon from `icons/app-icon.svg` and writes them into `icons/` and
-`gen/` (decision 92). `gen/android/gradle.properties` limits Android Studio builds to arm64 and x86_64. `buildSrc/.../RustPlugin.kt` makes ABI flavors for those only (Tauri's template makes all four, and Android Studio then picks `armDebug`, which has no library); put that back after regenerating. `scripts/mobile-env.sh` points
+`gen/` (decision 92). `gen/android/gradle.properties` limits Android Studio builds to arm64 and x86_64. `buildSrc/.../RustPlugin.kt` makes ABI flavors for those only (Tauri's template makes all four, and Android Studio then picks `armDebug`, which has no library); put that back after regenerating. `AndroidManifest.xml` declares `<queries>` for `IMAGE_CAPTURE`: without it Android 11+ hides the camera app from the web view, and "Take a photo" opens the file picker; keep it too. An Android emulator on software graphics (logcat: `MESA Failed to open rendernode`) draws translucent cards over the backdrop with garbled glyph fragments; set the AVD's Graphics acceleration to Hardware and cold-boot it. `scripts/mobile-env.sh` points
 `RANLIB_<target>` at the NDK's `llvm-ranlib` (vendored OpenSSL for SQLCipher).
 
 ## Verified (2026-11-27)

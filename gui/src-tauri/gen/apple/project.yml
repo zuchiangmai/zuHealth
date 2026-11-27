@@ -47,6 +47,9 @@ targets:
         LSRequiresIPhoneOS: true
         NSLocalNetworkUsageDescription: "Sync health data directly with your other devices on the same network."
         NSCameraUsageDescription: "Scan a lab device's code or another device's link code, and photograph lab reports."
+        NSPhotoLibraryUsageDescription: "Choose photos of lab reports for Health to read on this device."
+        NSBluetoothAlwaysUsageDescription: "Connect to health devices such as scales and blood pressure monitors."
+        UIBackgroundModes: [remote-notification]
         UILaunchStoryboardName: LaunchScreen
         UIRequiredDeviceCapabilities: [arm64, metal]
         UISupportedInterfaceOrientations:
@@ -62,6 +65,9 @@ targets:
         CFBundleVersion: "0.1.0"
     entitlements:
       path: health-app_iOS/health-app_iOS.entitlements
+      properties:
+        # push notifications (APNs); needs a paid team's signing with the Push Notifications capability
+        aps-environment: development
     scheme:
       environmentVariables:
         RUST_BACKTRACE: full

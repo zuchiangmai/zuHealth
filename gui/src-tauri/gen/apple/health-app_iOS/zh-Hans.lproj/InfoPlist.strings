@@ -1,0 +1,4 @@
+"NSCameraUsageDescription" = "扫描检测设备的二维码或其他设备的连接码，以及拍摄化验单。";
+"NSPhotoLibraryUsageDescription" = "选择化验单照片，由健康在这台设备上识别。";
+"NSBluetoothAlwaysUsageDescription" = "连接体重秤、血压计等健康设备。";
+"NSLocalNetworkUsageDescription" = "与同一网络中你的其他设备直接同步健康数据。";

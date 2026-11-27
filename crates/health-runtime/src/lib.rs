@@ -53,7 +53,7 @@ impl Platform {
     /// The system clock and time zone, the default profile, online, OCR in this process.
     pub fn system(data_dir: PathBuf, keys: Box<dyn RootKeys>, lock_after_ms: Option<i64>) -> Platform {
         Platform {
-            recognize: ocr::in_process(&data_dir),
+            recognize: ocr::in_process(&data_dir, |_, _| {}),
             data_dir,
             profile: PROFILE.into(),
             keys,

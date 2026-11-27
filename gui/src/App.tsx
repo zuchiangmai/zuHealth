@@ -19,17 +19,20 @@ import {
   onChange,
   onSync,
   chooseImportFile,
-  chooseSavePath,
+  FILE_TYPES,
+  saveExport,
   corePath,
   clearData,
   initProfile,
   installOcr,
+  ocrComponent,
+  onOcrProgress,
+  type OcrProgress,
   openLink,
+  isAndroid,
   isDesktop,
   isMobile,
   scanCode,
-  shareFile,
-  exportPath,
   stageFile,
   menuOwnsKeys,
   onFileDrop,
@@ -44,6 +47,14 @@ import { DailyChart, type Pt, Spark } from "./charts";
 import { LabSelfService } from "./lab";
 import { useTranslation } from "react-i18next";
 import { LANGS, choice, choose, locale as i18nLocale, t, tk } from "./i18n";
+import { backBy, back as goBack, go as nav, parts, useLayer, useRoute } from "./router";
+import { rubberBand } from "./overscroll";
+import { BirthWheels, isTouch } from "./pickers";
+import { Checkbox, Navbar, NavbarBackLink, Page as KPage, Popup, Segmented, SegmentedButton, Tabbar, TabbarLink, Toggle, ToolbarPane } from "konsta/react";
+import { createPortal } from "react-dom";
+import meadowDark from "./backdrop/meadow-dark.webp";
+import meadowLight from "./backdrop/meadow-light.webp";
+import { Btn, Callout, card, Group, IconDot, Item, type Look, rowBg, SearchPill, setLook, useAppearance, useLook, useWide } from "./ui";
 import { CLIENTS, type Client } from "./agents";
 import { KEY, codesNamed, nameOf } from "./names";
 import {
@@ -73,17 +84,17 @@ import {
   resultText,
 } from "./format";
 
-type Page = "readings" | "data" | "backup" | "profile" | "account" | "agents" | "about" | "review" | "more";
+type Page = "readings" | "add" | "data" | "backup" | "profile" | "account" | "agents" | "about" | "review" | "more";
 /** Narrow screens (phones): the floating tab bar's pages; the other sections are reached from More. */
-type Tab = "readings" | "data" | "more";
+type Tab = "readings" | "add" | "more";
 const TABS: { key: Tab; label: string; icon: string }[] = [
-  { key: "readings", label: tk("Readings"), icon: "readings" },
-  { key: "data", label: tk("Add"), icon: "add" },
+  { key: "readings", label: tk("Dashboard"), icon: "readings" },
+  { key: "add", label: tk("Add"), icon: "add" },
   { key: "more", label: tk("More"), icon: "more" },
 ];
 /** The sections, in shortcut order (⌘1…⌘6). */
 const PAGES: { key: Page; label: string }[] = [
-  { key: "readings", label: tk("Readings") },
+  { key: "readings", label: tk("Dashboard") },
   { key: "data", label: tk("Data sources") },
   { key: "backup", label: tk("Backup") },
   { key: "profile", label: tk("Profile") },
@@ -96,6 +107,20 @@ const MOD = MAC ? "⌘" : "Ctrl+";
 
 /** Sidebar icons: 16px outline, drawn in currentColor. */
 const ICON: Record<string, ReactNode> = {
+  camera: (
+    <>
+      <path d="M2 5.5h2.5L6 3.5h4l1.5 2H14V13H2z" />
+      <circle cx="8" cy="9" r="2.3" />
+    </>
+  ),
+  photos: (
+    <>
+      <rect x="2" y="2.5" width="12" height="11" rx="2" />
+      <circle cx="5.8" cy="6" r="1.2" />
+      <path d="M2.5 12l3.5-3.5 2.5 2.5 2-2 3 3" />
+    </>
+  ),
+  folder: <path d="M2 4.5V12.5a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1H8L6.5 3.5H3a1 1 0 0 0-1 1z" />,
   readings: <path d="M2 12h3l2-6 3 9 2-5h2" />,
   data: (
     <>
@@ -157,6 +182,12 @@ const ICON: Record<string, ReactNode> = {
       <path d="M8 7.2v3.8M8 5h0" />
     </>
   ),
+  look: (
+    <>
+      <circle cx="8" cy="8" r="5.5" />
+      <path d="M8 2.5v11a5.5 5.5 0 0 0 0-11z" fill="currentColor" />
+    </>
+  ),
   add: (
     <>
       <circle cx="8" cy="8" r="6" />
@@ -173,11 +204,28 @@ const ICON: Record<string, ReactNode> = {
     </>
   ),
 };
-const Icon = ({ k }: { k: string }) => (
-  <svg className="icon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+const Icon = ({ k, className = "h-5 w-5" }: { k: string; className?: string }) => (
+  <svg className={`shrink-0 ${className}`} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     {ICON[k]}
   </svg>
 );
+
+/** The address of a section ("readings" is the dashboard's). */
+const pathOf = (p: Page) => (p === "readings" ? "dashboard" : p);
+/** What an address shows: a section and the view inside it; the dashboard with a measure's history or a lab report. */
+function fromRoute([a, b, ...c]: string[]): { page: Page; want?: string; metric?: string; rest?: string[] } {
+  if (a === "metric" && b) return { page: "readings", metric: b };
+  if (a === "report") return { page: "readings", want: b };
+  if (a && a !== "dashboard" && (PAGES.some((x) => x.key === a) || a === "add" || a === "review" || a === "more")) return { page: a as Page, want: b, rest: c };
+  return { page: "readings" };
+}
+
+/** Where a screen's way back leads when nothing in history is behind it: a measure or a lab report to the
+ *  dashboard, a screen inside a section to that section, a section to the tab it was opened from. */
+function parentOf(route: string[], tab: string): string {
+  if (route[0] === "metric" || route[0] === "report") return "dashboard";
+  return route.length > 1 ? route.slice(0, -1).map(encodeURIComponent).join("/") : tab;
+}
 
 /** The last section opened, remembered on this computer (a convenience: may be unavailable). */
 function savedPage(): Page {
@@ -216,27 +264,27 @@ function useOp<T>(fn: () => Promise<T>, deps: unknown[]): [T | undefined, string
  *  cards standing in for the page. `err` replaces the wait with what went wrong and a way to try again. */
 function Hold({ title, body, err, retry }: { title: string; body: string; err?: string; retry?: () => void }) {
   return (
-    <main className="gate hold" role="status" aria-label={title}>
-      <span className="hold-ico" data-pulse={err ? undefined : ""} aria-hidden="true">
-        <svg className="icon" viewBox="0 0 16 16" width="28" height="28">
+    <main className="mx-auto mt-[16vh] max-w-md px-4 mx-auto mt-[14vh] flex max-w-[26rem] flex-col items-center gap-2.5 text-center" role="status" aria-label={title}>
+      <span className="mb-1.5 grid h-16 w-16 place-items-center rounded-full bg-primary/15 text-primary data-[pulse]:animate-pulse" data-pulse={err ? undefined : ""} aria-hidden="true">
+        <svg className="h-5 w-5 shrink-0" viewBox="0 0 16 16" width="28" height="28">
           <rect x="3.5" y="7" width="9" height="6.5" rx="1.5" />
           <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2M8 9.6v1.4" />
         </svg>
       </span>
-      <p className="hold-t">{title}</p>
+      <p className="text-[17px] font-semibold">{title}</p>
       {err ? (
         <>
           <Problem text={err} />
           {retry && (
-            <button type="button" className="primary" onClick={retry}>
+            <Btn type="button" primary onClick={retry}>
               {t("Try again")}
-            </button>
+            </Btn>
           )}
         </>
       ) : (
         <>
-          <p className="hold-b">{body}</p>
-          <div className="hold-skel" aria-hidden="true">
+          <p className="mb-1.5 max-w-[300px] text-sm leading-relaxed text-black/55 dark:text-white/55">{body}</p>
+          <div className="mt-5 flex flex-col gap-3 self-stretch [&>span]:block [&>span]:h-32 [&>span]:animate-pulse [&>span]:rounded-2xl [&>span]:bg-black/5 dark:[&>span]:bg-white/10 [&>span:nth-child(2)]:h-24 [&>span:nth-child(3)]:h-40" aria-hidden="true">
             <span />
             <span />
             <span />
@@ -256,7 +304,7 @@ const decrypting = () =>
 function useOnce(fn: () => Promise<void>): [string | undefined, () => void] {
   const [err, setErr] = useState<string>();
   const [round, setRound] = useState(0);
-  const running = useRef<Promise<void>>();
+  const running = useRef<Promise<void> | undefined>(undefined);
   useEffect(() => {
     running.current ??= fn().finally(() => (running.current = undefined));
     running.current.catch((e) => setErr(errText(e)));
@@ -286,9 +334,9 @@ function Unlock({ done }: { done: () => void }) {
   // a phone has no passphrase: the data opens as Health opens (Face ID / fingerprint will come first, in the shell)
   if (isMobile) return <AutoUnlock done={done} />;
   return (
-    <main className="gate">
+    <main className="mx-auto mt-[16vh] max-w-md px-4">
       <form
-        className="form"
+        className="flex flex-col gap-3"
         onSubmit={async (e) => {
           e.preventDefault();
           try {
@@ -300,16 +348,16 @@ function Unlock({ done }: { done: () => void }) {
           }
         }}
       >
-        <h2>{t("Health is locked")}</h2>
-        <p className="lede">{t("Your data is encrypted with your passphrase. It locks again after a while without use.")}</p>
-        <label>
+        <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Health is locked")}</h2>
+        <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55">{t("Your data is encrypted with your passphrase. It locks again after a while without use.")}</p>
+        <label className="flex flex-col gap-1.5 text-[13px] text-black/60 dark:text-white/60">
           {t("Passphrase")}
-          <input type="password" autoComplete="current-password" autoFocus value={p} onChange={(e) => setP(e.target.value)} required />
+          <input className="w-full rounded-xl bg-black/5 px-3 py-2.5 text-base text-black outline-none focus:ring-2 focus:ring-primary dark:bg-white/10 dark:text-white" type="password" autoComplete="current-password" autoFocus value={p} onChange={(e) => setP(e.target.value)} required />
         </label>
         <Problem text={err} />
-        <button type="submit" className="primary">
+        <Btn type="submit" primary>
           {t("Unlock")}
-        </button>
+        </Btn>
       </form>
     </main>
   );
@@ -327,7 +375,14 @@ export function App() {
   // redraw everything when the language changes; the menu bar follows
   const { i18n } = useTranslation();
   useEffect(() => setShellLanguage(i18n.language), [i18n.language]);
-  const [page, setPage] = useState<Page>(savedPage);
+  // the page, the view inside it, the measure or report open on the dashboard: all from the address
+  const route = useRoute();
+  const { page, want, metric, rest } = fromRoute(route);
+  // no address yet (the app just opened): the dashboard, or on a computer the section opened last
+  useEffect(() => {
+    if (!route.length) nav(pathOf(isMobile ? "readings" : savedPage()), true);
+  }, [route.length]);
+  const setPage = (p: Page, w?: string) => nav(w ? `${pathOf(p)}/${w}` : pathOf(p), TABS.some((x) => x.key === p) && !w);
   // ⌘F asks Readings to focus its search; Readings clears the request once its search box exists
   const [find, setFind] = useState(false);
   useEffect(() => {
@@ -335,12 +390,26 @@ export function App() {
       if (PAGES.some((x) => x.key === page)) localStorage.setItem("page", page);
     } catch {}
   }, [page]);
-  const [metric, setMetric] = useState<string>();
+  const setMetric = (code: string) => nav(`metric/${encodeURIComponent(code)}`, !!metric);
   useInbox();
   const [status, statusErr, reload] = useOp(() => op<Status>("status"), []);
   const syncLive = useSyncLive();
-  const [latest, latestErr] = useOp(() => op<Point[]>("obs.latest"), []);
+  const [latest, latestErr, reloadLatest] = useOp(() => op<Point[]>("obs.latest"), []);
+  // the data just opened (unlocked or created): what was read while it was shut failed, so read it again
+  const opened = () => {
+    reload();
+    reloadLatest();
+  };
   const [cats, setCats] = useState(true);
+  // a screen opens at its top, wherever the last one was scrolled to
+  useLayoutEffect(() => toTop(), [route.join("/")]);
+  // Android: the content's own rubber band (overscroll.ts); iOS bounces scrolling content natively
+  const band = useRef<(() => void) | undefined>(undefined);
+  const { dark } = useAppearance();
+  const mainEl = useCallback((el: HTMLElement | null) => {
+    band.current?.();
+    band.current = el && isAndroid ? rubberBand(el) : undefined;
+  }, []);
   // narrow screens: the tab a section was opened from, where its back button returns
   const tab = useRef<Tab>("readings");
   useEffect(() => {
@@ -350,9 +419,6 @@ export function App() {
   const [inView, setInView] = useState<string | null>(null);
   const [core, setCore] = useState<{ up: boolean; error?: string; need_init?: boolean }>({ up: true });
   const [dropped, setDropped] = useState<string>();
-  // a way in chosen on the getting-started card: the page opens with that sheet (or view); taken when it mounts
-  const [want, setWant] = useState<string>();
-  useEffect(() => setWant(undefined), [page]);
   const [hovering, setHovering] = useState(false);
   // a file dropped anywhere on the window opens Import with it
   useEffect(
@@ -360,11 +426,10 @@ export function App() {
       onFileDrop({
         over: setHovering,
         drop: (paths) => {
-          if (paths[0]) {
-            setDropped(paths[0]);
-            setMetric(undefined);
-            setPage("data");
-          }
+          if (!paths[0]) return;
+          if (dropInto) return dropInto(paths[0]);
+          setDropped(paths[0]);
+          setPage("data");
         },
       }),
     [],
@@ -373,10 +438,10 @@ export function App() {
   useEffect(() => setBadge(status?.reviews ?? 0), [status?.reviews]);
   // the same commands from the macOS menu or, elsewhere, from the keyboard
   const command = useCallback((id: string) => {
-    if (id !== "back") setMetric(undefined); // a section change or import replaces whatever sheet is open
+    // a section's address replaces whatever was open in the last one
     if (PAGES.some((x) => x.key === id)) setPage(id as Page);
-    else if (id === "add") setPage("data");
-    else if (id === "back") setMetric(undefined);
+    else if (id === "add") setPage("add");
+    else if (id === "back") goBack(parts().slice(0, -1).join("/") || "dashboard");
     else if (id === "find") {
       setPage("readings");
       setFind(true);
@@ -424,15 +489,15 @@ export function App() {
     const t = setInterval(reload, 1000);
     return () => clearInterval(t);
   }, [starting, reload]);
-  if (statusErr?.startsWith("locked:")) return <Unlock done={reload} />;
-  if (core.need_init || statusErr?.includes("no_profile")) return <FirstRun done={reload} />;
+  if (statusErr?.startsWith("locked:")) return <Unlock done={opened} />;
+  if (core.need_init || statusErr?.includes("no_profile")) return <FirstRun done={opened} />;
   if (starting)
     return (
       <>
         <Hold title={t("Decrypting your data")} body={decrypting()} err={core.error} />
         {/* a database that no longer opens: starting over is one way out */}
         {core.error && isDesktop && (
-          <div className="gate">
+          <div className="mx-auto mt-[16vh] max-w-md px-4">
             <ClearDataRow />
           </div>
         )}
@@ -442,139 +507,173 @@ export function App() {
   const present = HOME_GROUPS.filter((g) => latest?.some((p) => p.category === g.key));
   const syncAsking = !!syncLive?.peers.some((x) => x.state === "asking");
   const isTab = TABS.some((x) => x.key === page);
+  // the side panel (a wide screen): Konsta has none, so it is drawn here
+  const navButton = (on: boolean, label: ReactNode, icon: ReactNode, onClick: () => void, extra?: ReactNode, hint?: string, current?: "page" | "location") => (
+    <button
+      type="button"
+      className={`flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2 text-start text-[15px] ${on ? "bg-primary font-medium text-white" : "hover:bg-black/5 dark:hover:bg-white/10"}`}
+      aria-current={current}
+      onClick={onClick}
+      title={hint}
+    >
+      {icon}
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {extra}
+    </button>
+  );
   const navItem = (p: { key: Page; label: string }, hint?: string, quiet = false) => (
     <li key={p.key}>
-      <button
-        type="button"
-        className={page === p.key && !quiet ? "on" : ""}
-        aria-current={page === p.key ? "page" : undefined}
-        onClick={() => setPage(p.key)}
-        title={hint}
-      >
-        <Icon k={p.key} />
-        <span className="label">{t(p.label)}</span>
-        {p.key === "review" && status && status.reviews > 0 && <span className="count">{status.reviews}</span>}
-        {p.key === "account" && syncAsking && <span className="dot" role="img" aria-label={t("Waiting for you")} />}
-      </button>
+      {navButton(
+        page === p.key && !quiet,
+        t(p.label),
+        <Icon k={p.key} />,
+        () => setPage(p.key),
+        <>
+          {p.key === "review" && status && status.reviews > 0 && <span className="inline-block min-w-5 rounded-full bg-brand-red px-1.5 text-center text-xs font-semibold text-white">{status.reviews}</span>}
+          {p.key === "account" && syncAsking && <span className="inline-block h-2 w-2 rounded-full bg-brand-red align-middle" role="img" aria-label={t("Waiting for you")} />}
+        </>,
+        hint,
+        page === p.key ? "page" : undefined,
+      )}
     </li>
   );
+  const railHead = "px-3 pb-1 text-[13px] font-semibold text-black/45 dark:text-white/45";
   const hint = (k: Page) => {
     const i = PAGES.findIndex((x) => x.key === k);
     return `${t(PAGES[i]!.label)} (${MOD}${i + 1})`;
   };
+  const dash = page === "readings";
   return (
-    <div className={`app${isDesktop ? " desktop" : ""}${isDesktop && MAC ? " mac" : ""}${page === "readings" ? " dash" : ""}`}>
-      <div className="backdrop" aria-hidden="true" />
-      {isDesktop && MAC && <div className="titlebar" data-tauri-drag-region />}
+    <div className="relative min-h-dvh text-black wide:grid wide:grid-cols-[300px_minmax(0,1fr)] dark:text-white">
+      {/* the dashboard's morning meadow (dusk when dark), pre-blurred; elsewhere the grouped background */}
+      <div
+        className="fixed inset-0 -z-10 bg-[length:100%_100%] bg-center ios:bg-[#f2f2f7] ios:dark:bg-black material:bg-md-light-surface-2 material:dark:bg-md-dark-surface"
+        style={dash ? { backgroundImage: `url(${dark ? meadowDark : meadowLight})` } : undefined}
+        aria-hidden="true"
+      />
+      {isDesktop && MAC && <div className="fixed inset-x-0 top-0 z-50 h-[52px]" data-tauri-drag-region />}
       {hovering && (
-        <div className="drop-overlay" aria-hidden="true">
-          <p>{t("Drop to import")}</p>
-          <p className="fine">{t("Apple Health export, Health backup, WHOOP data")}</p>
+        <div className="fixed inset-0 z-50 grid place-content-center gap-1 bg-primary/15 text-center backdrop-blur-sm" aria-hidden="true">
+          <p className="text-[17px] font-semibold">{t("Drop to import")}</p>
+          <p className="text-[13px] text-black/55 dark:text-white/55">{t("Apple Health export, Health backup, WHOOP data")}</p>
         </div>
       )}
-      <nav className="rail" aria-label={t("Sections")}>
-        <ul>
+      <nav
+        className={`sticky top-3 m-3 mr-0 hidden h-[calc(100dvh-24px)] flex-col gap-4 overflow-y-auto rounded-[22px] p-3 shadow-xl select-none wide:flex ${MAC && isDesktop ? "pt-14" : ""} ${dash ? "bg-white/80 dark:bg-neutral-900/80" : "bg-white dark:bg-neutral-900"}`}
+        aria-label={t("Sections")}
+      >
+        <ul className="flex flex-col gap-0.5">
           {navItem(PAGES[0]!, hint("readings"), page === "readings" && !!inView)}
+          {navItem({ key: "add", label: tk("Add") })}
           {status && status.reviews > 0 && navItem({ key: "review", label: tk("Waiting for you") })}
         </ul>
         {present.length > 0 && (
-          <div className="rail-section">
-            <button type="button" className="rail-head" aria-expanded={cats} onClick={() => setCats(!cats)}>
+          <div>
+            <button type="button" className={`${railHead} flex w-full items-center justify-between`} aria-expanded={cats} onClick={() => setCats(!cats)}>
               {t("Categories")}
               <Chevron open={cats} />
             </button>
             {cats && (
-              <ul>
+              <ul className="flex flex-col gap-0.5">
                 {present.map((g) => (
                   <li key={g.key}>
-                    <button
-                      type="button"
-                      className={page === "readings" && inView === g.key ? "on" : ""}
-                      aria-current={page === "readings" && inView === g.key ? "location" : undefined}
-                      onClick={() => {
+                    {navButton(
+                      page === "readings" && inView === g.key,
+                      t(g.label),
+                      <GroupIcon k={g.key} />,
+                      () => {
                         setPage("readings");
                         // marked at once: a short page can't scroll the section to the top
                         requestAnimationFrame(() => {
                           document.getElementById(`g-${g.key}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
                           setInView(g.key);
                         });
-                      }}
-                    >
-                      <GroupIcon k={g.key} />
-                      <span className="label">{t(g.label)}</span>
-                    </button>
+                      },
+                      undefined,
+                      undefined,
+                      page === "readings" && inView === g.key ? "location" : undefined,
+                    )}
                   </li>
                 ))}
               </ul>
             )}
           </div>
         )}
-        <div className="rail-section">
-          <p className="rail-head">{t("Your data")}</p>
-          <ul>
+        <div>
+          <p className={railHead}>{t("Your data")}</p>
+          <ul className="flex flex-col gap-0.5">
             {navItem(PAGES[1]!, hint("data"))}
             {navItem(PAGES[2]!, hint("backup"))}
           </ul>
         </div>
-        <div className="rail-section">
-          <p className="rail-head">{t("Me")}</p>
-          <ul>
+        <div>
+          <p className={railHead}>{t("Me")}</p>
+          <ul className="flex flex-col gap-0.5">
             {navItem(PAGES[3]!, hint("profile"))}
             {navItem(PAGES[4]!, hint("account"))}
           </ul>
         </div>
         {/* agent apps on this computer; a phone opens its own LAN interface to agents instead (later) */}
         {!isMobile && (
-          <div className="rail-section">
-            <p className="rail-head">{t("Sharing")}</p>
-            <ul>{navItem(PAGES[5]!, hint("agents"))}</ul>
+          <div>
+            <p className={railHead}>{t("Sharing")}</p>
+            <ul className="flex flex-col gap-0.5">{navItem(PAGES[5]!, hint("agents"))}</ul>
           </div>
         )}
-        <div className="rail-section">
-          <ul>{navItem(PAGES[6]!, hint("about"))}</ul>
-        </div>
-        <div className="rail-foot">
+        <ul className="flex flex-col gap-0.5">{navItem(PAGES[6]!, hint("about"))}</ul>
+        <div className="mt-auto grid gap-2 px-2 text-xs">
           <Totals status={status} />
-          <LangSelect />
+          <LangSelect small />
         </div>
       </nav>
-      <main className="main">
-        {/* narrow screens: a section opened from More (or Readings' notice) leads back there */}
-        {!isTab && (
-          <button type="button" className="back-btn" onClick={() => setPage(tab.current)}>
-            <Chevron open={false} />
-            {t(TABS.find((x) => x.key === tab.current)!.label)}
-          </button>
-        )}
-        <div className="view" key={`${page}-${i18n.language}`}>
-          {page === "readings" && (
+      <main
+        id="content"
+        className={`h-dvh min-w-0 overflow-y-auto px-4 pb-[calc(env(safe-area-inset-bottom)+108px)] wide:h-auto wide:overflow-visible wide:px-9 wide:pt-6 wide:pb-16 ${MAC && isDesktop ? "wide:pt-[4.4rem]" : ""}`}
+        ref={mainEl}
+      >
+        {/* the top bar (Konsta's): a phone's every screen; a wide window's screens inside a section (its side panel
+            leads to the sections). A screen under a tab has the way back. */}
+        <TopBar
+          className={route.length > 1 ? "" : "wide:hidden"}
+          back={route.length > 1 || !isTab ? () => goBack(parentOf(route, pathOf(tab.current))) : undefined}
+        />
+        <div key={`${page}-${i18n.language}`}>
+          {metric && <Record code={metric} pick={setMetric} />}
+          {page === "readings" && !metric && (
             <Readings
               latest={latest}
               err={latestErr}
               open={open}
-              go={setPage}
+              go={(p) => setPage(p)}
+              want={want}
               reviews={status?.reviews ?? 0}
               find={find}
               found={() => setFind(false)}
               onSection={setInView}
               start={(p, w) => {
-                setPage(p);
-                setWant(w);
+                setPage(p, w);
               }}
             />
           )}
-          {page === "data" && <DataSources file={dropped} onFile={setDropped} go={setPage} done={open} want={want as SourceSheet | undefined} />}
+          {page === "add" && (
+            <AddPage
+              go={(p, w) => {
+                setPage(p, w);
+              }}
+              done={open}
+            />
+          )}
+          {page === "data" && <DataSources file={dropped} onFile={setDropped} go={(p) => setPage(p)} done={open} want={want} path={rest} />}
           {page === "review" && <Review />}
-          {page === "agents" && <Agents />}
+          {page === "agents" && <Agents want={want} path={rest} />}
           {page === "backup" && <Backup want={want} />}
-          {page === "profile" && <ProfilePage />}
-          {page === "account" && <HealthAccount go={setPage} want={want} />}
+          {page === "profile" && <ProfilePage want={want} />}
+          {page === "account" && <HealthAccount go={(p) => setPage(p)} want={want} />}
           {page === "about" && <About version={status?.version} want={want} />}
           {page === "more" && (
             <More
               go={(p, w) => {
-                setPage(p);
-                setWant(w);
+                setPage(p, w);
               }}
               status={status}
               syncAsking={syncAsking}
@@ -582,21 +681,35 @@ export function App() {
           )}
         </div>
       </main>
-      <nav className="tabbar" aria-label={t("Sections")}>
+      <Tabbar labels icons className="fixed! bottom-0 left-0 wide:hidden">
+        <ToolbarPane>
         {TABS.map((x) => (
           // a section opened from a tab keeps that tab marked
-          <button key={x.key} type="button" aria-current={page === x.key ? "page" : !isTab && tab.current === x.key ? "true" : undefined} onClick={() => setPage(x.key)}>
-            <Icon k={x.icon} />
-            <span>{t(x.label)}</span>
-            {x.key === "more" && ((status?.reviews ?? 0) > 0 || syncAsking) && <span className="dot" role="img" aria-label={t("Waiting for you")} />}
-          </button>
+          <TabbarLink
+            key={x.key}
+            active={page === x.key || (!isTab && tab.current === x.key)}
+            onClick={() => setPage(x.key)}
+            icon={
+              <span className="relative">
+                <Icon k={x.icon} className="h-6 w-6" />
+                {x.key === "more" && ((status?.reviews ?? 0) > 0 || syncAsking) && (
+                  <span className="absolute -end-1 -top-0.5 inline-block h-2 w-2 rounded-full bg-brand-red" role="img" aria-label={t("Waiting for you")} />
+                )}
+              </span>
+            }
+            label={t(x.label)}
+          />
         ))}
-      </nav>
-      {metric && <Sheet label={t("History")} close={() => setMetric(undefined)}>
-        <Record code={metric} pick={setMetric} />
-      </Sheet>}
+        </ToolbarPane>
+      </Tabbar>
     </div>
   );
+}
+
+/** Scrolls the page to its top: the window on a wide screen, the content (its own scroller) on a narrow one. */
+function toTop() {
+  window.scrollTo(0, 0);
+  document.getElementById("content")?.scrollTo(0, 0);
 }
 
 /** How much is here: the side panel's foot, More's on narrow screens. */
@@ -604,7 +717,7 @@ function Totals({ status }: { status?: Status }) {
   const { i18n } = useTranslation();
   if (!status) return null;
   return (
-    <p className="fine">
+    <p className="text-[13px] text-black/55 dark:text-white/55">
       {t("{{obs}} entries from {{count}} sources", {
         obs: status.observations.toLocaleString(i18n.language),
         count: status.sources,
@@ -613,106 +726,171 @@ function Totals({ status }: { status?: Status }) {
   );
 }
 
-/** The language choice; `bare`: the select alone, in a row that names it. */
-function LangSelect({ bare }: { bare?: boolean }) {
-  const select = (
-    <select aria-label={bare ? t("Language") : undefined} value={choice()} onChange={(e) => choose(e.target.value as Parameters<typeof choose>[0])}>
-      {LANGS.map((l) => (
-        <option key={l.key} value={l.key}>
-          {l.key === "system" ? t("System") : l.label}
-        </option>
-      ))}
-    </select>
-  );
-  if (bare) return select;
+/** One choice among a few: a touch screen gets a page of them with a tick (as Settings' lists), a mouse the menu. */
+function Choice<K extends string>({
+  label,
+  value,
+  options,
+  onChange,
+  icon,
+  color,
+  small,
+}: {
+  label: string;
+  value: K;
+  options: { key: K; label: string }[];
+  onChange: (k: K) => void;
+  icon?: ReactNode;
+  color?: string;
+  /** the side panel's foot: a line of small text, not a row */
+  small?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const current = options.find((o) => o.key === value)?.label;
   return (
-    <label className="fine lang">
-      {t("Language")}
-      {select}
-    </label>
+    <>
+      {small ? (
+        <button type="button" className="flex w-full items-center justify-between gap-2 py-1 text-[13px] text-black/55 dark:text-white/55" onClick={() => setOpen(true)}>
+          {label}
+          <span className="inline-flex items-center gap-1">
+            {current}
+            <Chevron open={false} />
+          </span>
+        </button>
+      ) : (
+        <Item icon={icon} color={color} title={label} after={current} onClick={() => setOpen(true)} />
+      )}
+      {open && (
+        <Sheet label={label} close={() => setOpen(false)}>
+          <h2 className="mb-4 text-[28px] leading-tight font-bold tracking-tight">{label}</h2>
+          <Group role="radiogroup" aria-label={label}>
+            {options.map((o) => (
+              <Item
+                key={o.key}
+                role="radio"
+                aria-checked={value === o.key}
+                title={o.label}
+                chevron={false}
+                after={
+                  value === o.key ? (
+                    <svg className="h-5 w-5 text-primary" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M3 8.5l3.2 3L13 4.5" />
+                    </svg>
+                  ) : null
+                }
+                onClick={() => {
+                  setOpen(false);
+                  onChange(o.key);
+                }}
+              />
+            ))}
+          </Group>
+        </Sheet>
+      )}
+    </>
   );
+}
+
+/** The language choice: a row (More), or a small line (the side panel's foot). */
+function LangSelect({ small }: { small?: boolean }) {
+  return (
+    <Choice
+      label={t("Language")}
+      icon={<Icon k="list" />}
+      color="#8e24aa"
+      small={small}
+      value={choice()}
+      options={LANGS.map((l) => ({ key: l.key, label: l.key === "system" ? t("System") : l.label }))}
+      onChange={(k) => void choose(k)}
+    />
+  );
+}
+
+/** How the app looks: the platform's own (and the system's dark mode), or either look, light or dark, chosen to
+ *  review it on this device. */
+function LookSelect() {
+  const value = useLook();
+  const options: { key: Look; label: string }[] = [
+    { key: "auto", label: t("Automatic") },
+    { key: "ios-light", label: t("iOS style, light") },
+    { key: "ios-dark", label: t("iOS style, dark") },
+    { key: "material-light", label: t("Android style, light") },
+    { key: "material-dark", label: t("Android style, dark") },
+  ];
+  return <Choice label={t("Appearance")} icon={<Icon k="look" />} color="#c2185b" value={value} options={options} onChange={setLook} />;
 }
 
 /** More (narrow screens), as the web's 更多: one card per part (profile, data sources, backup and export, other
  *  devices, about), each row opening its section at the right place. */
 function More({ go, status, syncAsking }: { go: (p: Page, want?: string) => void; status?: Status; syncAsking: boolean }) {
   const reviews = status?.reviews ?? 0;
-  const row = (icon: ReactNode, label: string, p: Page, want?: string, value?: ReactNode) => (
-    <Row key={label} icon={icon} label={label} value={value} onClick={() => go(p, want)} />
-  );
-  const card = (title: string, rows: ReactNode) => (
-    <>
-      <h3 className="rows-title">{title}</h3>
-      <ul className="rows-card">{rows}</ul>
-    </>
+  // each row says how things stand, as Settings does, not what the section is for
+  const [me] = useOp(() => op<Personal>("profile.get"), []);
+  const [whoop] = useOp(() => op<WhoopStatus>("whoop.status"), []);
+  const [batches] = useOp(() => op<Batch[]>("import.list"), []);
+  const [sync] = useOp(() => op<SyncShown>("sync.state"), []);
+  const lastOf = (connector: string) => {
+    const at = Math.max(0, ...(batches ?? []).filter((b) => b.connector === connector).map((b) => b.at ?? 0));
+    return at ? t("Last import {{when}}", { when: shortDate(at) }) : batches ? t("Not imported yet") : undefined;
+  };
+  const profile = [sexLabel(me?.sex), me?.birth ? birthLabel(me.birth) : undefined].filter(Boolean).join(" · ") || (me ? t("Not set") : undefined);
+  const whoopText =
+    whoop?.state === "connected"
+      ? whoop.last_sync
+        ? t("Synced {{when}}", { when: ago(whoop.last_sync) })
+        : t("Connected")
+      : whoop?.state === "reauth"
+        ? t("Sign in again")
+        : whoop
+          ? t("Not connected")
+          : undefined;
+  const syncText = sync ? (sync.enabled ? t("On · {{n}} devices", { n: sync.peers.length }) : t("Off")) : undefined;
+  const row = (color: string, icon: ReactNode, label: string, p: Page, want?: string, text?: string, value?: ReactNode) => (
+    <Row key={label} color={color} icon={icon} label={label} sub={text} value={value} onClick={() => go(p, want)} />
   );
   return (
-    <section className="page more">
-      <h2>{t("More")}</h2>
-      {reviews > 0 && <ul className="rows-card">{row(<Icon k="review" />, t("Waiting for you"), "review", undefined, <span className="count">{reviews}</span>)}</ul>}
-      <ul className="rows-card">{row(<Icon k="profile" />, t("Profile"), "profile")}</ul>
-      {card(
-        t("Data sources"),
-        <>
-          {row(<Icon k="data" />, t("Manage data"), "data", "manage")}
-          {row(<GroupIcon k="cardio" />, "WHOOP", "data", "whoop")}
-          {row(<GroupIcon k="activity" />, t("Apple Health"), "data", "apple")}
-          {row(<GroupIcon k="lab" />, t("Lab report"), "data", "report")}
-          {row(<GroupIcon k="infectious" />, t("Lab self-service"), "data", "lab")}
-        </>,
+    <section className="mx-auto w-full max-w-3xl">
+      <h2 className="mb-4 text-[28px] leading-tight font-bold tracking-tight">{t("More")}</h2>
+      {reviews > 0 && (
+        <Callout icon={<Icon k="review" />} title={t("{{count}} imports are waiting for you to check.", { count: reviews })} text={t("Nothing counts until you confirm it.")} onClick={() => go("review")} />
       )}
-      {card(
-        t("Backup and export"),
-        <>
-          {row(<Icon k="backup" />, t("Save a backup"), "backup", "save")}
-          {row(<Icon k="data" />, t("Restore a backup"), "backup", "restore")}
-          {row(<GroupIcon k="other" />, t("Export a table (CSV)"), "backup", "csv")}
-        </>,
-      )}
-      {card(
-        t("Other devices"),
-        <>
-          {row(<Icon k="account" />, t("Health account"), "account", undefined, syncAsking ? <span className="dot" role="img" aria-label={t("Waiting for you")} /> : undefined)}
-          {row(<Icon k="wifi" />, t("Local network sync"), "account", "sync")}
-          {row(<Icon k="link" />, t("Connect another device"), "account", "connect")}
-        </>,
-      )}
+      <Group>{row("#7c4dff", <Icon k="profile" />, t("Profile"), "profile", undefined, profile)}</Group>
+      <Group title={t("Data sources")}>
+        {row("#1e88e5", <Icon k="data" />, t("Manage data"), "data", "manage", status ? t("{{obs}} entries from {{count}} sources", { obs: status.observations.toLocaleString(), count: status.sources }) : undefined)}
+        {row("#e53935", <GroupIcon k="cardio" />, "WHOOP", "data", "whoop", whoopText)}
+        {row("#f4511e", <GroupIcon k="activity" />, t("Apple Health"), "data", "apple", lastOf("apple_health"))}
+        {row("#00897b", <GroupIcon k="lab" />, t("Lab report"), "data", "report", lastOf("ocr"))}
+        {row("#43a047", <GroupIcon k="infectious" />, t("Lab self-service"), "data", "lab", t("A code for a lab device"))}
+      </Group>
+      <Group title={t("Backup and export")}>
+        {row("#fb8c00", <Icon k="backup" />, t("Save a backup"), "backup", "save", t("Encrypted with a password you choose"))}
+        {row("#fb8c00", <Icon k="data" />, t("Restore a backup"), "backup", "restore", t("Merges; nothing is overwritten"))}
+        {row("#6d4c41", <GroupIcon k="other" />, t("Export a table (CSV)"), "backup", "csv", t("Unencrypted, for spreadsheets and other tools"))}
+      </Group>
+      <Group title={t("Other devices")}>
+        {row("#3949ab", <Icon k="account" />, t("Health account"), "account", undefined, syncAsking ? t("Waiting for you") : undefined, syncAsking ? <span className="inline-block h-2 w-2 rounded-full bg-brand-red" role="img" aria-label={t("Waiting for you")} /> : undefined)}
+        {row("#039be5", <Icon k="wifi" />, t("Local network sync"), "account", "sync", syncText)}
+        {row("#5e35b1", <Icon k="link" />, t("Connect another device"), "account", "connect")}
+      </Group>
       {/* agent apps on this computer (a narrow desktop window) */}
-      {!isMobile && card(t("Sharing"), row(<Icon k="agents" />, t("Agent access"), "agents"))}
-      {card(
-        t("About"),
-        <>
-          {row(<Icon k="shield" />, t("Privacy"), "about", "privacy")}
-          {row(<Icon k="scale" />, t("Open-source licenses"), "about", "licenses")}
-          <li>
-            <div className="row-static">
-              <Icon k="about" />
-              <span className="row-l">
-                <strong>{t("Version")}</strong>
-              </span>
-              <span className="row-v fine">{status?.version ?? "–"}</span>
-            </div>
-          </li>
-          <li>
-            <div className="row-static">
-              <Icon k="list" />
-              <span className="row-l">
-                <strong>{t("Language")}</strong>
-              </span>
-              <LangSelect bare />
-            </div>
-          </li>
-        </>,
-      )}
-      <div className="more-foot">
-        <Totals status={status} />
-      </div>
+      {!isMobile && <Group title={t("Sharing")}>{row("#546e7a", <Icon k="agents" />, t("Agent access"), "agents")}</Group>}
+      <Group title={t("About")}>
+        {row("#00897b", <Icon k="shield" />, t("Privacy"), "about", "privacy", isMobile ? t("Your data is stored encrypted on this device") : t("Your data is stored encrypted on this computer"))}
+        {row("#757575", <Icon k="scale" />, t("Open-source licenses"), "about", "licenses")}
+        <LookSelect />
+        <LangSelect />
+        <Item color="#9e9e9e" icon={<Icon k="about" />} title={t("Version")} after={status?.version ?? "–"} />
+      </Group>
     </section>
   );
 }
 
 const Chevron = ({ open }: { open: boolean }) => (
-  <svg className={`chevron${open ? " open" : ""}`} viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+  <svg
+    className={`h-3 w-3 shrink-0 fill-none stroke-current transition-transform [stroke-width:1.8] ${open ? "rotate-90" : ""}`}
+    viewBox="0 0 16 16"
+    aria-hidden="true"
+  >
     <path d="M6 4l4 4-4 4" />
   </svg>
 );
@@ -724,7 +902,6 @@ const WHOOP_DASHBOARD = "https://developer-dashboard.whoop.com/";
 function WebLink({ url, label }: { url: string; label?: string }) {
   return (
     <a
-      className="link"
       href={url}
       onClick={(e) => {
         e.preventDefault();
@@ -736,54 +913,87 @@ function WebLink({ url, label }: { url: string; label?: string }) {
   );
 }
 
-/** A layer over the window (native <dialog>: focus stays inside, Esc closes). */
-function Sheet({ label, close, children }: { label: string; close: () => void; children: ReactNode }) {
-  const ref = useRef<HTMLDialogElement>(null);
-  const pressedOutside = useRef(false);
-  // a layout effect: its cleanup runs before React removes the <dialog>, so close() can hand focus back to
-  // whatever had it when the sheet opened (removing an open modal leaves focus on <body>)
-  // read during the first render, before an autoFocus field inside takes focus
-  const [back] = useState(() => document.activeElement as HTMLElement | null);
+/** The top bar, Konsta's as each platform has it: over the screen's large heading only the way back; scrolled, the
+ *  content under it blurs and fades (iOS) or the bar takes its surface (Material), and the screen's name shows in it.
+ *  The name is the screen's own heading (its first h2), so no screen has to say it twice. */
+function TopBar({ back, className = "" }: { back?: () => void; className?: string }) {
+  const { theme } = useAppearance();
+  const [title, setTitle] = useState("");
+  const ref = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
-    const d = ref.current;
-    if (d && !d.open) {
-      // showModal() focuses the close button, which WebKit rings as if tabbed to; focus the sheet itself,
-      // unless a field inside already took focus (autoFocus runs before this effect)
-      const now = document.activeElement as HTMLElement | null;
-      const field = now && d.contains(now) ? now : null;
-      d.showModal();
-      (field ?? d).focus();
-    }
-    return () => {
-      d?.close();
-      back?.focus?.();
-    };
-  }, [back]);
+    const main = ref.current?.parentElement;
+    if (!main) return;
+    const read = () => setTitle(main.querySelector("h2")?.textContent ?? "");
+    read();
+    const watch = new MutationObserver(read);
+    watch.observe(main, { childList: true, subtree: true, characterData: true });
+    return () => watch.disconnect();
+  }, []);
   return (
-    <dialog
+    <Navbar
       ref={ref}
-      className="sheet"
-      tabIndex={-1}
-      aria-label={label}
-      onCancel={(e) => {
-        e.preventDefault();
-        close();
-      }}
-      // close on a click on the backdrop itself, not on a text selection dragged out of the sheet
-      onMouseDown={(e) => {
-        pressedOutside.current = e.target === ref.current;
-      }}
-      onClick={(e) => e.target === ref.current && pressedOutside.current && close()}
-    >
-      <div className="sheet-body">
-        <button type="button" className="close" aria-label={t("Close")} onClick={close}>
-          <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
-            <path d="M4 4l8 8M12 4l-8 8" />
-          </svg>
-        </button>
-        {children}
+      transparent
+      title={title}
+      className={`-mx-4 w-[calc(100%+2rem)]! wide:-mx-9 wide:-mt-6 wide:w-[calc(100%+4.5rem)]! ${className}`}
+      innerClassName="wide:mx-auto wide:max-w-3xl wide:px-0!"
+      left={back && <NavbarBackLink text={t("Back")} showText={theme === "ios"} onClick={back} />}
+    />
+  );
+}
+
+/** A screen's heading, and the screen under it. */
+function Screen({ title, children }: { title: ReactNode; children: ReactNode }) {
+  return (
+    <section className="mx-auto w-full max-w-3xl">
+      <h2 className="mb-4 text-[28px] leading-tight font-bold tracking-tight">{title}</h2>
+      {children}
+    </section>
+  );
+}
+
+/** A layer over the screen with no address of its own (a choice, a confirmation): the whole screen on a phone, a
+ *  large window on a wide one, with the same way back at the top. Escape, the backdrop and the system's back
+ *  (Android) close it too. */
+function Sheet({ label, close: done, children }: { label: string; close: () => void; children: ReactNode }) {
+  const close = useLayer(done);
+  // slides in once it's on the page
+  const [opened, setOpened] = useState(false);
+  useEffect(() => {
+    const r = requestAnimationFrame(() => setOpened(true));
+    return () => cancelAnimationFrame(r);
+  }, []);
+  const closing = useRef(close);
+  closing.current = close;
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => e.key === "Escape" && closing.current();
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, []);
+  const wide = useWide();
+  const { theme } = useAppearance();
+  const body = (
+    <KPage>
+      <Navbar transparent title={label} left={<NavbarBackLink text={t("Back")} showText={theme === "ios"} onClick={close} />} />
+      <div className="px-4 pt-2 pb-[calc(env(safe-area-inset-bottom)+32px)] md:px-6">{children}</div>
+    </KPage>
+  );
+  // a wide window: a large window over the page; a phone: a page of its own, pushed in from the side
+  return createPortal(
+    wide ? (
+      <Popup opened={opened} onBackdropClick={close} aria-label={label} className="md:h-[min(88dvh,960px)] md:w-[min(860px,calc(100vw-3rem))]">
+        {body}
+      </Popup>
+    ) : (
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={label}
+        className={`fixed inset-0 z-40 transition-transform duration-300 ease-out ${opened ? "translate-x-0" : "translate-x-full"}`}
+      >
+        {body}
       </div>
-    </dialog>
+    ),
+    document.body,
   );
 }
 
@@ -796,7 +1006,7 @@ const errText = (e: unknown) => (e instanceof OpError ? explain(e.code, e.messag
 
 function Problem({ text }: { text?: string }) {
   return text ? (
-    <p className="problem" role="alert">
+    <p className="text-[15px] text-brand-red" role="alert">
       {human(text)}
     </p>
   ) : null;
@@ -805,7 +1015,7 @@ function Problem({ text }: { text?: string }) {
 function Copy({ text, label }: { text: string; label: string }) {
   const [done, setDone] = useState(false);
   return (
-    <button
+    <Btn
       type="button"
       onClick={async () => {
         try {
@@ -818,7 +1028,7 @@ function Copy({ text, label }: { text: string; label: string }) {
       }}
     >
       {done ? t("Copied") : label}
-    </button>
+    </Btn>
   );
 }
 
@@ -826,61 +1036,32 @@ function PasswordField({ label, value, onChange, auto }: { label: string; value:
   const [show, setShow] = useState(false);
   const id = useId();
   return (
-    <div className="field">
+    <div className="flex flex-col gap-1.5">
       <label htmlFor={id}>{label}</label>
-      <span className="with-toggle">
-        <input id={id} type={show ? "text" : "password"} autoComplete={auto} value={value} onChange={(e) => onChange(e.target.value)} required />
-        <button type="button" className="link" aria-label={show ? t("Hide {{field}}", { field: label }) : t("Show {{field}}", { field: label })} aria-pressed={show} onClick={() => setShow(!show)}>
+      <span className="flex items-center gap-2.5 [&_input]:flex-1">
+        <input className="w-full rounded-xl bg-black/5 px-3 py-2.5 text-base text-black outline-none focus:ring-2 focus:ring-primary dark:bg-white/10 dark:text-white" id={id} type={show ? "text" : "password"} autoComplete={auto} value={value} onChange={(e) => onChange(e.target.value)} required />
+        <Btn type="button" link aria-label={show ? t("Hide {{field}}", { field: label }) : t("Show {{field}}", { field: label })} aria-pressed={show} onClick={() => setShow(!show)}>
           {show ? t("Hide") : t("Show")}
-        </button>
+        </Btn>
       </span>
     </div>
   );
 }
 
-/** Where a file comes from: native dialog and drag and drop on desktop; the system's picker (or the camera, for a
- *  lab report) on a phone; a typed path in the browser preview. */
-function FilePick({ path, onPath, photo }: { path?: string; onPath: (p: string) => void; photo?: boolean }) {
-  if (isMobile) return <MobilePick path={path} onPath={onPath} photo={photo} />;
-  if (!isDesktop)
-    return (
-      <label className="block">
-        {t("File path")}
-        <input value={path ?? ""} onChange={(e) => onPath(e.target.value)} placeholder="/Users/you/Downloads/export.zip" />
-      </label>
-    );
-  return (
-    <div className="dropzone">
-      {path ? (
-        <p>
-          <strong>{fileName(path)}</strong>
-          <br />
-          <span className="fine">{path}</span>
-        </p>
-      ) : (
-        <p>{t("Drag a file here.")}</p>
-      )}
-      <button
-        type="button"
-        className={path ? "" : "primary"}
-        onClick={async () => {
-          const p = await chooseImportFile();
-          if (p) onPath(p);
-        }}
-      >
-        {path ? t("Choose another file…") : t("Choose file…")}
-      </button>
-    </div>
-  );
-}
+/** Where a file dropped on the desktop window goes: the picker on screen, if there is one (else Data sources). */
+let dropInto: ((path: string) => void) | undefined;
 
-/** The phone's picker: the file's bytes go to the app's own folder, and the import takes that path. */
-function MobilePick({ path, onPath, photo }: { path?: string; onPath: (p: string) => void; photo?: boolean }) {
+type PickKind = "report" | "apple" | "restore" | "file";
+
+/** The ways to pick a file, the same on every device: a lab report from the camera, the photos or the files; an
+ *  export or a backup from the files. The desktop's dialog imports a file where it is; a phone's picker (and the
+ *  browser preview) hands its bytes over first. A screen without a finger takes a file dropped on it too. */
+function FilePick({ path, onPath, kind }: { path?: string; onPath: (p: string) => void; kind: PickKind }) {
   const [name, setName] = useState<string>();
   const [err, setErr] = useState<string>();
   const [busy, setBusy] = useState(false);
-  const take = async (files: FileList | null) => {
-    const f = files?.[0];
+  const [over, setOver] = useState(false);
+  const take = async (f?: File | null) => {
     if (!f) return;
     setErr(undefined);
     setBusy(true);
@@ -893,21 +1074,53 @@ function MobilePick({ path, onPath, photo }: { path?: string; onPath: (p: string
       setBusy(false);
     }
   };
+  const chosen = (p: string) => (setName(undefined), onPath(p));
+  const latest = useRef(chosen);
+  latest.current = chosen;
+  useEffect(() => {
+    if (isTouch) return;
+    dropInto = (p) => latest.current(p);
+    return () => void (dropInto = undefined);
+  }, []);
+  // one row: the desktop's open dialog, or the system's picker behind a hidden input
+  const row = (icon: string, color: string, title: string, accept: string | undefined, types: keyof typeof FILE_TYPES, capture?: boolean) =>
+    isDesktop ? (
+      <Item key={title} color={color} icon={<Icon k={icon} />} title={title} onClick={async () => { const p = await chooseImportFile(types); if (p) chosen(p); }} />
+    ) : (
+      <label key={title} className="flex min-h-[64px] w-full cursor-pointer items-center gap-4 px-4 py-3 transition-colors active:bg-black/5 dark:active:bg-white/10">
+        <IconDot color={color}>
+          <Icon k={icon} />
+        </IconDot>
+        <span className="min-w-0 flex-1 text-[17px] material:text-[16px]">{title}</span>
+        <input type="file" hidden accept={accept} capture={capture ? "environment" : undefined} onChange={(e) => void take(e.target.files?.[0])} />
+      </label>
+    );
   return (
-    <div className="dropzone" aria-busy={busy}>
-      {path && <p><strong>{name ?? fileName(path)}</strong></p>}
-      <div className="actions">
-        {photo && (
-          <label className="button primary">
-            {t("Take a photo")}
-            <input type="file" accept="image/*" capture="environment" hidden onChange={(e) => void take(e.target.files)} />
-          </label>
-        )}
-        <label className={`button${photo || path ? "" : " primary"}`}>
-          {path ? t("Choose another file…") : t("Choose file…")}
-          <input type="file" hidden onChange={(e) => void take(e.target.files)} />
-        </label>
-      </div>
+    <div aria-busy={busy}>
+      {path && (
+        <Group>
+          <Item icon={<Icon k="data" />} title={name ?? fileName(path)} text={t("Chosen")} />
+        </Group>
+      )}
+      <Group title={path ? t("Choose another file…") : undefined}>
+        {kind === "report" && isTouch && row("camera", "#0a7397", t("Take a photo"), "image/*", "photo", true)}
+        {kind === "report" && row("photos", "#43a047", t("Choose from photos"), "image/*", "photo")}
+        {row("folder", "#1e88e5", t("Choose from files"), kind === "report" ? "image/*,application/pdf" : kind === "apple" ? ".zip,application/zip" : undefined, kind)}
+      </Group>
+      {!isTouch && (
+        <div
+          className={`mb-5 rounded-3xl border-[1.5px] border-dashed px-4 py-6 text-center text-[15px] text-black/55 dark:text-white/55 ${over ? "border-primary bg-primary/10" : "border-black/20 dark:border-white/20"}`}
+          onDragOver={(e) => (e.preventDefault(), setOver(true))}
+          onDragLeave={() => setOver(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setOver(false);
+            void take(e.dataTransfer.files[0]);
+          }}
+        >
+          {t("Or drag a file here.")}
+        </div>
+      )}
       <Problem text={err} />
     </div>
   );
@@ -929,54 +1142,44 @@ interface BackupResult {
   restored_blobs: number;
 }
 
-/** A row of an inset grouped list: icon, name with a line under it, a live status, a chevron. */
-/** A grouped row with a switch on the right (System Settings); the whole row toggles it. */
 /** A card's title, with one button that turns every switch in it on (or, when all are on, off). */
 function CardHead({ title, on, set }: { title: string; on: boolean; set: (on: boolean) => void }) {
   return (
-    <div className="rows-head card-head">
-      <h4>{title}</h4>
-      <button type="button" className="link" onClick={() => set(!on)}>
+    <div className="mt-6 mb-2 flex items-center justify-between px-4">
+      <h4 className="text-[13px] font-semibold text-black/55 dark:text-white/55">{title}</h4>
+      <Btn type="button" link onClick={() => set(!on)}>
         {on ? t("Select none") : t("Select all")}
-      </button>
+      </Btn>
     </div>
   );
 }
 
+/** A grouped row with a switch on the right (System Settings); the whole row toggles it. */
 function SwitchRow({ icon, label, sub, on, set }: { icon?: ReactNode; label: string; sub?: string; on: boolean; set: (on: boolean) => void }) {
   return (
-    <li>
-      <label className="row-static row-toggle">
-        {icon}
-        <span className="row-l">
-          <strong>{label}</strong>
-          {sub && <span className="fine">{sub}</span>}
-        </span>
-        <input type="checkbox" role="switch" className="switch" checked={on} onChange={(e) => set(e.target.checked)} />
-      </label>
-    </li>
+    <Item
+      icon={icon}
+      title={label}
+      text={sub}
+      role="switch"
+      aria-checked={on}
+      chevron={false}
+      onClick={() => set(!on)}
+      after={<Toggle component="span" className="pointer-events-none" checked={on} readOnly />}
+    />
   );
 }
 
-function Row({ icon, label, sub, value, onClick }: { icon: ReactNode; label: string; sub?: string; value?: ReactNode; onClick: () => void }) {
-  return (
-    <li>
-      <button type="button" className="row-btn" onClick={onClick}>
-        {icon}
-        <span className="row-l">
-          <strong>{label}</strong>
-          {sub && <span className="fine">{sub}</span>}
-        </span>
-        {value !== undefined && <span className="row-v fine">{value}</span>}
-        <span className="row-chev" aria-hidden="true">
-          ›
-        </span>
-      </button>
-    </li>
-  );
+/** A row that opens something: its symbol on a coloured circle, its name, a line of state, a value at the end. */
+function Row({ icon, color, label, sub, value, onClick }: { icon: ReactNode; color?: string; label: string; sub?: string; value?: ReactNode; onClick: () => void }) {
+  return <Item icon={icon} color={color} title={label} text={sub} after={value} onClick={onClick} />;
 }
 
-type SourceSheet = "manage" | "whoop" | "apple" | "report" | "lab" | "restore" | "manual" | "file";
+/** The lab report just read: Waiting for you shows it first. */
+let justRead: number | undefined;
+
+const SOURCE_SHEETS = ["manage", "whoop", "apple", "report", "lab", "restore", "manual", "file"] as const;
+type SourceSheet = (typeof SOURCE_SHEETS)[number];
 /** Data sources (as the web's 更多 › 数据来源): managing what is here first, then one row per way data comes
  *  in, each with its live status; the steps open in a sheet. A file dropped on the window opens here. */
 function DataSources({
@@ -985,24 +1188,24 @@ function DataSources({
   go,
   done,
   want,
+  path,
 }: {
   file?: string;
   onFile: (p?: string) => void;
   go: (p: Page) => void;
   done: (code: string) => void;
-  /** The sheet to open with (a way in chosen on the getting-started card) */
-  want?: SourceSheet;
+  /** The way in open (#/data/whoop), and the address under it (#/data/manage/ocr/5) */
+  want?: string;
+  path?: string[];
 }) {
-  const [sheet, setSheet] = useState<SourceSheet | undefined>(want);
+  // the way in open is the address's (#/data/whoop), a screen of its own
+  const sheet = SOURCE_SHEETS.find((x) => x === want);
+  const setSheet = (x: SourceSheet) => nav(`data/${x}`);
   const [batches] = useOp(() => op<Batch[]>("import.list"), []);
   const [whoop] = useOp(() => op<WhoopStatus>("whoop.status"), []);
   useEffect(() => {
-    if (file) setSheet((s) => s ?? "file");
+    if (file && !sheet) setSheet("file");
   }, [file]);
-  const close = () => {
-    setSheet(undefined);
-    onFile(undefined);
-  };
   const lastOf = (connector: string) => {
     const at = Math.max(0, ...(batches ?? []).filter((b) => b.connector === connector).map((b) => b.at ?? 0));
     return at ? t("Last import {{when}}", { when: shortDate(at) }) : batches ? t("Not imported yet") : undefined;
@@ -1025,97 +1228,53 @@ function DataSources({
     manual: t("Enter by hand"),
     file: t("Import a file"),
   };
+  if (sheet === "manage") return <Sources go={go} path={path ?? []} />;
+  if (sheet === "whoop") return <Screen title="WHOOP"><WhoopConnect /></Screen>;
+  if (sheet === "lab") return <LabSelfService errText={errText} showResults={() => go("readings")} showIdentity={() => go("account")} pollFast={pollFast} path={path ?? []} />;
+  if (sheet === "manual") return <Enter done={done} />;
+  if (sheet) return <Import file={file} onFile={onFile} go={go} kind={sheet} title={titles[sheet]} />;
   return (
-    <section className="page">
-      <h2>{t("Data sources")}</h2>
-      <p className="lede">{(isMobile ? t("Your data on this device.") : t("Your data on this computer. Drop a file anywhere on the window to import it."))}</p>
-      <ul className="rows-card">
+    <section className="mx-auto w-full max-w-3xl">
+      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Data sources")}</h2>
+      <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55">{(isMobile ? t("Your data on this device.") : t("Your data on this computer. Drop a file anywhere on the window to import it."))}</p>
+      <Group>
         <Row
-          icon={<Icon k="data" />}
+          color="#1e88e5" icon={<Icon k="data" />}
           label={t("Manage data")}
           sub={t("See and delete imports")}
           value={batches ? t("{{count}} imports", { count: batches.length }) : undefined}
           onClick={() => setSheet("manage")}
         />
-      </ul>
-      <ul className="rows-card">
-        <Row icon={<GroupIcon k="cardio" />} label="WHOOP" sub={t("Syncs every hour while Health is open")} value={whoopValue} onClick={() => setSheet("whoop")} />
-        <Row icon={<GroupIcon k="activity" />} label={t("Apple Health")} sub={t("Export from your iPhone")} value={lastOf("apple_health")} onClick={() => setSheet("apple")} />
-        <Row icon={<GroupIcon k="lab" />} label={t("Lab report")} sub={t("A photo or a PDF")} value={lastOf("ocr")} onClick={() => setSheet("report")} />
-        <Row icon={<GroupIcon k="infectious" />} label={t("Lab self-service")} sub={t("A code for a lab device")} onClick={() => setSheet("lab")} />
-        <Row icon={<Icon k="backup" />} label={t("Restore a backup")} sub={t("A .zuhealth file")} onClick={() => setSheet("restore")} />
-        <Row icon={<GroupIcon k="body" />} label={t("Enter by hand")} sub={t("Write down a reading")} value={lastOf("manual")} onClick={() => setSheet("manual")} />
-      </ul>
-      {sheet && (
-        <Sheet label={titles[sheet]} close={close}>
-          {sheet === "manage" && (
-            <Sources
-              go={(p) => {
-                close();
-                go(p);
-              }}
-            />
-          )}
-          {sheet === "whoop" && <WhoopConnect />}
-          {(sheet === "apple" || sheet === "report" || sheet === "restore" || sheet === "file") && (
-            <Import file={file} onFile={onFile} go={go} kind={sheet} title={titles[sheet]} />
-          )}
-          {sheet === "lab" && <LabSelfService errText={errText} showResults={() => go("readings")} showIdentity={() => go("account")} pollFast={pollFast} />}
-          {sheet === "manual" && (
-            <Enter
-              done={(code) => {
-                close();
-                done(code);
-              }}
-            />
-          )}
-        </Sheet>
-      )}
+      </Group>
+      <Group>
+        <Row color="#e53935" icon={<GroupIcon k="cardio" />} label="WHOOP" sub={whoopValue ?? t("Syncs every hour while Health is open")} onClick={() => setSheet("whoop")} />
+        <Row color="#f4511e" icon={<GroupIcon k="activity" />} label={t("Apple Health")} sub={lastOf("apple_health") ?? t("Export from your iPhone")} onClick={() => setSheet("apple")} />
+        <Row color="#00897b" icon={<GroupIcon k="lab" />} label={t("Lab report")} sub={lastOf("ocr") ?? t("A photo or a PDF")} onClick={() => setSheet("report")} />
+        <Row color="#43a047" icon={<GroupIcon k="infectious" />} label={t("Lab self-service")} sub={t("A code for a lab device")} onClick={() => setSheet("lab")} />
+        <Row color="#fb8c00" icon={<Icon k="backup" />} label={t("Restore a backup")} sub={t("A .zuhealth file")} onClick={() => setSheet("restore")} />
+        <Row color="#7c4dff" icon={<GroupIcon k="body" />} label={t("Enter by hand")} sub={lastOf("manual") ?? t("Write down a reading")} onClick={() => setSheet("manual")} />
+      </Group>
     </section>
   );
 }
 
-/** A self-service code for a lab device (protocol 3.3): the device id is beside its QR. */
-/** Installs the OCR models (desktop: downloaded and checked by the core; elsewhere: the command to run). */
-function OcrInstall({ done }: { done: () => void }) {
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string>();
-  if (!isDesktop && !isMobile)
-    return (
-      <div className="group notice">
-        <p>{t("Install it once from a terminal:")}</p>
-        <pre>health component install ocr</pre>
-      </div>
-    );
+/** Add (a tab on a phone), as the web's 记录: a lab report from the camera or a file, or a reading entered by hand
+ *  after a search. The other ways in (WHOOP, Apple Health, backups, lab devices) are in Data sources. */
+function AddPage({ go, done }: { go: (p: Page, want?: string) => void; done: (code: string) => void }) {
+  const [file, setFile] = useState<string>();
   return (
-    <div className="group notice" aria-busy={busy}>
-      <h3>{isMobile ? t("Read lab reports on this device") : t("Read lab reports on this computer")}</h3>
-      <p className="fine">
-        {(isMobile ? t("Health downloads the text-recognition models once (about 156 MB) to read images on this device.") : t("Health downloads the text-recognition models once (about 156 MB) to read images on this computer."))}
-      </p>
-      <Problem text={err} />
-      <div className="actions">
-        <button
-          type="button"
-          className="primary"
-          disabled={busy}
-          onClick={async () => {
-            setBusy(true);
-            setErr(undefined);
-            try {
-              await installOcr(true);
-              done();
-            } catch (e) {
-              setErr(errText(e));
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          {busy ? t("Downloading…") : t("Install")}
-        </button>
-      </div>
-    </div>
+    <section className="mx-auto w-full max-w-3xl">
+      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Add")}</h2>
+      <Import file={file} onFile={setFile} go={go} kind="report" title={t("Lab report")} part />
+      {!file && (
+        <>
+          <Group className="mt-5">
+            <Row color="#43a047" icon={<GroupIcon k="infectious" />} label={t("Lab self-service")} sub={t("A code for a lab device")} onClick={() => go("data", "lab")} />
+          </Group>
+          <Enter done={done} part />
+        </>
+      )}
+    </section>
   );
 }
 
@@ -1126,13 +1285,33 @@ const IMPORT_LEDE: Record<string, string> = {
   file: tk("A photo or PDF of a lab report, an Apple Health export, a Health backup (.zuhealth) or WHOOP data. Importing the same file again updates it; nothing is doubled."),
 };
 
-function Import({ file, onFile, go, kind: hint = "file", title }: { file?: string; onFile: (p?: string) => void; go: (p: Page) => void; kind?: string; title?: string }) {
+function Import({
+  file,
+  onFile,
+  go,
+  kind: hint = "file",
+  title,
+  part,
+}: {
+  file?: string;
+  onFile: (p?: string) => void;
+  go: (p: Page) => void;
+  kind?: string;
+  title?: string;
+  /** a part of a page (Add), not the page: a smaller heading */
+  part?: boolean;
+}) {
   const [password, setPassword] = useState("");
   const [source, setSource] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string>();
   const [done, setDone] = useState<ReactNode>();
-  const [needsOcr, setNeedsOcr] = useState(false);
+  // a lab report's steps, as the web's: asked before the one-off download of the models, then the download, then
+  // the reading, each with its progress
+  const [step, setStep] = useState<"ask" | "download" | "read">();
+  const [progress, setProgress] = useState<OcrProgress>();
+  const [askMb, setAskMb] = useState(0);
+  useEffect(() => onOcrProgress(setProgress), []);
   const kind: ImportKind | null = file ? importKind(file) : null;
   useEffect(() => {
     setErr(undefined);
@@ -1146,21 +1325,7 @@ function Import({ file, onFile, go, kind: hint = "file", title }: { file?: strin
     setErr(undefined);
     setDone(undefined);
     try {
-      if (kind === "report") {
-        // recognised in a separate process by the core, then kept as a batch you check before anything counts
-        const r = await op<{ import_id: number; items: number; matched: number }>("import.ocr", { path: file, tz_min: -new Date().getTimezoneOffset() });
-        setDone(
-          <>
-            <p>{t("Read {{count}} results. Please check them.", { count: r.items })}</p>
-            <div className="actions">
-              <button type="button" className="primary" onClick={() => go("review")}>
-                {t("Check them now")}
-              </button>
-            </div>
-          </>,
-        );
-        return;
-      }
+      if (kind === "report") return void (await readReport());
       if (kind === "backup") {
         const r = await op<BackupResult>("backup.import", { path: file, password });
         const notes: string[] = [];
@@ -1175,7 +1340,7 @@ function Import({ file, onFile, go, kind: hint = "file", title }: { file?: strin
                 : t("Restored: {{added}} imports added. Nothing here was overwritten.", { added: r.added_imports })}
             </p>
             {notes.map((n) => (
-              <p key={n} className="fine">
+              <p key={n} className="text-[13px] text-black/55 dark:text-white/55">
                 {n}
               </p>
             ))}
@@ -1190,72 +1355,145 @@ function Import({ file, onFile, go, kind: hint = "file", title }: { file?: strin
               {t("Imported {{n}} readings from {{count}} devices.", { n: r.written.toLocaleString(), count: r.sources })}
               {r.added < r.written ? ` ${t("{{n}} were already here and were updated.", { n: (r.written - r.added).toLocaleString() })}` : ""}
             </p>
-            {broken > 0 && <p className="fine">{t("{{n}} records had a bad date or value and were left out.", { n: broken.toLocaleString() })}</p>}
+            {broken > 0 && <p className="text-[13px] text-black/55 dark:text-white/55">{t("{{n}} records had a bad date or value and were left out.", { n: broken.toLocaleString() })}</p>}
           </>,
         );
       }
       setPassword("");
     } catch (e) {
-      if (e instanceof OpError && (e.code === "no_ocr_component" || e.code === "ocr_component")) setNeedsOcr(true);
       setErr(errText(e));
     } finally {
       setBusy(false);
     }
   };
+  /** A lab report: the models first if they're missing (asked once; a phone takes only the ~21 MB it needs, not
+   *  the matching model), then read; the result opens for checking (nothing counts until it's confirmed). */
+  const readReport = async (fetch = false) => {
+    if (!file) return;
+    setErr(undefined);
+    setProgress(undefined);
+    try {
+      const comp = await ocrComponent();
+      if (comp && !comp.ready) {
+        const missing = comp.files.filter((f) => !f.installed && (f.required || !isMobile));
+        if (!fetch) {
+          setAskMb(Math.max(1, Math.round(missing.reduce((n, f) => n + f.bytes, 0) / 1e6)));
+          return setStep("ask");
+        }
+        setStep("download");
+        await installOcr(!isMobile);
+        setProgress(undefined);
+      }
+      setStep("read");
+      const r = await op<{ import_id: number; items: number; matched: number }>("import.ocr", { path: file, tz_min: -new Date().getTimezoneOffset() });
+      justRead = r.import_id;
+      setStep(undefined);
+      go("review");
+    } catch (e) {
+      setStep(undefined);
+      setErr(errText(e));
+    }
+  };
+  // a report is read as soon as it is chosen (as the web's): there is nothing to fill in first. Once per file
+  // (StrictMode runs effects twice: the report would be imported twice)
+  const started = useRef<string | undefined>(undefined);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: once per file chosen
+  useEffect(() => {
+    if (!file || kind !== "report" || started.current === file) return;
+    started.current = file;
+    void readReport();
+  }, [file]);
   return (
-    <section className="record">
-      <h2>{title ?? t("Import a file")}</h2>
-      <p className="lede">{t(IMPORT_LEDE[hint] ?? IMPORT_LEDE.file!)}</p>
+    <section className="[&_h3]:mt-6">
+      {part ? <h3 className="mt-6 mb-1.5 text-[17px] font-semibold">{title}</h3> : <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{title ?? t("Import a file")}</h2>}
+      <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55">{t(IMPORT_LEDE[hint] ?? IMPORT_LEDE.file!)}</p>
       {hint === "restore" && (
-        <p className="fine">
+        <p className="text-[13px] text-black/55 dark:text-white/55">
           {t("Web version")} <WebLink url={WEB_VERSION} />
         </p>
       )}
-      <FilePick path={file} onPath={onFile} photo={hint === "report"} />
+      <FilePick path={file} onPath={onFile} kind={hint === "report" || hint === "apple" || hint === "restore" ? hint : "file"} />
       {file && !kind && (
         <Problem text={t("Health can't read this kind of file. Choose a lab report photo or PDF, a .zip from Apple Health, a .zuhealth backup, or a WHOOP .json file.")} />
       )}
-      {needsOcr && <OcrInstall done={() => (setNeedsOcr(false), setErr(undefined))} />}
-      {file && kind && (
+      {file && kind === "report" && (
+        <div aria-busy={step === "download" || step === "read"}>
+          {step === "ask" ? (
+            <div className="mb-4 rounded-2xl bg-amber-500/15 px-4 py-3 text-[15px]">
+              <p>{t("The first time, Health needs the text-recognition models (about {{mb}} MB), once. Reports are read here; nothing is uploaded.", { mb: askMb })}</p>
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                <Btn type="button" primary onClick={() => void readReport(true)}>
+                  {t("Download and read")}
+                </Btn>
+                <Btn type="button" onClick={() => (setStep(undefined), onFile(undefined))}>
+                  {t("Not now")}
+                </Btn>
+              </div>
+            </div>
+          ) : step ? (
+            <div role="status" className="[&_progress]:h-1.5 [&_progress]:w-full [&_progress]:accent-primary">
+              {/* a bar only where there's something to count: bytes, or the pages of a PDF */}
+              {progress?.stage === step && (step === "download" || progress.total > 1) ? (
+                <progress value={progress.done} max={progress.total} />
+              ) : (
+                <progress />
+              )}
+              <p className="text-[13px] text-black/55 dark:text-white/55">
+                {step === "download"
+                  ? t("Downloading the text-recognition models {{pct}}%", { pct: progress?.stage === "download" ? Math.floor((progress.done * 100) / Math.max(1, progress.total)) : 0 })
+                  : progress?.stage === "read" && progress.total > 1
+                    ? t("Reading page {{n}} of {{m}}…", { n: progress.done + 1, m: progress.total })
+                    : t("Reading the report…")}
+              </p>
+            </div>
+          ) : err ? (
+            <>
+              <Problem text={err} />
+              <Btn type="button" primary onClick={() => void readReport()}>
+                {t("Try again")}
+              </Btn>
+            </>
+          ) : null}
+        </div>
+      )}
+      {file && kind && kind !== "report" && (
         <form
-          className="form"
+          className="flex flex-col gap-3"
           aria-busy={busy}
           onSubmit={(e) => {
             e.preventDefault();
             run();
           }}
         >
-          <p className="fine">{t(KIND_LABEL[kind])}</p>
+          <p className="text-[13px] text-black/55 dark:text-white/55">{t(KIND_LABEL[kind])}</p>
           {kind === "backup" && <PasswordField label={t("Backup password")} value={password} onChange={setPassword} auto="current-password" />}
           {kind === "rows" && (
-            <label>
+            <label className="flex flex-col gap-1.5 text-[13px] text-black/60 dark:text-white/60">
               {t("Where these readings come from")}
-              <input value={source} onChange={(e) => setSource(e.target.value)} required />
+              <input className="w-full rounded-xl bg-black/5 px-3 py-2.5 text-base text-black outline-none focus:ring-2 focus:ring-primary dark:bg-white/10 dark:text-white" value={source} onChange={(e) => setSource(e.target.value)} required />
             </label>
           )}
           <Problem text={err} />
-          <button type="submit" className="primary" disabled={busy}>
+          <Btn type="submit" primary disabled={busy}>
             {busy ? (kind === "backup" ? t("Restoring…") : t("Importing…")) : kind === "backup" ? t("Restore backup") : t("Import")}
-          </button>
+          </Btn>
           {busy && (
-            <p className="fine">
-              {kind === "report"
-                ? t("Reading the report: a few seconds a page.")
-                : t("Large exports can take a few minutes. Health answers again when the import is done; keep this page open to see the result.")}
+            <p className="text-[13px] text-black/55 dark:text-white/55">
+              {t("Large exports can take a few minutes. Health answers again when the import is done; keep this page open to see the result.")}
             </p>
           )}
         </form>
       )}
       {done && (
-        <div className="group notice" role="status">
+        <div className="mb-4 rounded-2xl bg-amber-500/15 px-4 py-3 text-[15px]" role="status">
           {done}
-          <div className="actions">
-            <button type="button" className="primary" onClick={() => go("readings")}>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+            <Btn type="button" primary onClick={() => go("readings")}>
               {t("See my readings")}
-            </button>
-            <button type="button" onClick={() => onFile(undefined)}>
+            </Btn>
+            <Btn type="button" onClick={() => onFile(undefined)}>
               {t("Import another file")}
-            </button>
+            </Btn>
           </div>
         </div>
       )}
@@ -1309,7 +1547,7 @@ function Flag({ p }: { p: Point }) {
   const f = (p.detail?.flag ?? (p.detail?.printed as { flag?: string } | undefined)?.flag) as string | undefined;
   if (p.corrected || (f !== "H" && f !== "L")) return null;
   return (
-    <span className="flag" title={f === "H" ? t("Above the reference range") : t("Below the reference range")}>
+    <span className="ms-1 text-xs font-semibold text-amber-600" title={f === "H" ? t("Above the reference range") : t("Below the reference range")}>
       {f === "H" ? t("↑ high") : t("↓ low")}
     </span>
   );
@@ -1359,25 +1597,38 @@ const GROUP_ICON: Record<string, ReactNode> = {
     </>
   ),
 };
+/** Each group's colour: it marks the group only, the text stays in ink. */
+const TINT: Record<string, string> = {
+  body: "#8a6fd3",
+  cardio: "#dc5149",
+  sleep: "#5a6ee0",
+  activity: "#e0742a",
+  force: "#c25a2f",
+  lab: "#2a8db6",
+  infectious: "#2f9873",
+  tumor: "#b5627c",
+  repro: "#c25b98",
+  other: "#7d8d94",
+};
 const GroupIcon = ({ k }: { k: string }) => (
-  <svg className={`icon tint-${k}`} viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+  <svg className="h-5 w-5 shrink-0" style={{ color: TINT[k] ?? TINT.other }} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     {GROUP_ICON[k] ?? <rect x="3" y="3" width="10" height="10" rx="2.5" />}
   </svg>
 );
 
 /** One measure as a tile: its name, the value large, and the month's trend or when it was taken. */
-function Tile({ p, open, lab }: { p: Point; open: (code: string) => void; lab: boolean }) {
-  return p.agg === "cumulative" ? <SummedTile p={p} open={open} /> : <TileBody p={p} open={open} s={shown(p)} days={undefined} lab={lab} />;
+function Tile({ p, open }: { p: Point; open: (code: string) => void }) {
+  return p.agg === "cumulative" ? <SummedTile p={p} open={open} /> : <TileBody p={p} open={open} s={shown(p)} days={undefined} />;
 }
 
 function SummedTile({ p, open }: { p: Point; open: (code: string) => void }) {
   const days = useMonth(p);
-  return <TileBody p={p} open={open} s={display(p, days)} days={days} lab={false} />;
+  return <TileBody p={p} open={open} s={display(p, days)} days={days} />;
 }
 
 function TrendTile({ p, open, s }: { p: Point; open: (code: string) => void; s: { value: string; unit: string; note?: string } }) {
   const days = useMonth(p);
-  return <TileBody p={p} open={open} s={s} days={days} lab={false} />;
+  return <TileBody p={p} open={open} s={s} days={days} />;
 }
 
 function TileBody({
@@ -1385,23 +1636,24 @@ function TileBody({
   open,
   s,
   days,
-  lab,
-}: { p: Point; open: (code: string) => void; s: { value: string; unit: string; note?: string }; days?: Day[]; lab: boolean }) {
+}: { p: Point; open: (code: string) => void; s: { value: string; unit: string; note?: string }; days?: Day[] }) {
   const old = isStale(p);
-  // no trend to draw (lab values, old or sparse ones): the date of the value fills the space instead
+  // a trend where there is one (everyday measures); the date otherwise (lab values, old or sparse ones)
   const trend = !old && !!days && toPts(p.agg, days).length >= 2;
-  const note = s.note ?? (lab || old || !trend ? ago(p.start_ms) : undefined);
+  const note = s.note ?? ago(p.start_ms);
   return (
-    <button type="button" className={`tile${old ? " stale" : ""}`} onClick={() => open(p.metric)}>
-      <span className="tile-name">{nameOf(p.metric, p.name)}</span>
-      <span className="tile-value">
-        {s.value}
-        {s.unit && <span className="unit"> {s.unit}</span>}
-        <Flag p={p} />
+    <button type="button" className="flex w-full min-h-[64px] items-center gap-3 px-4 py-2.5 text-start transition-colors active:bg-black/5 dark:active:bg-white/10" onClick={() => open(p.metric)}>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[16px] leading-snug">{nameOf(p.metric, p.name)}</span>
+        <span className="block text-[13px] text-black/55 dark:text-white/55">
+          {note}
+          <Flag p={p} />
+        </span>
       </span>
-      <span className="tile-foot">
-        {note && <span className="fine">{note}</span>}
-        {!old && days && <Trend p={p} days={days} latest={s.unit ? `${s.value} ${s.unit}` : s.value} />}
+      {trend && <Trend p={p} days={days} latest={s.unit ? `${s.value} ${s.unit}` : s.value} />}
+      <span className={`shrink-0 text-end text-[20px] font-semibold tracking-tight tabular-nums ${old ? "text-black/55 dark:text-white/55" : ""}`}>
+        {s.value}
+        {s.unit && <span className="ms-0.5 text-[13px] font-medium text-black/55 dark:text-white/55">{s.unit}</span>}
       </span>
     </button>
   );
@@ -1410,23 +1662,9 @@ function TileBody({
 /** Key, everyday measures show their month's trend; lab and old values show their date instead. */
 function AnyTile({ p, open, lab }: { p: Point; open: (code: string) => void; lab: boolean }) {
   if (!lab && !isStale(p) && p.agg !== "cumulative" && typeof p.value === "number") return <TrendTile p={p} open={open} s={shown(p)} />;
-  return <Tile p={p} open={open} lab={lab} />;
+  return <Tile p={p} open={open} />;
 }
 
-/** How many tiles fit in one row of `.tiles` (176px minimum, 10px gaps; see styles.css). */
-function useColumns(): [React.RefObject<HTMLDivElement>, number] {
-  const ref = useRef<HTMLDivElement>(null);
-  const [cols, setCols] = useState(4);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    // the columns the grid laid out (its minimum tile width is in the CSS, narrower on phones)
-    const ro = new ResizeObserver(() => setCols(Math.max(1, getComputedStyle(el).gridTemplateColumns.split(" ").length)));
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-  return [ref, cols];
-}
 
 function Section({
   g,
@@ -1434,10 +1672,8 @@ function Section({
   sources,
   open,
   all,
-  report,
-}: { g: (typeof GROUPS)[number]; rows: Point[]; sources: Source[]; open: (code: string) => void; all: boolean; report?: ReactNode }) {
+}: { g: (typeof GROUPS)[number]; rows: Point[]; sources: Source[]; open: (code: string) => void; all: boolean }) {
   const [more, setMore] = useState(false);
-  const [grid, cols] = useColumns();
   const key = KEY[g.key] ?? [];
   // key measures first, then everyday ones, then detailed body-composition analysis, newest first within each
   const detailed = (p: Point) => /^x:(seca\/|fat_|ecw|extracellular|total_body_water|skeletal_muscle|appendicular|bia_|phase_angle|visceral|resting_energy|total_energy)/.test(p.metric);
@@ -1448,8 +1684,8 @@ function Section({
     return Number(detailed(a)) - Number(detailed(b)) || b.start_ms - a.start_ms;
   });
   const lab = g.key === "lab" || g.sensitive;
-  // collapsed: one full row (two for a category this big, so key measures and a few more show)
-  const fold = cols * (rows.length > cols * 3 ? 2 : 1);
+  // collapsed: the first few rows (more for a big category), the rest on request
+  const fold = rows.length > 12 ? 6 : 4;
   const shownRows = all || more ? ranked : ranked.slice(0, fold);
   // where these numbers come from, newest first
   const bySource = new Map<number, number>();
@@ -1458,26 +1694,30 @@ function Section({
     .sort((a, b) => b[1] - a[1])
     .map(([id]) => sourceLabel(sources.find((x) => x.id === id)));
   return (
-    <section className="section" id={`g-${g.key}`} aria-labelledby={`h-${g.key}`}>
-      <header>
-        <h3 id={`h-${g.key}`}>
-          <GroupIcon k={g.key} />
-          {t(g.label)}
-        </h3>
-        {!all && rows.length > fold && (
-          <button type="button" className="link" aria-expanded={more} onClick={() => setMore(!more)}>
-            {more ? t("Show fewer") : t("Show all {{n}}", { n: rows.length })}
-          </button>
-        )}
-      </header>
-      <div className="tiles" ref={grid}>
+    <section className="mb-2 scroll-mt-10 break-inside-avoid" id={`g-${g.key}`} aria-labelledby={`h-${g.key}`}>
+      <Group
+        title={
+          <span id={`h-${g.key}`} className="flex items-center gap-2 text-[15px] font-semibold text-black dark:text-white">
+            <IconDot color={TINT[g.key] ?? TINT.other} className="h-7! w-7!">
+              <GroupIcon k={g.key} />
+            </IconDot>
+            {t(g.label)}
+          </span>
+        }
+        after={
+          !all && rows.length > fold ? (
+            <Btn type="button" link aria-expanded={more} onClick={() => setMore(!more)}>
+              {more ? t("Show fewer") : t("Show all {{n}}", { n: rows.length })}
+            </Btn>
+          ) : undefined
+        }
+      >
         {shownRows.map((p) => (
           <AnyTile key={p.metric} p={p} open={open} lab={lab} />
         ))}
-      </div>
-      {report}
+      </Group>
       {from.length > 0 && (
-        <p className="fine from">
+        <p className="-mt-3 mb-5 px-4 text-[13px] text-black/55 dark:text-white/55">
           {new Set(from).size > 3
             ? t("From {{list}} and {{n}} more", { list: [...new Set(from)].slice(0, 3).join(t(", ")), n: new Set(from).size - 3 })
             : t("From {{list}}", { list: [...new Set(from)].slice(0, 3).join(t(", ")) })}
@@ -1490,28 +1730,28 @@ function Section({
 /** Nothing recorded yet: where data comes in on this computer (as the web's dashboard getting-started card) */
 function Start({ start }: { start: (p: Page, want: string) => void }) {
   return (
-    <section className="page wide">
-      <div className="page-head">
+    <section className="mx-auto w-full max-w-5xl">
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h2>{t("Readings")}</h2>
-          <p className="fine">{(isMobile ? t("Your data is stored encrypted on this device") : t("Your data is stored encrypted on this computer"))}</p>
+          <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Dashboard")}</h2>
+          <p className="text-[13px] text-black/55 dark:text-white/55">{(isMobile ? t("Your data is stored encrypted on this device") : t("Your data is stored encrypted on this computer"))}</p>
         </div>
       </div>
-      <div className="start">
-        <div className="start-h">
-          <h3 id="h-start">{t("Start recording your health")}</h3>
-          <p className="fine">{t("Choose a way to add your first data")}</p>
+      <div className="max-w-[640px] overflow-hidden rounded-3xl bg-white/80 shadow-sm dark:bg-neutral-900/80">
+        <div className="px-4.5 pt-4.5 pb-1.5 [&_h3]:m-0 [&_h3]:text-[17px]">
+          <h3 id="h-start" className="mb-2 text-[17px] font-semibold">{t("Start recording your health")}</h3>
+          <p className="text-[13px] text-black/55 dark:text-white/55">{t("Choose a way to add your first data")}</p>
         </div>
-        <ul className="rows-card" aria-labelledby="h-start">
+        <Group aria-labelledby="h-start">
           <Row icon={<GroupIcon k="lab" />} label={t("Lab report")} sub={t("A photo or a PDF")} onClick={() => start("data", "report")} />
           <Row icon={<GroupIcon k="activity" />} label={t("Apple Health")} sub={t("Export from your iPhone")} onClick={() => start("data", "apple")} />
           <Row icon={<Icon k="backup" />} label={t("Restore a backup")} sub={t("A .zuhealth file")} onClick={() => start("data", "restore")} />
           <Row icon={<GroupIcon k="body" />} label={t("Enter by hand")} sub={t("Write down a reading")} onClick={() => start("data", "manual")} />
           <Row icon={<Icon k="link" />} label={t("Connect another device")} onClick={() => start("account", "connect")} />
-        </ul>
+        </Group>
       </div>
       {/* dropping a file on the window is the desktop's */}
-      {isDesktop && <p className="fine start-foot">{t("You can also drop a file anywhere on this window.")}</p>}
+      {isDesktop && <p className="text-[13px] text-black/55 dark:text-white/55 mt-3 text-[13px]">{t("You can also drop a file anywhere on this window.")}</p>}
     </section>
   );
 }
@@ -1521,6 +1761,7 @@ function Readings({
   err,
   open,
   go,
+  want,
   reviews,
   find,
   found,
@@ -1531,6 +1772,8 @@ function Readings({
   err?: string;
   open: (code: string) => void;
   go: (p: Page) => void;
+  /** The lab report open (#/report/seca, #/report/forcedecks). */
+  want?: string;
   reviews: number;
   find: boolean;
   found: () => void;
@@ -1542,9 +1785,9 @@ function Readings({
   const search = useRef<HTMLInputElement>(null);
   const [sources] = useOp(() => op<Source[]>("source.list"), []);
   const [fd] = useOp(() => op<FdSession[]>("labs.forcedecks"), []);
-  const [fdOpen, setFdOpen] = useState(false);
+
   const [scans] = useOp(() => op<Measurement[]>("labs.body_scans"), []);
-  const [secaOpen, setSecaOpen] = useState(false);
+
   const [q, setQ] = useState("");
   useEffect(() => {
     if (find && search.current) {
@@ -1564,7 +1807,7 @@ function Readings({
       },
       { rootMargin: "-80px 0px -60% 0px" },
     );
-    for (const el of document.querySelectorAll("section.section[id^='g-']")) io.observe(el);
+    for (const el of document.querySelectorAll("section[id^='g-']")) io.observe(el);
     const top = () => window.scrollY < 40 && onSection(null);
     window.addEventListener("scroll", top, { passive: true });
     return () => {
@@ -1574,7 +1817,11 @@ function Readings({
     };
   }, [latest, onSection]);
   if (err) return <Problem text={err} />;
-  if (!latest) return <p className="empty" aria-busy="true">{t("Loading your readings…")}</p>;
+  if (!latest) return <p className="text-black/55 dark:text-white/55" aria-busy="true">{t("Loading your readings…")}</p>;
+  // the lab devices' reports, each a screen of its own (#/report/seca, #/report/forcedecks)
+  if (want === "seca") return <Screen title={t("Body composition")}>{scans && <SecaReport scans={scans} />}</Screen>;
+  if (want === "forcedecks")
+    return <Screen title={t("VALD ForceDecks tests")}>{fd && <FdReport sessions={fd} names={Object.fromEntries(latest.map((p) => [p.metric, p.name]))} />}</Screen>;
   if (!latest.length) return <Start start={start} />;
   const needle = q.trim().toLowerCase();
   const match = (p: Point) => !needle || nameOf(p.metric, p.name).toLowerCase().includes(needle) || p.name.toLowerCase().includes(needle);
@@ -1589,65 +1836,41 @@ function Readings({
     (x) => x.rows.length || withReport(x.g.key),
   );
   const newest = Math.max(...latest.map((p) => p.start_ms));
+  const labs = !needle && (!!scans?.[0] || !!fdLatest);
   return (
-    <section className="page wide">
-      <div className="page-head">
-        <div>
-          <h2>{t("Readings")}</h2>
-          <p className="fine">{t("Updated {{when}}", { when: when(newest) })}</p>
-        </div>
-        <div className="search-field">
-          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-            <circle cx="7" cy="7" r="4.5" />
-            <path d="M10.5 10.5L14 14" />
-          </svg>
-          <input
-            ref={search}
-            type="search"
-            placeholder={isMobile ? t("Find a measure") : `${t("Find a measure")} (${MOD}F)`}
-            aria-label={t("Find a measure")}
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            onKeyDown={(e) => e.key === "Escape" && setQ("")}
-          />
-        </div>
-      </div>
+    <section className="mx-auto w-full max-w-5xl">
+      <h2 className="mb-0.5 text-[28px] leading-tight font-bold tracking-tight">{t("Dashboard")}</h2>
+      <p className="mb-4 text-[13px] text-black/55 dark:text-white/55">{t("Updated {{when}}", { when: when(newest) })}</p>
+      <SearchPill
+        className="mb-5"
+        ref={search}
+        placeholder={isMobile ? t("Find a measure") : `${t("Find a measure")} (${MOD}F)`}
+        aria-label={t("Find a measure")}
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        onKeyDown={(e) => e.key === "Escape" && setQ("")}
+      />
       {reviews > 0 && (
-        <p className="notice">
-          {t("{{count}} imports are waiting for you to check.", { count: reviews })}{" "}
-          <button type="button" className="link" onClick={() => go("review")}>
-            {t("Review now")}
-          </button>
-        </p>
-      )}
-      {!groups.length && <p className="empty">{t("No measure matches “{{q}}”.", { q })}</p>}
-      {groups.map(({ g, rows }) => (
-        <Section
-          key={g.key}
-          g={g}
-          rows={rows}
-          sources={sources ?? []}
-          open={open}
-          all={!!needle}
-          report={
-            g.key === "force" && fdLatest ? (
-              <FdReportRow session={fdLatest} open={() => setFdOpen(true)} />
-            ) : g.key === "body" && scans?.[0] ? (
-              <SecaReportRow scan={scans[0]} open={() => setSecaOpen(true)} />
-            ) : undefined
-          }
+        <Callout
+          icon={<Icon k="review" />}
+          title={t("{{count}} imports are waiting for you to check.", { count: reviews })}
+          text={t("Nothing counts until you confirm it.")}
+          onClick={() => go("review")}
         />
-      ))}
-      {secaOpen && scans && (
-        <Sheet label={t("Body composition")} close={() => setSecaOpen(false)}>
-          <SecaReport scans={scans} />
-        </Sheet>
       )}
-      {fdOpen && fd && (
-        <Sheet label={t("VALD ForceDecks tests")} close={() => setFdOpen(false)}>
-          <FdReport sessions={fd} />
-        </Sheet>
+      {/* the lab devices' reports first: what a visit to the testing room gave, before any loose number */}
+      {labs && (
+        <Group title={t("Latest tests")}>
+          {scans?.[0] && <SecaLabCard scan={scans[0]} open={() => nav("report/seca")} />}
+          {fdLatest && <FdCard session={fdLatest} open={() => nav("report/forcedecks")} />}
+        </Group>
       )}
+      {!groups.length && <p className="text-black/55 dark:text-white/55">{t("No measure matches “{{q}}”.", { q })}</p>}
+      <div className="wide:columns-2 wide:gap-6">
+        {groups.map(({ g, rows }) => (
+          <Section key={g.key} g={g} rows={rows} sources={sources ?? []} open={open} all={!!needle} />
+        ))}
+      </div>
     </section>
   );
 }
@@ -1681,14 +1904,14 @@ function MetricPicker({ onPick, placeholder, manual }: { onPick: (m: Metric) => 
     };
   }, [q, manual]);
   return (
-    <div className="picker">
-      <input aria-label={placeholder} placeholder={placeholder} value={q} onChange={(e) => setQ(e.target.value)} />
-      {hits && !hits.length && <p className="fine">{t("No measures found.")}</p>}
+    <div className="relative max-w-md">
+      <input className="w-full rounded-xl bg-black/5 px-3 py-2.5 text-base text-black outline-none focus:ring-2 focus:ring-primary dark:bg-white/10 dark:text-white" aria-label={placeholder} placeholder={placeholder} value={q} onChange={(e) => setQ(e.target.value)} />
+      {hits && !hits.length && <p className="text-[13px] text-black/55 dark:text-white/55">{t("No measures found.")}</p>}
       {hits && hits.length > 0 && (
-        <ul className="hits">
+        <ul className="mt-1 max-h-72 overflow-y-auto rounded-2xl bg-white p-1 shadow-lg dark:bg-neutral-800 [&_button]:block [&_button]:w-full [&_button]:rounded-lg [&_button]:px-2.5 [&_button]:py-1.5 [&_button]:text-start [&_button:hover]:bg-primary [&_button:hover]:text-white">
           {hits.map((m) => (
             <li key={m.code}>
-              <button
+              <Btn
                 type="button"
                 onClick={() => {
                   onPick(m);
@@ -1696,11 +1919,11 @@ function MetricPicker({ onPick, placeholder, manual }: { onPick: (m: Metric) => 
                 }}
               >
                 {nameOf(m.code, m.name)}{" "}
-                <span className="fine">
+                <span className="text-[13px] text-black/55 dark:text-white/55">
                   {m.code}
                   {m.unit ? ` · ${unitLabel(m.unit)}` : ""}
                 </span>
-              </button>
+              </Btn>
             </li>
           ))}
         </ul>
@@ -1735,8 +1958,8 @@ function Record({ code, pick }: { code?: string; pick: (c: string) => void }) {
   const recent = points ?? [];
   if (!code)
     return (
-      <section className="page">
-        <h2>{t("History")}</h2>
+      <section className="mx-auto w-full max-w-3xl">
+        <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("History")}</h2>
         <MetricPicker placeholder={t("Search measures, e.g. weight")} onPick={(m) => pick(m.code)} />
       </section>
     );
@@ -1764,36 +1987,36 @@ function Record({ code, pick }: { code?: string; pick: (c: string) => void }) {
     return sourceLabel(sources?.find((s) => s.id === id));
   };
   return (
-    <section className="record">
-      <h2>{info ? nameOf(info.code, info.name) : code}</h2>
-      <p className="fine" title={code}>
+    <section className="[&_h3]:mt-6">
+      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{info ? nameOf(info.code, info.name) : code}</h2>
+      <p className="text-[13px] text-black/55 dark:text-white/55" title={code}>
         {info && nameOf(info.code, info.name) !== info.name ? info.name : code}
       </p>
-      <div className="segmented" role="group" aria-label={t("Range")}>
+      <Segmented strong rounded className="mt-3" role="group" aria-label={t("Range")}>
         {RANGES.map((r) => (
-          <button key={r.label} type="button" aria-pressed={span === r.days} onClick={() => setRange(r.days)}>
+          <SegmentedButton key={r.label} active={span === r.days} aria-pressed={span === r.days} onClick={() => setRange(r.days)}>
             {t(r.label)}
-          </button>
+          </SegmentedButton>
         ))}
-      </div>
+      </Segmented>
       {vals.length > 0 && (
-        <dl className="stats">
+        <dl className="mt-4 flex flex-wrap gap-x-8 gap-y-2 [&_dd]:m-0 [&_dd]:text-xl [&_dd]:font-semibold [&_dt]:text-xs [&_dt]:text-black/55 dark:[&_dt]:text-white/55">
           <div>
             <dt>{t("Average")}</dt>
             <dd>
-              {fmt(vals.reduce((a, b) => a + b, 0) / vals.length)} <span className="unit">{shownUnit}</span>
+              {fmt(vals.reduce((a, b) => a + b, 0) / vals.length)} <span className="ms-0.5 text-[0.65em] font-medium text-black/55 dark:text-white/55">{shownUnit}</span>
             </dd>
           </div>
           <div>
             <dt>{t("Lowest")}</dt>
             <dd>
-              {fmt(Math.min(...lows))} <span className="unit">{shownUnit}</span>
+              {fmt(Math.min(...lows))} <span className="ms-0.5 text-[0.65em] font-medium text-black/55 dark:text-white/55">{shownUnit}</span>
             </dd>
           </div>
           <div>
             <dt>{t("Highest")}</dt>
             <dd>
-              {fmt(Math.max(...highs))} <span className="unit">{shownUnit}</span>
+              {fmt(Math.max(...highs))} <span className="ms-0.5 text-[0.65em] font-medium text-black/55 dark:text-white/55">{shownUnit}</span>
             </dd>
           </div>
           <div>
@@ -1809,19 +2032,19 @@ function Record({ code, pick }: { code?: string; pick: (c: string) => void }) {
         </dl>
       )}
       <DailyChart pts={pts} unit={shownUnit} fmt={fmt} />
-      <h3>{t("Latest entries")}</h3>
-      <table className="rows">
+      <h3 className="mb-2 text-[17px] font-semibold">{t("Latest entries")}</h3>
+      <table className="w-full text-sm">
         <tbody>
           {(allEntries ? recent : recent.slice(0, 10)).map((p) => {
             const s = shown(p);
             return (
               <tr key={`${p.start_ms}-${p.source_id}`}>
-                <td>{p.detail?.precision === "day" ? dateIn(p.start_ms, p.tz_min) : when(p.start_ms, p.tz_min)}</td>
-                <td className="fine">{sourceName(p.source_id)}</td>
-                <td className="n value">
-                  {s.value} <span className="unit">{s.unit}</span>
+                <td className="px-2 py-1.5 align-top">{p.detail?.precision === "day" ? dateIn(p.start_ms, p.tz_min) : when(p.start_ms, p.tz_min)}</td>
+                <td className="text-[13px] text-black/55 dark:text-white/55">{sourceName(p.source_id)}</td>
+                <td className="font-semibold tabular-nums font-medium">
+                  {s.value} <span className="ms-0.5 text-[0.65em] font-medium text-black/55 dark:text-white/55">{s.unit}</span>
                   <Flag p={p} />
-                  {p.corrected && <span className="fine"> {t("corrected")}</span>}
+                  {p.corrected && <span className="text-[13px] text-black/55 dark:text-white/55"> {t("corrected")}</span>}
                 </td>
               </tr>
             );
@@ -1829,9 +2052,9 @@ function Record({ code, pick }: { code?: string; pick: (c: string) => void }) {
         </tbody>
       </table>
       {!allEntries && recent.length > 10 && (
-        <button type="button" className="link" onClick={() => setAllEntries(true)}>
+        <Btn type="button" link onClick={() => setAllEntries(true)}>
           {t("Show all entries")}
-        </button>
+        </Btn>
       )}
     </section>
   );
@@ -1863,7 +2086,7 @@ function localNow() {
   return d.toISOString().slice(0, 16);
 }
 
-function Enter({ done }: { done: (code: string) => void }) {
+function Enter({ done, part }: { done: (code: string) => void; part?: boolean }) {
   const [m, setM] = useState<MetricInfo>();
   const [value, setValue] = useState("");
   const [unit, setUnit] = useState("");
@@ -1901,22 +2124,22 @@ function Enter({ done }: { done: (code: string) => void }) {
     }
   };
   return (
-    <section className="record">
-      <h2>{t("Enter by hand")}</h2>
+    <section className="[&_h3]:mt-6">
+      {part ? <h3 className="mt-6 mb-1.5 text-[17px] font-semibold">{t("Or enter by hand")}</h3> : <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Enter by hand")}</h2>}
       {!m ? (
         <>
           <MetricPicker placeholder={t("What did you measure?")} onPick={pick} manual />
-          <div className="chips" role="group" aria-label={t("Common measures")}>
+          <div className="my-3 mb-6 flex flex-wrap gap-2" role="group" aria-label={t("Common measures")}>
             {QUICK.map(([code, label]) => (
-              <button key={code} type="button" className="chip-button" onClick={() => pick({ code, name: label, unit: "", agg: "instant" })}>
+              <Btn key={code} type="button" small onClick={() => pick({ code, name: label, unit: "", agg: "instant" })}>
                 {t(label)}
-              </button>
+              </Btn>
             ))}
           </div>
         </>
       ) : (
         <form
-          className="form"
+          className="flex flex-col gap-3"
           onSubmit={(e) => {
             e.preventDefault();
             save();
@@ -1924,23 +2147,33 @@ function Enter({ done }: { done: (code: string) => void }) {
         >
           <p>
             <strong>{nameOf(m.code, m.name)}</strong>{" "}
-            <button type="button" className="link" onClick={() => setM(undefined)}>
+            <Btn type="button" link onClick={() => setM(undefined)}>
               {t("Change")}
-            </button>
+            </Btn>
           </p>
-          <label>
+          <label className="flex flex-col gap-1.5 text-[13px] text-black/60 dark:text-white/60">
             {t("Value")}
-            <input inputMode={m.agg === "none" ? "text" : "decimal"} value={value} onChange={(e) => setValue(e.target.value)} required />
+            <input className="w-full rounded-xl bg-black/5 px-3 py-2.5 text-base text-black outline-none focus:ring-2 focus:ring-primary dark:bg-white/10 dark:text-white" inputMode={m.agg === "none" ? "text" : "decimal"} value={value} onChange={(e) => setValue(e.target.value)} required />
           </label>
           {m.agg !== "none" && value.includes(",") && Number.isFinite(parseNumber(value)) && (
-            <p className="fine" role="status">
+            <p className="text-[13px] text-black/55 dark:text-white/55" role="status">
               {t("Read as {{n}}", { n: parseNumber(value).toLocaleString(undefined, { maximumFractionDigits: 6 }) })}
             </p>
           )}
-          {m.units.length > 1 && (
-            <label>
+          {m.units.length > 1 &&
+            (isTouch && m.units.length <= 4 ? (
+            <fieldset className="m-0 flex flex-wrap gap-2 border-0 p-0 [&_legend]:mb-1.5 [&_legend]:text-[13px]">
+              <legend>{t("Unit")}</legend>
+              {m.units.map((u) => (
+                <Btn key={u} type="button" on={unit === u} aria-pressed={unit === u} onClick={() => setUnit(u)}>
+                  {unitLabel(u) || u}
+                </Btn>
+              ))}
+            </fieldset>
+          ) : (
+            <label className="flex flex-col gap-1.5 text-[13px] text-black/60 dark:text-white/60">
               {t("Unit")}
-              <select value={unit} onChange={(e) => setUnit(e.target.value)} required>
+              <select className="w-full rounded-xl bg-black/5 px-3 py-2.5 text-base text-black outline-none focus:ring-2 focus:ring-primary dark:bg-white/10 dark:text-white" value={unit} onChange={(e) => setUnit(e.target.value)} required>
                 <option value="">{t("Choose the unit on your device")}</option>
                 {m.units.map((u) => (
                   <option key={u} value={u}>
@@ -1949,15 +2182,15 @@ function Enter({ done }: { done: (code: string) => void }) {
                 ))}
               </select>
             </label>
-          )}
-          <label>
+          ))}
+          <label className="flex flex-col gap-1.5 text-[13px] text-black/60 dark:text-white/60">
             {t("When")}
-            <input type="datetime-local" value={at} onChange={(e) => setAt(e.target.value)} required />
+            <input className="w-full rounded-xl bg-black/5 px-3 py-2.5 text-base text-black outline-none focus:ring-2 focus:ring-primary dark:bg-white/10 dark:text-white" type="datetime-local" value={at} onChange={(e) => setAt(e.target.value)} required />
           </label>
           <Problem text={err} />
-          <button type="submit" className="primary" disabled={busy}>
+          <Btn type="submit" primary disabled={busy}>
             {t("Save reading")}
-          </button>
+          </Btn>
         </form>
       )}
     </section>
@@ -1975,25 +2208,25 @@ function DeleteTwice({ label, title, detail, busy, run }: { label: string; title
   const [step, setStep] = useState<0 | 1 | 2>(0);
   if (step === 0)
     return (
-      <div className="actions">
-        <button type="button" className="danger" disabled={busy} onClick={() => setStep(1)}>
+      <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+        <Btn type="button" danger disabled={busy} onClick={() => setStep(1)}>
           {label}
-        </button>
+        </Btn>
       </div>
     );
   return (
-    <div className="confirm" role="group" aria-label={step === 1 ? title : t("Delete for good?")}>
+    <div className="mt-5 rounded-2xl border border-brand-red/30 bg-brand-red/10 px-4 py-3.5 [&_p]:mb-1.5" role="group" aria-label={step === 1 ? title : t("Delete for good?")}>
       <p>
         <strong>{step === 1 ? title : t("Delete for good?")}</strong>
       </p>
-      <p className="fine">{step === 1 ? detail : t("This can't be undone. Backups you saved earlier still have this data.")}</p>
-      <div className="actions">
-        <button type="button" autoFocus disabled={busy} onClick={() => setStep(0)}>
+      <p className="text-[13px] text-black/55 dark:text-white/55">{step === 1 ? detail : t("This can't be undone. Backups you saved earlier still have this data.")}</p>
+      <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+        <Btn type="button" autoFocus disabled={busy} onClick={() => setStep(0)}>
           {t("Cancel")}
-        </button>
-        <button type="button" className="danger" disabled={busy} onClick={() => (step === 1 ? setStep(2) : run())}>
+        </Btn>
+        <Btn type="button" danger disabled={busy} onClick={() => (step === 1 ? setStep(2) : run())}>
           {step === 1 ? t("Delete") : t("Delete for good")}
-        </button>
+        </Btn>
       </div>
     </div>
   );
@@ -2002,11 +2235,12 @@ function DeleteTwice({ label, title, detail, busy, run }: { label: string; title
 /** Manage data (the web's 管理数据): each kind of source with how many times data came from it; a kind lists
  *  those imports, newest first; an import shows what it holds now and can be deleted; a kind can be deleted
  *  whole. WHOOP only whole, and is disconnected with it. */
-function Sources({ go }: { go: (p: Page) => void }) {
+function Sources({ go, path: [kind, id] }: { go: (p: Page) => void; path: string[] }) {
   const [sources, , reloadSources] = useOp(() => op<Source[]>("source.list"), []);
   const [batches, err, reload] = useOp(() => op<Batch[]>("import.list"), []);
-  const [kind, setKind] = useState<string>();
-  const [open, setOpen] = useState<Batch>();
+  const setKind = (k: string) => nav(`data/manage/${encodeURIComponent(k)}`);
+  const open = id ? batches?.find((b) => String(b.import_id) === id) : undefined;
+  const setOpen = (b: Batch) => nav(`data/manage/${encodeURIComponent(kind!)}/${b.import_id}`);
   const [msg, setMsg] = useState<string>();
   const [ordering, setOrdering] = useState(false);
   const run = async (fn: () => Promise<unknown>, ok: string) => {
@@ -2035,7 +2269,7 @@ function Sources({ go }: { go: (p: Page) => void }) {
   const last = (list: Batch[]) => Math.max(0, ...list.map((b) => b.at ?? 0));
   const ordered = [...kinds.entries()].sort((a, b) => last(b[1]) - last(a[1]) || a[0].localeCompare(b[0]));
   const status = msg && (
-    <p className="notice" role="status">
+    <p className="mb-4 rounded-2xl bg-amber-500/15 px-4 py-3 text-[15px]" role="status">
       {msg}
     </p>
   );
@@ -2046,10 +2280,9 @@ function Sources({ go }: { go: (p: Page) => void }) {
         b={open}
         kind={kind}
         device={sources?.find((s) => s.id === open.source_id)?.name}
-        back={() => setOpen(undefined)}
         go={go}
         erased={() => {
-          setOpen(undefined);
+          goBack(`data/manage/${encodeURIComponent(kind)}`);
           setMsg(t("Deleted."));
           reload();
           reloadSources();
@@ -2061,14 +2294,11 @@ function Sources({ go }: { go: (p: Page) => void }) {
     const whole = WHOLE_ONLY.has(kind);
     const name = sourceKind(kind);
     return (
-      <div className="manage">
-        <button type="button" className="link back" onClick={() => setKind(undefined)}>
-          ‹ {t("Manage data")}
-        </button>
-        <h3 className="manage-title">{name}</h3>
+      <div>
+        <h2 className="mb-4 text-[28px] leading-tight font-bold tracking-tight">{name}</h2>
         {status}
         {list.length ? (
-          <ul className="rows-card" aria-label={name}>
+          <Group aria-label={name}>
             {list.map((b) => (
               <Row
                 key={b.import_id}
@@ -2076,7 +2306,7 @@ function Sources({ go }: { go: (p: Page) => void }) {
                 label={b.at ? when(b.at) : "–"}
                 value={
                   b.status === "review" ? (
-                    <span className="signal">{t("waiting for you")}</span>
+                    <span className="text-amber-600">{t("waiting for you")}</span>
                   ) : NAMED.has(kind) ? (
                     sources?.find((s) => s.id === b.source_id)?.name
                   ) : (
@@ -2089,11 +2319,11 @@ function Sources({ go }: { go: (p: Page) => void }) {
                 }}
               />
             ))}
-          </ul>
+          </Group>
         ) : (
-          <p className="empty">{t("No imports yet.")}</p>
+          <p className="text-black/55 dark:text-white/55">{t("No imports yet.")}</p>
         )}
-        {whole && <p className="rows-foot">{t("WHOOP fetches the last few days again at every sync, so its data can only be deleted all at once.")}</p>}
+        {whole && <p className="mt-1 mb-4 px-4 text-[13px] text-black/55 dark:text-white/55">{t("WHOOP fetches the last few days again at every sync, so its data can only be deleted all at once.")}</p>}
         {list.length > 0 && (
           <DeleteTwice
             label={whole ? t("Delete all and disconnect") : t("Delete all")}
@@ -2108,7 +2338,7 @@ function Sources({ go }: { go: (p: Page) => void }) {
               run(async () => {
                 await op("import.erase_source", { connector: kind });
                 if (whole) await op("whoop.disconnect");
-                setKind(undefined);
+                goBack("data/manage");
               }, t("Deleted."))
             }
           />
@@ -2117,14 +2347,14 @@ function Sources({ go }: { go: (p: Page) => void }) {
     );
   }
   return (
-    <div className="manage">
-      <h2>{t("Manage data")}</h2>
+    <div>
+      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Manage data")}</h2>
       {status}
       <Problem text={err} />
-      {batches && !batches.length && <p className="empty">{t("No imports yet.")}</p>}
+      {batches && !batches.length && <p className="text-black/55 dark:text-white/55">{t("No imports yet.")}</p>}
       {ordered.length > 0 && (
         <>
-          <ul className="rows-card" aria-label={t("Manage data")}>
+          <Group aria-label={t("Manage data")}>
             {ordered.map(([k, list]) => (
               <Row
                 key={k}
@@ -2138,24 +2368,27 @@ function Sources({ go }: { go: (p: Page) => void }) {
                 }}
               />
             ))}
-          </ul>
-          <p className="rows-foot">{t("Open a source to see what each import brought, or to delete it.")}</p>
+          </Group>
+          <p className="mt-1 mb-4 px-4 text-[13px] text-black/55 dark:text-white/55">{t("Open a source to see what each import brought, or to delete it.")}</p>
         </>
       )}
-      <details className="group">
-        <summary>
-          <h3>{t("Source priority")}</h3>
+      <details className="group/prio mt-6 mb-4">
+        <summary className={`flex min-h-[56px] cursor-pointer list-none items-center gap-3 rounded-3xl px-4 [&::-webkit-details-marker]:hidden ${rowBg}`}>
+          <span className="flex-1 text-[16px] font-medium">{t("Source priority")}</span>
+          <span className="text-black/40 transition-transform group-open/prio:rotate-90 dark:text-white/40">
+            <Chevron open={false} />
+          </span>
         </summary>
-        <p className="fine">{t("Daily summaries follow the order of this list.")}</p>
-        <ol className="order">
+        <p className="text-[13px] text-black/55 dark:text-white/55">{t("Daily summaries follow the order of this list.")}</p>
+        <ol className="p-0">
           {(sources ?? []).map((s, i) => (
             <li key={s.id}>
               <span>
-                {s.connector === "manual" ? t("Entered by you") : s.name} <span className="fine">{sourceKind(s.connector)}</span>
+                {s.connector === "manual" ? t("Entered by you") : s.name} <span className="text-[13px] text-black/55 dark:text-white/55">{sourceKind(s.connector)}</span>
               </span>
-              <button type="button" className="link" disabled={i === 0 || ordering} aria-label={t("Prefer {{name}}", { name: s.name })} onClick={() => moveUp(i)}>
+              <Btn type="button" link disabled={i === 0 || ordering} aria-label={t("Prefer {{name}}", { name: s.name })} onClick={() => moveUp(i)}>
                 {t("Move up")}
-              </button>
+              </Btn>
             </li>
           ))}
         </ol>
@@ -2165,7 +2398,7 @@ function Sources({ go }: { go: (p: Page) => void }) {
 }
 
 /** One import: what it holds now (a row belongs to the newest import that delivered it), newest first. */
-function ImportView({ b, kind, device, back, go, erased }: { b: Batch; kind: string; device?: string; back: () => void; go: (p: Page) => void; erased: () => void }) {
+function ImportView({ b, kind, device, go, erased }: { b: Batch; kind: string; device?: string; go: (p: Page) => void; erased: () => void }) {
   const [d, err] = useOp(() => op<BatchDetail>("import.show", { id: b.import_id, limit: 50 }), [b.import_id]);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string>();
@@ -2182,43 +2415,40 @@ function ImportView({ b, kind, device, back, go, erased }: { b: Batch; kind: str
     }
   };
   return (
-    <div className="manage">
-      <button type="button" className="link back" disabled={busy} onClick={back}>
-        ‹ {name}
-      </button>
-      <h3 className="manage-title">{b.at ? when(b.at) : name}</h3>
-      {NAMED.has(kind) && device && <p className="fine">{device}</p>}
+    <div>
+      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{b.at ? when(b.at) : name}</h2>
+      {NAMED.has(kind) && device && <p className="text-[13px] text-black/55 dark:text-white/55">{device}</p>}
       <Problem text={err ?? problem} />
       {b.status === "review" ? (
         <p>
           {t("Waiting for you to check. Nothing from it is in your data yet.")}{" "}
-          <button type="button" className="link" onClick={() => go("review")}>
+          <Btn type="button" link onClick={() => go("review")}>
             {t("Check it")}
-          </button>
+          </Btn>
         </p>
       ) : (
         d && (
           <>
-            <p className="fine">{t("{{count}} entries", { count: d.rows })}</p>
+            <p className="text-[13px] text-black/55 dark:text-white/55">{t("{{count}} entries", { count: d.rows })}</p>
             {d.items.length > 0 && (
-              <ul className="rows-card batch-items">
+              <Group>
                 {d.items.map((p) => {
                   const v = shown(p);
                   return (
-                    <li key={`${p.metric}|${p.start_ms}`} className="row-static">
-                      <span className="row-l">
+                    <li key={`${p.metric}|${p.start_ms}`} className="flex items-center gap-3 px-4 py-3">
+                      <span className="me-auto grid min-w-0 gap-px">
                         <strong>{nameOf(p.metric, p.name)}</strong>
-                        <span className="fine">{when(p.start_ms, p.tz_min)}</span>
+                        <span className="text-[13px] text-black/55 dark:text-white/55">{when(p.start_ms, p.tz_min)}</span>
                       </span>
-                      <span className="row-v">
+                      <span className="max-w-1/2 truncate text-end">
                         {v.value} {v.unit}
                       </span>
                     </li>
                   );
                 })}
-              </ul>
+              </Group>
             )}
-            {d.rows > d.items.length && <p className="rows-foot">{t("Showing the newest {{count}}.", { count: d.items.length })}</p>}
+            {d.rows > d.items.length && <p className="mt-1 mb-4 px-4 text-[13px] text-black/55 dark:text-white/55">{t("Showing the newest {{count}}.", { count: d.items.length })}</p>}
           </>
         )
       )}
@@ -2246,7 +2476,7 @@ function OcrReview({ b, done, discard }: { b: BatchDetail; done: (text: string) 
   const [picks, setPicks] = useState<OcrPick[]>(() => c.items.map((it) => (it.code ? { code: it.code } : {})));
   const [other, setOther] = useState<number>();
   const [info, setInfo] = useState<Record<string, MetricInfo>>({});
-  /** "<code> <printed unit>" → the measure's unit the printed one maps to ("" when none fits), from the core */
+  /** "<code className="font-mono text-[0.9em]"> <printed unit>" → the measure's unit the printed one maps to ("" when none fits), from the core */
   const [picked, setPicked] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string>();
@@ -2312,106 +2542,118 @@ function OcrReview({ b, done, discard }: { b: BatchDetail; done: (text: string) 
     }
   };
   const label = (code: string) => (info[code] ? nameOf(code, info[code]!.name) : code);
+  // as the web's review card: only what needs the person is listed; what matched by itself folds into one line
+  const [unmatched] = useState(() => c.items.flatMap((it, i) => (it.code ? [] : [i])));
+  const [open, setOpen] = useState<number>();
+  const [showMatched, setShowMatched] = useState(false);
+  const todo = c.items.flatMap((_, i) => (unmatched.includes(i) || needsUnit(i) ? [i] : []));
+  const matched = c.items.flatMap((_, i) => (todo.includes(i) ? [] : [i]));
+  const left = picks.filter((p) => !p.skip && !p.code && !p.new).length;
+  const choose = (i: number, p: OcrPick) => {
+    set(i, p);
+    setOpen(undefined);
+    setOther(undefined);
+  };
+  const item = (i: number) => {
+    const it = c.items[i]!;
+    const p = picks[i] ?? {};
+    const m = p.code ? info[p.code] : undefined;
+    const numeric = m && m.agg !== "none" && m.agg !== "interval";
+    const offered = [...new Set([...(it.code ? [it.code] : []), ...(it.suggest ?? []).map((x) => x.code), ...(p.code ? [p.code] : [])])];
+    const state = p.skip ? t("Skipped") : p.new ? t("New measure") : p.code ? label(p.code) : t("Choose a measure");
+    return (
+      <li key={i} className={p.skip ? "opacity-50" : ""}>
+        <button type="button" className="flex min-h-[64px] w-full items-center gap-3 px-4 py-2.5 text-start transition-colors active:bg-black/5 dark:active:bg-white/10" aria-expanded={open === i} onClick={() => setOpen(open === i ? undefined : i)}>
+          <span className="min-w-0 flex-1">
+            <strong>{it.name}</strong>
+            <span className="text-[13px] text-black/55 dark:text-white/55">
+              {state}
+              {it.ref ? ` · ${t("Reference {{ref}}", { ref: it.ref })}` : ""}
+            </span>
+          </span>
+          <span className="shrink-0 text-end text-[17px] font-semibold tabular-nums">
+            {it.cmp ?? ""}
+            {String(it.v)}
+            <span className="ms-1 block text-[12px] font-normal text-black/55 dark:text-white/55">{it.unit}</span>
+            {it.flag && (
+              <span className="ms-1 text-xs font-semibold text-amber-600" title={it.flag === "H" ? t("Marked high") : t("Marked low")}>
+                {it.flag === "H" ? "↑" : "↓"}
+              </span>
+            )}
+          </span>
+        </button>
+        {open === i && (
+          <div className="flex flex-wrap gap-2 px-4 pb-3 [&>label]:basis-full" role="group" aria-label={t("Measure for {{name}}", { name: it.name })}>
+            {offered.map((code) => (
+              <Btn key={code} type="button" on={p.code === code} aria-pressed={p.code === code} onClick={() => choose(i, { code })}>
+                {label(code)}
+              </Btn>
+            ))}
+            <Btn type="button" aria-pressed={!!p.new} on={p.new} onClick={() => choose(i, { new: true })}>
+              {t("New measure “{{name}}”", { name: it.name })}
+            </Btn>
+            <Btn type="button" onClick={() => setOther(i)}>
+              {t("Another measure…")}
+            </Btn>
+            <Btn type="button" onClick={() => choose(i, p.skip ? (it.code ? { code: it.code } : {}) : { skip: true })}>
+              {p.skip ? t("Restore") : t("Skip")}
+            </Btn>
+            {other === i && <MetricPicker placeholder={t("Search measures")} onPick={(x) => choose(i, { code: x.code })} />}
+            {numeric && m.units.some((u) => u) && (m.units.length > 1 || needsUnit(i)) && (
+              <label className="flex flex-col gap-1.5 text-[13px] text-black/60 dark:text-white/60">
+                {t("Unit")}
+                <select className="w-full rounded-xl bg-black/5 px-3 py-2.5 text-base text-black outline-none focus:ring-2 focus:ring-primary dark:bg-white/10 dark:text-white" aria-label={t("Unit for {{name}}", { name: it.name })} value={p.unit ?? ""} onChange={(e) => set(i, { ...p, unit: e.target.value || undefined })}>
+                  <option value="">{picked[`${p.code} ${it.unit}`] ? t("As printed ({{unit}})", { unit: it.unit }) : t("Choose the unit…")}</option>
+                  {m.units.map((u) => (
+                    <option key={u} value={u}>
+                      {unitLabel(u) || u}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </div>
+        )}
+      </li>
+    );
+  };
   return (
-    <div className="group ocr">
-      <div className="ocr-head">
-        <h3>{t("Lab report")}</h3>
-        <label className="inline">
-          {t("Test date")}
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
-        </label>
-      </div>
-      {c.dated === false && <p className="notice">{t("The date wasn't found on the report. Set the day the sample was taken.")}</p>}
-      <table className="rows ocr-items">
-        <thead>
-          <tr>
-            <th>{t("On the report")}</th>
-            <th>{t("Result")}</th>
-            <th>{t("Measure")}</th>
-            <th>{t("Unit")}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {c.items.map((it, i) => {
-            const p = picks[i] ?? {};
-            const m = p.code ? info[p.code] : undefined;
-            const numeric = m && m.agg !== "none" && m.agg !== "interval";
-            const value = p.skip ? "skip" : p.new ? "new" : (p.code ?? "");
-            const offered = [...new Set([...(it.code ? [it.code] : []), ...(it.suggest ?? []).map((s) => s.code), ...(p.code ? [p.code] : [])])];
-            return (
-              <tr key={`${i}-${it.name}`} className={p.skip ? "stale" : ""}>
-                <td>
-                  {it.name}
-                  {it.panel && <span className="fine"> · {it.panel}</span>}
-                  {it.ref && <div className="fine">{t("Reference {{ref}}", { ref: it.ref })}</div>}
-                </td>
-                <td className="value">
-                  {it.cmp ?? ""}
-                  {String(it.v)} <span className="unit">{it.unit}</span>
-                  {it.flag && (
-                    <span className="flag" title={it.flag === "H" ? t("Marked high") : t("Marked low")}>
-                      {it.flag === "H" ? "↑" : "↓"}
-                    </span>
-                  )}
-                </td>
-                <td>
-                  <select
-                    aria-label={t("Measure for {{name}}", { name: it.name })}
-                    value={value}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setOther(undefined);
-                      if (v === "skip") set(i, { skip: true });
-                      else if (v === "new") set(i, { new: true });
-                      else if (v === "other") setOther(i);
-                      else set(i, v ? { code: v } : {});
-                    }}
-                  >
-                    <option value="">{t("Choose…")}</option>
-                    {offered.map((code) => (
-                      <option key={code} value={code}>
-                        {label(code)}
-                      </option>
-                    ))}
-                    <option value="other">{t("Another measure…")}</option>
-                    <option value="new">{t("New measure “{{name}}”", { name: it.name })}</option>
-                    <option value="skip">{t("Skip")}</option>
-                  </select>
-                  {other === i && (
-                    <MetricPicker
-                      placeholder={t("Search measures")}
-                      onPick={(x) => {
-                        set(i, { code: x.code });
-                        setOther(undefined);
-                      }}
-                    />
-                  )}
-                </td>
-                <td>
-                  {numeric && m.units.some((u) => u) && (m.units.length > 1 || needsUnit(i)) && (
-                    <select aria-label={t("Unit for {{name}}", { name: it.name })} value={p.unit ?? ""} onChange={(e) => set(i, { ...p, unit: e.target.value || undefined })}>
-                      <option value="">{picked[`${p.code} ${it.unit}`] ? t("As printed ({{unit}})", { unit: it.unit }) : t("Choose the unit…")}</option>
-                      {m.units.map((u) => (
-                        <option key={u} value={u}>
-                          {unitLabel(u) || u}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+    <div className="mb-8">
+      <h3 className="mb-3 text-[20px] font-semibold">{t("Lab report")}</h3>
+      <Group>
+        <Item
+          title={t("Test date")}
+          after={<input className="rounded-lg bg-black/5 px-2 py-1 text-[15px] text-black outline-none focus:ring-2 focus:ring-primary dark:bg-white/10 dark:text-white" type="date" value={date} onChange={(e) => setDate(e.target.value)} required />}
+        />
+      </Group>
+      {c.dated === false && <p className="mb-4 rounded-2xl bg-amber-500/15 px-4 py-3 text-[15px]">{t("The date wasn't found on the report. Set the day the sample was taken.")}</p>}
+      <p className="mb-4 px-1 text-[15px] text-black/55 dark:text-white/55">
+        {todo.length
+          ? t("{{n}} results, {{k}} matched by themselves.", { n: c.items.length, k: matched.length })
+          : t("{{n}} results, all matched by themselves. Check them against the report before saving.", { n: c.items.length })}
+      </p>
+      {todo.length > 0 && <Group title={t("Needs you ({{n}})", { n: todo.length })}>{todo.map(item)}</Group>}
+      {/* what matched by itself folds into one row (as the web's): open it to check or change */}
+      {matched.length > 0 && (
+        <Group>
+          <button type="button" className="flex min-h-[56px] w-full items-center gap-3 px-4 text-start" aria-expanded={showMatched} onClick={() => setShowMatched(!showMatched)}>
+            <span className="flex-1 text-[16px] font-medium">{t("{{n}} matched", { n: matched.length })}</span>
+            <span className="text-black/40 dark:text-white/40">
+              <Chevron open={showMatched} />
+            </span>
+          </button>
+          {showMatched && matched.map(item)}
+        </Group>
+      )}
       <Problem text={err} />
-      <div className="actions">
-        <button type="button" className="primary" disabled={busy || !count || !date} onClick={save}>
-          {t("Save {{count}} results", { count })}
-        </button>
-        <button type="button" onClick={discard}>
-          {t("Discard")}
-        </button>
+      {left > 0 && <p className="mb-2 px-1 text-[13px] text-black/55 dark:text-white/55">{t("{{n}} not handled: they won't be saved.", { n: left })}</p>}
+      <Btn type="button" primary className="w-full!" disabled={busy || !count || !date} onClick={save}>
+        {t("Save {{count}} results", { count })}
+      </Btn>
+      <div className="mt-1 flex justify-center">
+        <Btn type="button" link danger onClick={discard}>
+          {t("Discard this report")}
+        </Btn>
       </div>
     </div>
   );
@@ -2434,19 +2676,19 @@ function Review() {
   const agent = (by?: unknown) => grants?.find((g) => g.writer === by || `g${g.id}` === by)?.name;
   if (err) return <Problem text={err} />;
   return (
-    <section className="page">
-      <h2>{t("Waiting for you")}</h2>
-      <p className="lede">{t("Nothing here is visible in your readings until you confirm it.")}</p>
+    <section className="mx-auto w-full max-w-3xl">
+      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Waiting for you")}</h2>
+      <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55">{t("Nothing here is visible in your readings until you confirm it.")}</p>
       {msg &&
         (msg.ok ? (
-          <p className="fine" role="status">
+          <p className="text-[13px] text-black/55 dark:text-white/55" role="status">
             {msg.text}
           </p>
         ) : (
           <Problem text={msg.text} />
         ))}
-      {items && !items.length && <p className="empty">{t("Nothing is waiting.")}</p>}
-      {(items ?? []).map((b) => {
+      {items && !items.length && <p className="text-black/55 dark:text-white/55">{t("Nothing is waiting.")}</p>}
+      {[...(items ?? [])].sort((a, b) => Number(b.import_id === justRead) - Number(a.import_id === justRead)).map((b) => {
         if (b.candidates?.kind === "ocr")
           return (
             <OcrReview
@@ -2469,35 +2711,35 @@ function Review() {
         const rows = (b.candidates?.rows ?? []) as { metric: string; start_ms: number; tz_min?: number; value: unknown; unit?: string }[];
         const by = proposal ? agent(b.candidates?.by) : undefined;
         return (
-          <div key={b.import_id} className="group">
-            <h3>{proposal ? (by ? t("Proposed by {{name}}", { name: by }) : t("Proposed by an agent")) : t("From a lab report photo")}</h3>
+          <div key={b.import_id} className={`${card}`}>
+            <h3 className="mb-2 text-[17px] font-semibold">{proposal ? (by ? t("Proposed by {{name}}", { name: by }) : t("Proposed by an agent")) : t("From a lab report photo")}</h3>
             {b.candidates?.note && <p>“{b.candidates.note}”</p>}
             {proposal ? (
-              <table className="rows">
+              <table className="w-full text-sm">
                 <tbody>
                   {rows.map((r) => (
                     <tr key={`${r.metric}-${r.start_ms}`}>
                       <td title={r.metric}>{nameOf(r.metric, r.metric)}</td>
-                      <td>{when(r.start_ms, r.tz_min)}</td>
-                      <td className="n">
-                        {typeof r.value === "string" ? resultText(r.value) : String(r.value)} <span className="unit">{unitLabel(r.unit ?? "")}</span>
+                      <td className="px-2 py-1.5 align-top">{when(r.start_ms, r.tz_min)}</td>
+                      <td className="font-semibold tabular-nums">
+                        {typeof r.value === "string" ? resultText(r.value) : String(r.value)} <span className="ms-0.5 text-[0.65em] font-medium text-black/55 dark:text-white/55">{unitLabel(r.unit ?? "")}</span>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             ) : (
-              <p className="fine">{t("Matching lab items to measures arrives with photo import.")}</p>
+              <p className="text-[13px] text-black/55 dark:text-white/55">{t("Matching lab items to measures arrives with photo import.")}</p>
             )}
-            <div className="actions">
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
               {proposal && (
-                <button type="button" className="primary" onClick={() => act("review.confirm", b.import_id, t("Added to your readings."))}>
+                <Btn type="button" primary onClick={() => act("review.confirm", b.import_id, t("Added to your readings."))}>
                   {t("Add to my readings")}
-                </button>
+                </Btn>
               )}
-              <button type="button" onClick={() => act("review.discard", b.import_id, t("Discarded."))}>
+              <Btn type="button" onClick={() => act("review.discard", b.import_id, t("Discarded."))}>
                 {t("Discard")}
-              </button>
+              </Btn>
             </div>
           </div>
         );
@@ -2523,18 +2765,18 @@ function ConnectSteps({ client, token, bin, found, done }: { client: Client; tok
   const [busy, setBusy] = useState(false);
   const oneClick = client.oneClick && isDesktop;
   return (
-    <div className="group notice connect" role="status">
-      <h3>{t("Connect {{name}}", { name: client.name })}</h3>
+    <div className="mb-4 rounded-2xl bg-amber-500/15 px-4 py-3 text-[15px]" role="status">
+      <h3 className="mb-2 text-[17px] font-semibold">{t("Connect {{name}}", { name: client.name })}</h3>
       {oneClick && (
         <>
           <p>
             {found ? t("{{name}} is on this computer.", { name: client.name }) : t("{{name}}'s settings folder wasn't found; it is created if you go ahead.", { name: client.name })}{" "}
             {t("Health can add itself to its settings for you. Other servers there are kept, and the original file is saved next to it (.health-bak).")}
           </p>
-          <div className="actions">
-            <button
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+            <Btn
               type="button"
-              className="primary"
+              primary
               disabled={busy}
               onClick={async () => {
                 setBusy(true);
@@ -2548,31 +2790,31 @@ function ConnectSteps({ client, token, bin, found, done }: { client: Client; tok
               }}
             >
               {t("Add to {{name}}", { name: client.name })}
-            </button>
+            </Btn>
           </div>
-          {result && <p className={result.ok ? "fine" : "problem"}>{result.text}</p>}
-          <p className="fine">{t("Or do it by hand:")}</p>
+          {result && <p className={result.ok ? "text-[13px] text-black/55 dark:text-white/55" : "text-[15px] text-brand-red"}>{result.text}</p>}
+          <p className="text-[13px] text-black/55 dark:text-white/55">{t("Or do it by hand:")}</p>
         </>
       )}
-      <ol className="steps">
+      <ol className="list-decimal ps-5 leading-relaxed [&_li+li]:mt-3">
         {client.steps(bin, token).map((st) => (
           <li key={st.text}>
             {st.text}
             {st.code && (
-              <div className="snippet">
-                <pre>{st.code}</pre>
+              <div className="mt-1.5 flex items-start gap-2 [&_pre]:min-w-0 [&_pre]:flex-1 [&_pre]:overflow-x-auto [&_pre]:whitespace-pre">
+                <pre className="overflow-x-auto rounded-xl bg-black/5 p-3 font-mono text-xs whitespace-pre-wrap break-all dark:bg-white/10">{st.code}</pre>
                 <Copy text={st.code} label={t("Copy")} />
               </div>
             )}
           </li>
         ))}
       </ol>
-      <p className="fine">
+      <p className="text-[13px] text-black/55 dark:text-white/55">
         {t("The token is shown only this once. The app works with your data even when Health is closed (with a passphrase lock, keep Health open and unlocked). If you move the Health app, or the access expires, connect again. Apps that run in a web browser (such as ChatGPT or claude.ai) can't reach Health: it only answers on this computer.")}
       </p>
-      <button type="button" className="link" onClick={done}>
+      <Btn type="button" link onClick={done}>
         {t("Done")}
-      </button>
+      </Btn>
     </div>
   );
 }
@@ -2583,15 +2825,15 @@ function Revoke({ id, name, done }: { id: number; name: string; done: () => void
   const [err, setErr] = useState<string>();
   if (!ask)
     return (
-      <button type="button" className="link" onClick={() => setAsk(true)}>
+      <Btn type="button" link onClick={() => setAsk(true)}>
         {t("Revoke")}
-      </button>
+      </Btn>
     );
   return (
-    <span className="actions inline">
-      <button
+    <span className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center flex items-center gap-2">
+      <Btn
         type="button"
-        className="danger"
+        danger
         onClick={() =>
           op("grant.revoke", { id }).then(
             () => (setAsk(false), done()),
@@ -2600,10 +2842,10 @@ function Revoke({ id, name, done }: { id: number; name: string; done: () => void
         }
       >
         {t("Revoke {{name}}", { name })}
-      </button>
-      <button type="button" onClick={() => setAsk(false)}>
+      </Btn>
+      <Btn type="button" onClick={() => setAsk(false)}>
         {t("Keep")}
-      </button>
+      </Btn>
       {err && <Problem text={err} />}
     </span>
   );
@@ -2613,13 +2855,15 @@ function LastUsed({ id }: { id: number }) {
   const [last, , reload] = useOp(() => op<Audit[]>("audit.list", { grant_id: id, limit: 1 }), [id]);
   usePoll(reload);
   if (!last) return null;
-  return <span className="fine">{last[0] ? t("last used {{when}}", { when: ago(last[0].at) }) : t("not used yet")}</span>;
+  return <span className="text-[13px] text-black/55 dark:text-white/55">{last[0] ? t("last used {{when}}", { when: ago(last[0].at) }) : t("not used yet")}</span>;
 }
 
-function Agents() {
+function Agents({ want, path }: { want?: string; path?: string[] }) {
   const [grants, err, reload] = useOp(() => op<Grant[]>("grant.list"), []);
   const [found, setFound] = useState<string[]>([]);
-  const [client, setClient] = useState<Client>();
+  // connecting is two screens: the apps (#/agents/connect), then what the one chosen may use (…/connect/claude)
+  const connecting = want === "connect";
+  const client = connecting ? CLIENTS.find((c) => c.id === path?.[0]) : undefined;
   const [name, setName] = useState("");
   const [groups, setGroups] = useState<string[]>(GROUPS.filter((g) => !g.sensitive).map((g) => g.key));
   const [detail, setDetail] = useState(false);
@@ -2628,7 +2872,6 @@ function Agents() {
   const [write, setWrite] = useState<Grant["write"]>("none");
   const [reports, setReports] = useState(false);
   const [profile, setProfile] = useState(false);
-  const [connecting, setConnecting] = useState(false);
   const [made, setMade] = useState<{ client: Client; token: string }>();
   const [msg, setMsg] = useState<string>();
   const [bin, setBin] = useState("health");
@@ -2637,9 +2880,9 @@ function Agents() {
     agentClients().then((c) => setFound(c.map((x) => x.id)), () => {});
   }, []);
   const pick = (c: Client) => {
-    setClient(c);
     setName(c.id === "other" ? "" : c.name);
     setMade(undefined);
+    nav(`agents/connect/${c.id}`);
   };
   const create = async () => {
     if (!client) return;
@@ -2656,8 +2899,7 @@ function Agents() {
         expires_ms: Date.now() + expiry * DAY,
       });
       setMade({ client, token: r.token });
-      setClient(undefined);
-      setConnecting(false);
+      backBy(2, "agents");
       reload();
     } catch (e) {
       setMsg(errText(e));
@@ -2668,169 +2910,158 @@ function Agents() {
   const sensitive = GROUPS.filter((g) => g.key !== "derived" && g.sensitive).map((g) => g.key);
   const setAll = (keys: string[], on: boolean) => setGroups((g) => (on ? [...new Set([...g, ...keys])] : g.filter((k) => !keys.includes(k))));
   const ordered = [...CLIENTS].sort((a, b) => Number(found.includes(b.id)) - Number(found.includes(a.id)));
+  if (connecting)
+    return (
+      <section className="mx-auto w-full max-w-3xl">
+        {!client ? (
+          <>
+            <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Connect an app")}</h2>
+            <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55">{t("Choose the AI app that should use your health data.")}</p>
+            <Group aria-label={t("Agent apps")}>
+              {ordered.map((c) => (
+                <Item key={c.id} title={c.name} text={found.includes(c.id) ? t("On this computer") : undefined} onClick={() => pick(c)} />
+              ))}
+            </Group>
+          </>
+        ) : (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              create();
+            }}
+          >
+            <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{client.id === "other" ? t("What the app may use") : t("What {{name}} may use", { name: client.name })}</h2>
+            <p className="text-[13px] text-black/55 dark:text-white/55">{t("It sees only what you turn on here. It can never delete anything or open your backups.")}</p>
+
+            <CardHead title={t("Health data")} on={everyday.every((k) => groups.includes(k))} set={(on) => setAll(everyday, on)} />
+            <Group>
+              {GROUPS.filter((g) => g.key !== "derived" && !g.sensitive).map((g) => (
+                <SwitchRow key={g.key} icon={<GroupIcon k={g.key} />} label={t(g.label)} on={groups.includes(g.key)} set={() => toggle(g.key)} />
+              ))}
+            </Group>
+
+            <CardHead title={t("Sensitive data")} on={sensitive.every((k) => groups.includes(k))} set={(on) => setAll(sensitive, on)} />
+            <Group>
+              {GROUPS.filter((g) => g.key !== "derived" && g.sensitive).map((g) => (
+                <SwitchRow key={g.key} icon={<GroupIcon k={g.key} />} label={t(g.label)} on={groups.includes(g.key)} set={() => toggle(g.key)} />
+              ))}
+            </Group>
+            <p className="mt-1 mb-4 px-4 text-[13px] text-black/55 dark:text-white/55">{t("Off unless you turn them on. Turn on only what the app needs.")}</p>
+
+            <CardHead title={t("Detail")} on={detail && reports && profile} set={(on) => (setDetail(on), setReports(on), setProfile(on))} />
+            <Group>
+              <SwitchRow label={t("Individual entries")} sub={t("Otherwise one summary per day")} on={detail} set={setDetail} />
+              <SwitchRow label={t("Full lab report text")} sub={t("Every item on the report, including categories that are off")} on={reports} set={setReports} />
+              <SwitchRow label={t("Age and sex")} sub={t("From your profile; never your birth month")} on={profile} set={setProfile} />
+            </Group>
+
+            <h4 className="mt-6 mb-2 px-4 text-[13px] font-semibold text-black/55 dark:text-white/55">{t("What it may do")}</h4>
+            <Group role="radiogroup" aria-label={t("What it may do")}>
+              {(
+                [
+                  ["none", t("Read only"), t("The agent can only look at your data")],
+                  ["propose", t("Read and write"), t("You confirm each entry the agent saves")],
+                  ["derived", t("Full read and write"), t("The agent can write data without asking you")],
+                ] as const
+              ).map(([k, label, sub]) => (
+                <li key={k}>
+                  <label className="flex items-center gap-3 px-4 py-3 relative cursor-default [&_input[type=radio]]:pointer-events-none [&_input[type=radio]]:absolute [&_input[type=radio]]:opacity-0">
+                    <input type="radio" name="write" checked={write === k} onChange={() => setWrite(k)} />
+                    <span className="me-auto grid min-w-0 gap-px">
+                      <strong>{label}</strong>
+                      <span className="text-[13px] text-black/55 dark:text-white/55">{sub}</span>
+                    </span>
+                    <span className="min-w-4 text-end font-semibold text-primary" aria-hidden="true">
+                      {write === k ? "✓" : ""}
+                    </span>
+                  </label>
+                </li>
+              ))}
+            </Group>
+
+            <h4 className="mt-6 mb-2 px-4 text-[13px] font-semibold text-black/55 dark:text-white/55">{t("Time")}</h4>
+            <Group>
+              <li className="flex items-center gap-3 px-4 py-3">
+                <span className="me-auto grid min-w-0 gap-px" id="grant-back">
+                  <strong>{t("Data from the last")}</strong>
+                </span>
+                <span className="mt-3 inline-flex rounded-[9px] bg-black/5 p-0.5 dark:bg-white/10" role="group" aria-labelledby="grant-back">
+                  {(
+                    [
+                      [30, t("30 days")],
+                      [90, t("90 days")],
+                      [365, t("1 year")],
+                      [0, t("All")],
+                    ] as const
+                  ).map(([d, l]) => (
+                    <Btn key={d} type="button" aria-pressed={days === d} onClick={() => setDays(d)}>
+                      {l}
+                    </Btn>
+                  ))}
+                </span>
+              </li>
+              <li className="flex items-center gap-3 px-4 py-3">
+                <label className="me-auto grid min-w-0 gap-px" htmlFor="grant-expiry">
+                  <strong>{t("Agent access ends after")}</strong>
+                </label>
+                <select id="grant-expiry" className="w-full rounded-xl bg-black/5 px-3 py-2.5 text-base text-black outline-none focus:ring-2 focus:ring-primary dark:bg-white/10 dark:text-white w-auto min-w-36 max-w-1/2" value={expiry} onChange={(e) => setExpiry(Number(e.target.value))}>
+                  {EXPIRY.map(([d, l]) => (
+                    <option key={d} value={d}>
+                      {t(l)}
+                    </option>
+                  ))}
+                </select>
+              </li>
+            </Group>
+
+            <h4 className="mt-6 mb-2 px-4 text-[13px] font-semibold text-black/55 dark:text-white/55">{t("Name")}</h4>
+            <Group>
+              <li className="flex items-center gap-3 px-4 py-3">
+                <label className="me-auto grid min-w-0 gap-px" htmlFor="grant-name">
+                  <strong>{t("Name shown in the access log")}</strong>
+                </label>
+                <input id="grant-name" className="w-full rounded-xl bg-black/5 px-3 py-2.5 text-base text-black outline-none focus:ring-2 focus:ring-primary dark:bg-white/10 dark:text-white w-auto min-w-36 max-w-1/2 text-end" placeholder={t("My agent")} value={name} onChange={(e) => setName(e.target.value)} required />
+              </li>
+            </Group>
+
+            <Problem text={msg} />
+            <Btn type="submit" primary className="mt-4 w-full!" disabled={!groups.length || !name.trim()}>
+              {t("Allow access")}
+            </Btn>
+          </form>
+        )}
+      </section>
+    );
   return (
-    <section className="page">
-      <div className="page-head">
-        <h2>{t("Agent access")}</h2>
-        <div className="actions">
-          <button type="button" className="primary" onClick={() => (setMade(undefined), setConnecting(true))}>
+    <section className="mx-auto w-full max-w-3xl">
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
+        <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Agent access")}</h2>
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+          <Btn type="button" primary onClick={() => (setMade(undefined), nav("agents/connect"))}>
             {t("Connect an app…")}
-          </button>
+          </Btn>
         </div>
       </div>
-      <p className="lede">
+      <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55">
         {t("Let AI apps (Claude, Codex and others) use your data through MCP, with access settings built in.")}
       </p>
       {made && <ConnectSteps client={made.client} token={made.token} bin={bin} found={found.includes(made.client.id)} done={() => setMade(undefined)} />}
-      {connecting && (
-        <Sheet label={t("Connect an app")} close={() => (setConnecting(false), setClient(undefined))}>
-          {!client ? (
-            <div className="group">
-              <h3>{t("Connect an app")}</h3>
-              <p className="fine">{t("Choose the AI app that should use your health data.")}</p>
-              <div className="clients" role="group" aria-label={t("Agent apps")}>
-                {ordered.map((c) => (
-                  <button key={c.id} type="button" className="client" onClick={() => pick(c)}>
-                    {c.name}
-                    {found.includes(c.id) && <span className="fine">{t("On this computer")}</span>}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <form
-              className="grant-form"
-              onSubmit={(e) => {
-                e.preventDefault();
-                create();
-              }}
-            >
-              <button type="button" className="link back" onClick={() => setClient(undefined)}>
-                ‹ {t("All apps")}
-              </button>
-              <h3 className="grant-title">{client.id === "other" ? t("What the app may use") : t("What {{name}} may use", { name: client.name })}</h3>
-              <p className="fine">{t("It sees only what you turn on here. It can never delete anything or open your backups.")}</p>
-
-              <CardHead title={t("Health data")} on={everyday.every((k) => groups.includes(k))} set={(on) => setAll(everyday, on)} />
-              <ul className="rows-card">
-                {GROUPS.filter((g) => g.key !== "derived" && !g.sensitive).map((g) => (
-                  <SwitchRow key={g.key} icon={<GroupIcon k={g.key} />} label={t(g.label)} on={groups.includes(g.key)} set={() => toggle(g.key)} />
-                ))}
-              </ul>
-
-              <CardHead title={t("Sensitive data")} on={sensitive.every((k) => groups.includes(k))} set={(on) => setAll(sensitive, on)} />
-              <ul className="rows-card">
-                {GROUPS.filter((g) => g.key !== "derived" && g.sensitive).map((g) => (
-                  <SwitchRow key={g.key} icon={<GroupIcon k={g.key} />} label={t(g.label)} on={groups.includes(g.key)} set={() => toggle(g.key)} />
-                ))}
-              </ul>
-              <p className="rows-foot">{t("Off unless you turn them on. Turn on only what the app needs.")}</p>
-
-              <CardHead title={t("Detail")} on={detail && reports && profile} set={(on) => (setDetail(on), setReports(on), setProfile(on))} />
-              <ul className="rows-card">
-                <SwitchRow label={t("Individual entries")} sub={t("Otherwise one summary per day")} on={detail} set={setDetail} />
-                <SwitchRow label={t("Full lab report text")} sub={t("Every item on the report, including categories that are off")} on={reports} set={setReports} />
-                <SwitchRow label={t("Age and sex")} sub={t("From your profile; never your birth month")} on={profile} set={setProfile} />
-              </ul>
-
-              <h4 className="rows-head">{t("What it may do")}</h4>
-              <ul className="rows-card" role="radiogroup" aria-label={t("What it may do")}>
-                {(
-                  [
-                    ["none", t("Read only"), t("The agent can only look at your data")],
-                    ["propose", t("Read and write"), t("You confirm each entry the agent saves")],
-                    ["derived", t("Full read and write"), t("The agent can write data without asking you")],
-                  ] as const
-                ).map(([k, label, sub]) => (
-                  <li key={k}>
-                    <label className="row-static row-pick">
-                      <input type="radio" name="write" checked={write === k} onChange={() => setWrite(k)} />
-                      <span className="row-l">
-                        <strong>{label}</strong>
-                        <span className="fine">{sub}</span>
-                      </span>
-                      <span className="row-check" aria-hidden="true">
-                        {write === k ? "✓" : ""}
-                      </span>
-                    </label>
-                  </li>
-                ))}
-              </ul>
-
-              <h4 className="rows-head">{t("Time")}</h4>
-              <ul className="rows-card">
-                <li className="row-static">
-                  <span className="row-l" id="grant-back">
-                    <strong>{t("Data from the last")}</strong>
-                  </span>
-                  <span className="segmented" role="group" aria-labelledby="grant-back">
-                    {(
-                      [
-                        [30, t("30 days")],
-                        [90, t("90 days")],
-                        [365, t("1 year")],
-                        [0, t("All")],
-                      ] as const
-                    ).map(([d, l]) => (
-                      <button key={d} type="button" aria-pressed={days === d} onClick={() => setDays(d)}>
-                        {l}
-                      </button>
-                    ))}
-                  </span>
-                </li>
-                <li className="row-static">
-                  <label className="row-l" htmlFor="grant-expiry">
-                    <strong>{t("Agent access ends after")}</strong>
-                  </label>
-                  <select id="grant-expiry" className="row-select" value={expiry} onChange={(e) => setExpiry(Number(e.target.value))}>
-                    {EXPIRY.map(([d, l]) => (
-                      <option key={d} value={d}>
-                        {t(l)}
-                      </option>
-                    ))}
-                  </select>
-                </li>
-              </ul>
-
-              <h4 className="rows-head">{t("Name")}</h4>
-              <ul className="rows-card">
-                <li className="row-static">
-                  <label className="row-l" htmlFor="grant-name">
-                    <strong>{t("Name shown in the access log")}</strong>
-                  </label>
-                  <input id="grant-name" className="row-input" placeholder={t("My agent")} value={name} onChange={(e) => setName(e.target.value)} required />
-                </li>
-              </ul>
-
-              <Problem text={msg} />
-              <div className="actions grant-actions">
-                <button type="button" onClick={() => setClient(undefined)}>
-                  {t("Cancel")}
-                </button>
-                <button type="submit" className="primary" disabled={!groups.length || !name.trim()}>
-                  {t("Allow access")}
-                </button>
-              </div>
-            </form>
-          )}
-        </Sheet>
-      )}
-      <h3 className="rows-head">{t("Current access")}</h3>
+      <h3 className="mt-6 mb-2 px-4 text-[13px] font-semibold text-black/55 dark:text-white/55">{t("Current access")}</h3>
       <Problem text={err} />
       {grants && !grants.length ? (
-        <p className="empty">{t("No app has access yet.")}</p>
+        <p className="text-black/55 dark:text-white/55">{t("No app has access yet.")}</p>
       ) : (
-        <ul className="rows-card grants">
+        <Group>
           {(grants ?? [])
             .slice()
             .reverse()
             .map((g) => {
               const live = !g.revoked_ms && g.expires_ms > Date.now();
               return (
-                <li key={g.id} className={live ? "row-static" : "row-static stale"} aria-label={g.name}>
-                  <span className="row-l">
+                <li key={g.id} className={`flex items-center gap-3 px-4 py-3 ${live ? "" : "opacity-55"}`} aria-label={g.name}>
+                  <span className="me-auto grid min-w-0 gap-px">
                     <strong>{g.name}</strong>
-                    <span className="fine">
+                    <span className="text-[13px] text-black/55 dark:text-white/55">
                       {g.groups.map(groupLabel).join(t(", "))}
                       {t(", ")}
                       {g.detail ? t("individual entries") : t("daily summaries")}
@@ -2841,8 +3072,8 @@ function Agents() {
                     </span>
                     {live && <LastUsed id={g.id} />}
                   </span>
-                  <span className="grant-end">
-                    <span className="tag">
+                  <span className="flex flex-none flex-col items-end gap-1.5">
+                    <span className="inline-block rounded-full bg-black/5 px-2 py-0.5 text-xs whitespace-nowrap text-black/60 dark:bg-white/10 dark:text-white/60">
                       {live
                         ? t("until {{date}}", { date: new Date(g.expires_ms).toLocaleDateString(i18nLocale()) })
                         : g.revoked_ms
@@ -2854,7 +3085,7 @@ function Agents() {
                 </li>
               );
             })}
-        </ul>
+        </Group>
       )}
       <AuditLog />
     </section>
@@ -2875,19 +3106,19 @@ function AuditLog() {
   const [grants] = useOp(() => op<Grant[]>("grant.list"), []);
   const nameOf = (id: number) => grants?.find((g) => g.id === id)?.name ?? `#${id}`;
   return (
-    <div className="group">
-      <h3>{t("Access log")}</h3>
+    <div className={`${card}`}>
+      <h3 className="mb-2 text-[17px] font-semibold">{t("Access log")}</h3>
       <Problem text={err} />
-      {log && !log.length && <p className="empty">{t("No agent has read anything yet.")}</p>}
-      <table className="rows">
+      {log && !log.length && <p className="text-black/55 dark:text-white/55">{t("No agent has read anything yet.")}</p>}
+      <table className="w-full text-sm">
         <tbody>
           {(log ?? []).map((a, i) => (
             <tr key={`${a.at}-${i}`}>
-              <td>{when(a.at)}</td>
+              <td className="px-2 py-1.5 align-top">{when(a.at)}</td>
               <th scope="row">{nameOf(a.grant_id)}</th>
-              <td>{a.op}</td>
-              <td>{a.metrics.join(", ")}</td>
-              <td className="n">{a.denied ? <span className="signal">{t("refused")}</span> : t("{{count}} rows", { count: a.rows })}</td>
+              <td className="px-2 py-1.5 align-top">{a.op}</td>
+              <td className="px-2 py-1.5 align-top">{a.metrics.join(", ")}</td>
+              <td className="font-semibold tabular-nums">{a.denied ? <span className="text-amber-600">{t("refused")}</span> : t("{{count}} rows", { count: a.rows })}</td>
             </tr>
           ))}
         </tbody>
@@ -2898,26 +3129,23 @@ function AuditLog() {
 
 /** Backup and export (as the web's 备份与导出): save a backup, restore one, or write a table for other tools. */
 function Backup({ want }: { want?: string }) {
-  const [sheet, setSheet] = useState<"save" | "restore" | "csv" | undefined>(want === "save" || want === "restore" || want === "csv" ? want : undefined);
+  const setSheet = (x: "save" | "restore" | "csv") => nav(`backup/${x}`);
   const [file, setFile] = useState<string>();
   const titles = { save: t("Save a backup"), restore: t("Restore a backup"), csv: t("Export a table (CSV)") };
+  // each a screen of its own (#/backup/save)
+  if (want === "save") return <BackupSave />;
+  if (want === "restore") return <Import file={file} onFile={setFile} go={() => goBack("backup")} kind="restore" title={titles.restore} />;
+  if (want === "csv") return <CsvExport />;
   return (
-    <section className="page">
-      <h2>{t("Backup")}</h2>
-      <p className="lede">{t("Save or restore a backup file to move your data to another device.")}</p>
-      <ul className="rows-card">
+    <section className="mx-auto w-full max-w-3xl">
+      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Backup")}</h2>
+      <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55">{t("Save or restore a backup file to move your data to another device.")}</p>
+      <Group>
         <Row icon={<Icon k="backup" />} label={titles.save} sub={t("Encrypted with a password you choose")} onClick={() => setSheet("save")} />
         <Row icon={<Icon k="data" />} label={titles.restore} sub={t("Merges; nothing is overwritten")} onClick={() => setSheet("restore")} />
         <Row icon={<GroupIcon k="other" />} label={titles.csv} sub={t("Unencrypted, for spreadsheets and other tools")} onClick={() => setSheet("csv")} />
-      </ul>
+      </Group>
       <ClearDataRow />
-      {sheet && (
-        <Sheet label={titles[sheet]} close={() => (setSheet(undefined), setFile(undefined))}>
-          {sheet === "save" && <BackupSave />}
-          {sheet === "restore" && <Import file={file} onFile={setFile} go={() => setSheet(undefined)} kind="restore" title={titles.restore} />}
-          {sheet === "csv" && <CsvExport />}
-        </Sheet>
-      )}
     </section>
   );
 }
@@ -2926,27 +3154,21 @@ function Backup({ want }: { want?: string }) {
 function CsvExport() {
   const [groups, setGroups] = useState<string[]>(GROUPS.filter((g) => !g.sensitive).map((g) => g.key));
   const [dateOnly, setDateOnly] = useState(false);
-  const [out, setOut] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string>();
   const [done, setDone] = useState<string>();
   const save = async () => {
     setErr(undefined);
     setDone(undefined);
-    let path = out;
-    if (isDesktop) {
-      const p = await chooseSavePath(`health-${day(Date.now())}.csv`, "CSV", "csv");
-      if (!p) return;
-      path = p;
-    }
-    // a phone: written in the app's own folder, then handed to the share sheet (save to Files, send, ...)
-    if (isMobile) path = await exportPath(`health-${day(Date.now())}.csv`);
-    if (!path) return setErr(t("Choose where to save the table."));
     setBusy(true);
     try {
-      const r = await op<{ path: string; rows: number }>("export.csv", { path, groups, date_only: dateOnly });
-      if (isMobile) await shareFile(r.path, "text/csv");
-      setDone(t("Saved {{file}}: {{count}} rows. It isn't encrypted: keep it somewhere safe.", { file: fileName(r.path), count: r.rows }));
+      let rows = 0;
+      const path = await saveExport(`health-${day(Date.now())}.csv`, "text/csv", { name: "CSV", ext: "csv" }, async (path) => {
+        const r = await op<{ path: string; rows: number }>("export.csv", { path, groups, date_only: dateOnly });
+        rows = r.rows;
+        return r.path;
+      });
+      if (path) setDone(t("Saved {{file}}: {{count}} rows. It isn't encrypted: keep it somewhere safe.", { file: fileName(path), count: rows }));
     } catch (e) {
       setErr(errText(e));
     } finally {
@@ -2954,11 +3176,11 @@ function CsvExport() {
     }
   };
   return (
-    <section className="record">
-      <h2>{t("Export a table (CSV)")}</h2>
-      <p className="lede">{t("Export unencrypted data for use in other software.")}</p>
+    <section className="[&_h3]:mt-6">
+      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Export a table (CSV)")}</h2>
+      <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55">{t("Export unencrypted data for use in other software.")}</p>
       <form
-        className="form"
+        className="flex flex-col gap-3"
         aria-busy={busy}
         onSubmit={(e) => {
           e.preventDefault();
@@ -2966,37 +3188,29 @@ function CsvExport() {
         }}
       >
         {[false, true].map((sensitive) => (
-          <fieldset key={String(sensitive)}>
-            <legend>{sensitive ? t("Sensitive: tick only what you need") : t("What to include")}</legend>
+          <Group key={String(sensitive)} title={sensitive ? t("Sensitive: tick only what you need") : t("What to include")}>
             {GROUPS.filter((g) => g.sensitive === sensitive).map((g) => (
-              <label key={g.key} className="check">
-                <input
-                  type="checkbox"
+              <label key={g.key} className="flex min-h-[52px] cursor-pointer items-center gap-4 px-4">
+                <Checkbox
+                  component="span"
                   checked={groups.includes(g.key)}
                   onChange={() => setGroups((x) => (x.includes(g.key) ? x.filter((k) => k !== g.key) : [...x, g.key]))}
                 />
-                {t(g.label)}
+                <span className="flex-1 text-[16px]">{t(g.label)}</span>
               </label>
             ))}
-          </fieldset>
+          </Group>
         ))}
-        <label className="check">
-          <input type="checkbox" checked={dateOnly} onChange={(e) => setDateOnly(e.target.checked)} />
-          {t("Dates only (no times or time zones)")}
-        </label>
-        {!isDesktop && !isMobile && (
-          <label>
-            {t("Save to")}
-            <input value={out} onChange={(e) => setOut(e.target.value)} placeholder="/Users/you/Documents/health.csv" />
-          </label>
-        )}
+        <Group>
+          <SwitchRow label={t("Dates only (no times or time zones)")} on={dateOnly} set={setDateOnly} />
+        </Group>
         <Problem text={err} />
-        <button type="submit" className="primary" disabled={busy || !groups.length}>
-          {busy ? t("Saving…") : isDesktop ? t("Save table…") : t("Save table")}
-        </button>
+        <Btn type="submit" primary disabled={busy || !groups.length}>
+          {busy ? t("Saving…") : t("Save table…")}
+        </Btn>
       </form>
       {done && (
-        <p className="notice" role="status">
+        <p className="mb-4 rounded-2xl bg-amber-500/15 px-4 py-3 text-[15px]" role="status">
           {done}
         </p>
       )}
@@ -3005,7 +3219,6 @@ function CsvExport() {
 }
 
 function BackupSave() {
-  const [out, setOut] = useState("");
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
   const [busy, setBusy] = useState(false);
@@ -3022,22 +3235,17 @@ function BackupSave() {
     setDone(undefined);
     if (pw.length < 8) return setErr(t("Use at least 8 characters."));
     if (pw !== pw2) return setErr(t("The two passwords differ."));
-    let path = out;
-    if (isDesktop) {
-      const p = await chooseSavePath(`health-${stamp}.zuhealth`, t("Health backup"), "zuhealth");
-      if (!p) return;
-      path = p;
-    }
-    if (isMobile) path = await exportPath(`health-${stamp}.zuhealth`);
-    if (!path) return setErr(t("Choose where to save the backup."));
     setBusy(true);
     try {
-      // the native save dialog already asked before replacing a file; a phone writes in its own folder
-      const r = await op<{ bytes: number; path: string }>("backup.export", { path, password: pw, replace: isDesktop || isMobile });
-      if (isMobile) await shareFile(r.path, "application/octet-stream");
-      setDone(
-        t("Saved {{file}} ({{mb}} MB). Keep the password safe: without it the backup cannot be opened.", { file: fileName(r.path), mb: (r.bytes / 1e6).toFixed(1) }),
-      );
+      let bytes = 0;
+      // the save dialog already asked before replacing a file; elsewhere it's the app's own folder
+      const path = await saveExport(`health-${stamp}.zuhealth`, "application/octet-stream", { name: t("Health backup"), ext: "zuhealth" }, async (path) => {
+        const r = await op<{ bytes: number; path: string }>("backup.export", { path, password: pw, replace: true });
+        bytes = r.bytes;
+        return r.path;
+      });
+      if (!path) return;
+      setDone(t("Saved {{file}} ({{mb}} MB). Keep the password safe: without it the backup cannot be opened.", { file: fileName(path), mb: (bytes / 1e6).toFixed(1) }));
       setPw("");
       setPw2("");
     } catch (e) {
@@ -3047,10 +3255,10 @@ function BackupSave() {
     }
   };
   return (
-    <section className="record">
-      <h2>{t("Save a backup")}</h2>
+    <section className="[&_h3]:mt-6">
+      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Save a backup")}</h2>
       <form
-        className="group form"
+        className="flex flex-col gap-3"
         aria-busy={busy}
         onSubmit={(e) => {
           e.preventDefault();
@@ -3059,20 +3267,14 @@ function BackupSave() {
       >
         <PasswordField label={t("Password")} value={pw} onChange={setPw} auto="new-password" />
         <PasswordField label={t("Repeat password")} value={pw2} onChange={setPw2} auto="new-password" />
-        <p className="fine">{t("At least 8 characters. There is no way to recover a forgotten backup password.")}</p>
-        {!isDesktop && !isMobile && (
-          <label>
-            {t("Save to")}
-            <input value={out} onChange={(e) => setOut(e.target.value)} placeholder={`/Users/you/Documents/health-${stamp}.zuhealth`} />
-          </label>
-        )}
+        <p className="text-[13px] text-black/55 dark:text-white/55">{t("At least 8 characters. There is no way to recover a forgotten backup password.")}</p>
         <Problem text={err} />
-        <button type="submit" className="primary" disabled={busy}>
-          {busy ? t("Saving…") : isDesktop ? t("Save backup…") : t("Save backup")}
-        </button>
+        <Btn type="submit" primary disabled={busy}>
+          {busy ? t("Saving…") : t("Save backup…")}
+        </Btn>
       </form>
       {done && (
-        <p className="notice" role="status">
+        <p className="mb-4 rounded-2xl bg-amber-500/15 px-4 py-3 text-[15px]" role="status">
           {done}
         </p>
       )}
@@ -3138,7 +3340,7 @@ function Qr({ text, label }: { text: string; label: string }) {
   useEffect(() => {
     op<{ svg: string }>("account.qr", { text }).then((r) => setSvg(r.svg), () => setSvg(undefined));
   }, [text]);
-  return svg ? <div className="qr" role="img" aria-label={label} dangerouslySetInnerHTML={{ __html: svg }} /> : <div className="qr" />;
+  return svg ? <div className="h-42 w-42 flex-none rounded-xl bg-white p-2 [&_svg]:block [&_svg]:h-full [&_svg]:w-full" role="img" aria-label={label} dangerouslySetInnerHTML={{ __html: svg }} /> : <div className="h-42 w-42 flex-none rounded-xl bg-white p-2 [&_svg]:block [&_svg]:h-full [&_svg]:w-full" />;
 }
 
 type AccountSheet = "identity" | "results" | "history";
@@ -3149,9 +3351,10 @@ function HealthAccount({ go, want }: { go: (p: Page) => void; want?: string }) {
   const [acc, setAcc] = useState<AccountInfo | null>();
   const [err, setErr] = useState<string>();
   const [busy, setBusy] = useState(false);
-  const [view, setView] = useState<"main" | "connect" | "join" | "give" | "sync">(want === "connect" || want === "sync" ? want : "main");
-  // the view it was opened at: on a narrow screen the shell's back button leads out of it, so its own goes
-  const [entry] = useState(view);
+  type View = "main" | "connect" | "join" | "give" | "sync";
+  const view: View = want === "connect" || want === "sync" || want === "join" || want === "give" ? want : "main";
+  // join and give open from connect (back returns there); a result replaces the step it ends
+  const setView = (v: Exclude<View, "main">, replace = false) => nav(`account/${v}`, replace);
   const [sheet, setSheet] = useState<AccountSheet>();
   const [polled, setPolled] = useState<string>();
   const [waiting, setWaiting] = useState(false);
@@ -3194,42 +3397,37 @@ function HealthAccount({ go, want }: { go: (p: Page) => void; want?: string }) {
       setBusy(false);
     }
   };
-  if (acc === undefined) return <section className="page narrow" aria-busy="true"><h2>{t("Health account")}</h2></section>;
-  const back = () => {
-    setView("main");
-    load();
-  };
-  if (view === "connect")
-    return <ConnectDevice hasAccount={!!acc} back={back} entry={entry === "connect"} join={() => setView("join")} give={() => setView("give")} />;
+  if (acc === undefined) return <section className="mx-auto w-full max-w-3xl" aria-busy="true"><h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Health account")}</h2></section>;
+  if (view === "connect") return <ConnectDevice hasAccount={!!acc} join={() => setView("join")} give={() => setView("give")} />;
   // joined: on to sync, the reason most people connect a device
-  if (view === "join") return <LinkThis done={(ok) => { load(); setView(ok ? "sync" : "connect"); }} />;
-  if (view === "give") return <GiveAccount done={() => setView("connect")} />;
-  if (view === "sync") return <SyncPage back={back} entry={entry === "sync"} />;
+  if (view === "join") return <LinkThis done={(ok) => { load(); setView(ok ? "sync" : "connect", true); }} />;
+  if (view === "give") return <GiveAccount done={() => setView("connect", true)} />;
+  if (view === "sync") return <SyncPage />;
   const entries = history?.state === "ok" ? history.entries.length : undefined;
   return (
-    <section className="page narrow">
-      <h2>{t("Health account")}</h2>
-      <p className="lede">
+    <section className="mx-auto w-full max-w-3xl">
+      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Health account")}</h2>
+      <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55">
         {t("Labs and service desks send results to your health account, sealed so only your devices can open them. Your account key stays on your devices, and your readings only travel between your own devices.")}
       </p>
       {!acc && (
-        <div className="group form">
+        <div className={`${card} flex flex-col gap-3`}>
           <p>{(isMobile ? t("There is no health account on this device yet.") : t("There is no health account on this computer yet."))}</p>
-          <div className="actions">
-            <button type="button" className="primary" disabled={busy} onClick={show}>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+            <Btn type="button" primary disabled={busy} onClick={show}>
               {busy ? t("Contacting the service…") : t("Create my account")}
-            </button>
-            <button type="button" disabled={busy} onClick={() => setView("connect")}>
+            </Btn>
+            <Btn type="button" disabled={busy} onClick={() => setView("connect")}>
               {t("Connect another device…")}
-            </button>
+            </Btn>
           </div>
         </div>
       )}
       <Problem text={err} />
       {acc && (
         <>
-          <h3 className="rows-head">{t("Health identity")}</h3>
-          <ul className="rows-card">
+          <h3 className="mt-6 mb-2 px-4 text-[13px] font-semibold text-black/55 dark:text-white/55">{t("Health identity")}</h3>
+          <Group>
             <Row
               icon={<Icon k="id" />}
               label={t("Identity code")}
@@ -3237,9 +3435,9 @@ function HealthAccount({ go, want }: { go: (p: Page) => void; want?: string }) {
               value={acc.identity ? `${acc.id.slice(0, 4)}…${acc.id.slice(-4)}` : busy ? t("Contacting the service…") : t("Show")}
               onClick={() => (acc.identity ? setSheet("identity") : show())}
             />
-          </ul>
-          <h3 className="rows-head">{t("Results")}</h3>
-          <ul className="rows-card">
+          </Group>
+          <h3 className="mt-6 mb-2 px-4 text-[13px] font-semibold text-black/55 dark:text-white/55">{t("Results")}</h3>
+          <Group>
             <Row
               icon={<Icon k="inbox" />}
               label={t("Lab results")}
@@ -3247,11 +3445,11 @@ function HealthAccount({ go, want }: { go: (p: Page) => void; want?: string }) {
               value={waiting ? t("Waiting for you") : acc.drops > 0 ? t("{{count}} discarded", { count: acc.drops }) : undefined}
               onClick={() => setSheet("results")}
             />
-          </ul>
+          </Group>
         </>
       )}
-      <h3 className="rows-head">{t("Other devices")}</h3>
-      <ul className="rows-card">
+      <h3 className="mt-6 mb-2 px-4 text-[13px] font-semibold text-black/55 dark:text-white/55">{t("Other devices")}</h3>
+      <Group>
         {acc && (
           <Row
             icon={<Icon k="wifi" />}
@@ -3264,36 +3462,36 @@ function HealthAccount({ go, want }: { go: (p: Page) => void; want?: string }) {
           <Row icon={<Icon k="list" />} label={t("Connection history")} value={entries} onClick={() => setSheet("history")} />
         )}
         <Row icon={<Icon k="link" />} label={t("Connect another device")} onClick={() => setView("connect")} />
-      </ul>
+      </Group>
       {sheet && (
         <Sheet
           label={{ identity: t("Your identity code"), results: t("Lab results"), history: t("Connection history") }[sheet]}
           close={() => setSheet(undefined)}
         >
           {sheet === "identity" && acc?.identity && (
-            <div className="identity">
-              <h3>{t("Your identity code")}</h3>
+            <div className="flex items-center gap-5">
+              <h3 className="mb-2 text-[17px] font-semibold">{t("Your identity code")}</h3>
               <Qr text={acc.identity} label={t("Your identity code")} />
-              <p className="fine">{t("Show it at a lab or service desk so they can send your results here.")}</p>
-              <p className="fine mono">{t("Account {{id}}…", { id: acc.id.slice(0, 8) })}</p>
+              <p className="text-[13px] text-black/55 dark:text-white/55">{t("Show it at a lab or service desk so they can send your results here.")}</p>
+              <p className="text-[13px] text-black/55 dark:text-white/55 font-mono text-[13px] break-all">{t("Account {{id}}…", { id: acc.id.slice(0, 8) })}</p>
             </div>
           )}
           {sheet === "results" && acc && (
-            <div className="form">
-              <h3>{t("Lab results")}</h3>
-              <p className="fine">{t("Health checks for new results when it opens and every few minutes while it's open.")}</p>
-              {acc.drops > 0 && <p className="fine">{t("{{count}} results were discarded because they failed a check.", { count: acc.drops })}</p>}
-              <div className="actions">
-                <button type="button" className="primary" disabled={busy || !acc.registered} onClick={check}>
+            <div className="flex flex-col gap-3">
+              <h3 className="mb-2 text-[17px] font-semibold">{t("Lab results")}</h3>
+              <p className="text-[13px] text-black/55 dark:text-white/55">{t("Health checks for new results when it opens and every few minutes while it's open.")}</p>
+              {acc.drops > 0 && <p className="text-[13px] text-black/55 dark:text-white/55">{t("{{count}} results were discarded because they failed a check.", { count: acc.drops })}</p>}
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                <Btn type="button" primary disabled={busy || !acc.registered} onClick={check}>
                   {busy ? t("Checking…") : t("Check for results now")}
-                </button>
+                </Btn>
                 {waiting && (
-                  <button type="button" className="link" onClick={() => go("review")}>
+                  <Btn type="button" link onClick={() => go("review")}>
                     {t("Check them now")}
-                  </button>
+                  </Btn>
                 )}
               </div>
-              {polled && <p role="status" className="fine">{polled}</p>}
+              {polled && <p role="status" className="text-[13px] text-black/55 dark:text-white/55">{polled}</p>}
             </div>
           )}
           {sheet === "history" && <LinkHistoryList history={history} />}
@@ -3320,35 +3518,32 @@ function SyncValue({ st, live }: { st?: SyncShown; live?: SyncLive }) {
             : t("No devices yet");
   return (
     <>
-      {asking && <span className="dot" aria-hidden="true" />}
+      {asking && <span className="inline-block h-2 w-2 rounded-full bg-brand-red align-middle" aria-hidden="true" />}
       {text}
     </>
   );
 }
 
 /** One entry for connecting devices (as the web's 连接其他设备): which side is this one? */
-function ConnectDevice({ hasAccount, back, entry, join, give }: { hasAccount: boolean; back: () => void; entry?: boolean; join: () => void; give: () => void }) {
+function ConnectDevice({ hasAccount, join, give }: { hasAccount: boolean; join: () => void; give: () => void }) {
   return (
-    <section className="page narrow">
-      <button type="button" className={`link back${entry ? " entry" : ""}`} onClick={back}>
-        ‹ {t("Health account")}
-      </button>
-      <h2>{t("Connect another device")}</h2>
-      <p className="lede">{t("Your devices can sync data with each other on the same local network.")}</p>
-      <div className="role-card">
-        <h3>{t("This is a new device")}</h3>
-        <p className="fine">{t("Get data from another device.")}</p>
-        <button type="button" className="primary wide" onClick={join}>
+    <section className="mx-auto w-full max-w-3xl">
+      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Connect another device")}</h2>
+      <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55">{t("Your devices can sync data with each other on the same local network.")}</p>
+      <div className={`${card} flex flex-col gap-2.5 [&_h3]:m-0`}>
+        <h3 className="mb-2 text-[17px] font-semibold">{t("This is a new device")}</h3>
+        <p className="text-[13px] text-black/55 dark:text-white/55">{t("Get data from another device.")}</p>
+        <Btn type="button" primary onClick={join}>
           {t("Show connection code")}
-        </button>
+        </Btn>
       </div>
-      <div className="role-card">
-        <h3>{t("This one is already in use")}</h3>
-        <p className="fine">{t("Send data to another device.")}</p>
-        <button type="button" className="tonal wide" disabled={!hasAccount} onClick={give}>
+      <div className={`${card} flex flex-col gap-2.5 [&_h3]:m-0`}>
+        <h3 className="mb-2 text-[17px] font-semibold">{t("This one is already in use")}</h3>
+        <p className="text-[13px] text-black/55 dark:text-white/55">{t("Send data to another device.")}</p>
+        <Btn type="button" disabled={!hasAccount} onClick={give}>
           {t("Enter connection code")}
-        </button>
-        {!hasAccount && <p className="fine">{(isMobile ? t("There's no health identity on this device yet, so there's nothing to hand over.") : t("There's no health identity on this computer yet, so there's nothing to hand over."))}</p>}
+        </Btn>
+        {!hasAccount && <p className="text-[13px] text-black/55 dark:text-white/55">{(isMobile ? t("There's no health identity on this device yet, so there's nothing to hand over.") : t("There's no health identity on this computer yet, so there's nothing to hand over."))}</p>}
       </div>
     </section>
   );
@@ -3412,52 +3607,49 @@ function LinkThis({ done }: { done: (joined: boolean) => void }) {
     );
   };
   return (
-    <section className="page narrow">
-      <button type="button" className="link back" disabled={busy} onClick={() => done(false)}>
-        ‹ {t("Connect another device")}
-      </button>
-      <h2>{t("Show connection code")}</h2>
+    <section className="mx-auto w-full max-w-3xl">
+      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Show connection code")}</h2>
       {st.state === "waiting" && code && (
-        <div className="group identity">
+        <div className={`${card} flex items-center gap-5`}>
           <Qr text={code} label={t("Connection code")} />
           <div>
             <p>{t("Use your earlier device to scan or paste this code and connect this new one. Once connected, data moves between them on the same network with Local network sync, or with Backup.")}</p>
-            <p className="fine mono link-code">{code}</p>
-            <div className="actions">
-              <button type="button" onClick={copy}>
+            <p className="text-[13px] text-black/55 dark:text-white/55 font-mono text-[13px] break-all break-all select-all">{code}</p>
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+              <Btn type="button" onClick={copy}>
                 {copied ? t("Copied") : t("Copy code")}
-              </button>
+              </Btn>
             </div>
-            <p className="fine">{t("Waiting… The code works for 10 minutes.")}</p>
+            <p className="text-[13px] text-black/55 dark:text-white/55">{t("Waiting… The code works for 10 minutes.")}</p>
           </div>
         </div>
       )}
       {st.state === "received" && (
-        <div className="group form">
+        <div className={`${card} flex flex-col gap-3`}>
           <p>{t("Check that your other device shows the same code:")}</p>
-          <p className="check-code" aria-label={t("Check code {{code}}", { code: st.check })}>{st.check}</p>
+          <p className="mt-2 mb-3 text-[34px] font-semibold tracking-[0.08em] tabular-nums" aria-label={t("Check code {{code}}", { code: st.check })}>{st.check}</p>
           {st.replaces && (
-            <p className="notice">{t("This computer's identity code will change to the other device's. Results not yet received here won't arrive.")}</p>
+            <p className="mb-4 rounded-2xl bg-amber-500/15 px-4 py-3 text-[15px]">{t("This computer's identity code will change to the other device's. Results not yet received here won't arrive.")}</p>
           )}
-          <div className="actions">
-            <button type="button" className="primary" disabled={busy} onClick={adopt}>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+            <Btn type="button" primary disabled={busy} onClick={adopt}>
               {busy ? t("Connecting…") : t("They match")}
-            </button>
-            <button type="button" disabled={busy} onClick={() => done(false)}>
+            </Btn>
+            <Btn type="button" disabled={busy} onClick={() => done(false)}>
               {t("They don't match")}
-            </button>
+            </Btn>
           </div>
         </div>
       )}
       {(st.state === "expired" || st.state === "failed") && (
-        <div className="group form">
+        <div className={`${card} flex flex-col gap-3`}>
           <p>
             {st.state === "expired" ? t("The code expired.") : t("Connecting failed.")} {(isMobile ? t("Nothing was changed on this device.") : t("Nothing was changed on this computer."))}
           </p>
-          <div className="actions">
-            <button type="button" className="primary" onClick={start}>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+            <Btn type="button" primary onClick={start}>
               {t("Start again")}
-            </button>
+            </Btn>
           </div>
         </div>
       )}
@@ -3486,35 +3678,32 @@ function GiveAccount({ done }: { done: () => void }) {
     }
   };
   return (
-    <section className="page narrow">
-      <button type="button" className="link back" disabled={busy} onClick={done}>
-        ‹ {t("Connect another device")}
-      </button>
-      <h2>{t("Enter connection code")}</h2>
-      <p className="lede">{t("Connect a new device. Once connected, data moves between them on the same network with Local network sync, or with Backup.")}</p>
+    <section className="mx-auto w-full max-w-3xl">
+      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Enter connection code")}</h2>
+      <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55">{t("Connect a new device. Once connected, data moves between them on the same network with Local network sync, or with Backup.")}</p>
       {check ? (
-        <div className="group form">
+        <div className={`${card} flex flex-col gap-3`}>
           <p>{t("The new device must show the same code:")}</p>
-          <p className="check-code" aria-label={t("Check code {{code}}", { code: check })}>{check}</p>
-          <div className="actions">
-            <button type="button" className="primary" onClick={done}>
+          <p className="mt-2 mb-3 text-[34px] font-semibold tracking-[0.08em] tabular-nums" aria-label={t("Check code {{code}}", { code: check })}>{check}</p>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+            <Btn type="button" primary onClick={done}>
               {t("Done")}
-            </button>
+            </Btn>
           </div>
         </div>
       ) : (
         <form
-          className="group form"
+          className={`${card} flex flex-col gap-3`}
           onSubmit={(e) => {
             e.preventDefault();
             give();
           }}
         >
           {isMobile && (
-            <div className="actions">
-              <button
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+              <Btn
                 type="button"
-                className="primary"
+                primary
                 onClick={async () => {
                   setErr(undefined);
                   try {
@@ -3528,22 +3717,22 @@ function GiveAccount({ done }: { done: () => void }) {
                 }}
               >
                 {t("Scan the code on the new device")}
-              </button>
+              </Btn>
             </div>
           )}
-          <label>
+          <label className="flex flex-col gap-1.5 text-[13px] text-black/60 dark:text-white/60">
             {t("Connection code shown on the new device")}
-            <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="ZUHL1:…" spellCheck={false} autoComplete="off" autoFocus={!isMobile} />
+            <input className="w-full rounded-xl bg-black/5 px-3 py-2.5 text-base text-black outline-none focus:ring-2 focus:ring-primary dark:bg-white/10 dark:text-white" value={code} onChange={(e) => setCode(e.target.value)} placeholder="ZUHL1:…" spellCheck={false} autoComplete="off" autoFocus={!isMobile} />
           </label>
-          <label className="check">
-            <input type="checkbox" checked={sure} onChange={(e) => setSure(e.target.checked)} />
+          <label className="flex items-center gap-2">
+            <input className="h-4 w-4 shrink-0 accent-primary" type="checkbox" checked={sure} onChange={(e) => setSure(e.target.checked)} />
             {t("This hands my health account to the device showing this code. It is my own device.")}
           </label>
           <Problem text={err} />
-          <div className="actions">
-            <button type="submit" className="primary" disabled={busy || !sure || !code.trim()}>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+            <Btn type="submit" primary disabled={busy || !sure || !code.trim()}>
               {busy ? t("Sending…") : t("Hand over my account")}
-            </button>
+            </Btn>
           </div>
         </form>
       )}
@@ -3596,41 +3785,41 @@ function ResultReview({ b, done, discard }: { b: BatchDetail; done: (text: strin
   const from =
     kind === "lab" ? t("Lab device {{id}}", { id: device }) : kind === "staff" ? t("Service desk {{id}}", { id: device }) : t("Room {{id}}", { id: device });
   return (
-    <div className="group ocr">
-      <h3>{t("A result from {{from}}", { from })}</h3>
-      <p className="fine">
+    <div className={`${card}`}>
+      <h3 className="mb-2 text-[17px] font-semibold">{t("A result from {{from}}", { from })}</h3>
+      <p className="text-[13px] text-black/55 dark:text-white/55">
         {when(c.at, c.tz)}
         {t(".")} {t("Choose what each line is, or skip it.")}
       </p>
-      <table className="rows">
+      <table className="w-full text-sm">
         <tbody>
           {c.lines.map((l, i) => {
             const s = lines[i]!;
             return (
-              <tr key={`${l.code}-${i}`} className={s.skip ? "skipped" : undefined}>
-                <td className="mono">{l.code}</td>
-                <td className="n">
-                  {String(l.v)} <span className="unit">{unitLabel(l.u ?? "")}</span>
+              <tr key={`${l.code}-${i}`} className={s.skip ? "opacity-50" : undefined}>
+                <td className="font-mono text-[13px] break-all">{l.code}</td>
+                <td className="font-semibold tabular-nums">
+                  {String(l.v)} <span className="ms-0.5 text-[0.65em] font-medium text-black/55 dark:text-white/55">{unitLabel(l.u ?? "")}</span>
                 </td>
-                <td>
+                <td className="px-2 py-1.5 align-top">
                   {s.metric ? (
                     <span>
                       {nameOf(s.metric.code, s.metric.name)}{" "}
-                      <button
+                      <Btn
                         type="button"
-                        className="link"
+                        link
                         onClick={() => setLines((ls) => ls.map((x, j) => (j === i ? { unit: "", skip: false } : x)))}
                       >
                         {t("Change")}
-                      </button>
+                      </Btn>
                     </span>
                   ) : (
                     <MetricPicker placeholder={t("Which measure is this?")} onPick={(m) => choose(i, m.code)} />
                   )}
                 </td>
-                <td>
+                <td className="px-2 py-1.5 align-top">
                   {s.metric && numericAgg(s.metric) && (s.metric.units.length > 1 || (s.metric.units.length === 1 && !s.unit)) && (
-                    <select
+                    <select className="w-full rounded-xl bg-black/5 px-3 py-2.5 text-base text-black outline-none focus:ring-2 focus:ring-primary dark:bg-white/10 dark:text-white"
                       aria-label={t("Unit for {{name}}", { name: l.code })}
                       value={s.unit}
                       onChange={(e) => setLines((ls) => ls.map((x, j) => (j === i ? { ...x, unit: e.target.value } : x)))}
@@ -3644,9 +3833,9 @@ function ResultReview({ b, done, discard }: { b: BatchDetail; done: (text: strin
                     </select>
                   )}
                 </td>
-                <td>
-                  <label className="check">
-                    <input
+                <td className="px-2 py-1.5 align-top">
+                  <label className="flex items-center gap-2">
+                    <input className="h-4 w-4 shrink-0 accent-primary"
                       type="checkbox"
                       checked={s.skip}
                       onChange={(e) => setLines((ls) => ls.map((x, j) => (j === i ? { ...x, skip: e.target.checked } : x)))}
@@ -3660,13 +3849,13 @@ function ResultReview({ b, done, discard }: { b: BatchDetail; done: (text: strin
         </tbody>
       </table>
       <Problem text={err} />
-      <div className="actions">
-        <button type="button" className="primary" disabled={!ready || busy} onClick={save}>
+      <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+        <Btn type="button" primary disabled={!ready || busy} onClick={save}>
           {busy ? t("Saving…") : t("Save to my readings")}
-        </button>
-        <button type="button" onClick={discard}>
+        </Btn>
+        <Btn type="button" onClick={discard}>
           {t("Discard")}
-        </button>
+        </Btn>
       </div>
     </div>
   );
@@ -3720,56 +3909,58 @@ function WhoopConnect() {
     });
   if (!st) return null;
   return (
-    <div className="group form">
-      <h3>WHOOP</h3>
+    <div className={`${card} flex flex-col gap-3`}>
       {st.state === "connected" ? (
         <>
-          <p className="fine">
+          <p className="text-[13px] text-black/55 dark:text-white/55">
             {st.last_sync
               ? t("Connected. Health fetches new WHOOP data every hour while it's open; last time {{when}}.", { when: when(st.last_sync) })
               : t("Connected. Health fetches new WHOOP data every hour while it's open.")}
           </p>
-          <div className="actions">
-            <button type="button" disabled={busy} onClick={sync}>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+            <Btn type="button" disabled={busy} onClick={sync}>
               {busy ? t("Syncing…") : t("Sync now")}
-            </button>
-            <button type="button" disabled={busy} onClick={() => run(async () => void (await op("whoop.disconnect")))}>
+            </Btn>
+            <Btn type="button" disabled={busy} onClick={() => run(async () => void (await op("whoop.disconnect")))}>
               {t("Disconnect")}
-            </button>
+            </Btn>
           </div>
         </>
+      ) : isMobile ? (
+        // nothing on a phone opens WHOOP's sign-in or catches its redirect yet (plan D14)
+        <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55">{t("WHOOP can't be connected on a phone yet. Connect it in Health on your computer; its data reaches this phone when your devices sync.")}</p>
       ) : st.state === "pending" ? (
-        <p className="fine">{t("Waiting for the WHOOP sign-in in your browser…")}</p>
+        <p className="text-[13px] text-black/55 dark:text-white/55">{t("Waiting for the WHOOP sign-in in your browser…")}</p>
       ) : (
         <form
-          className="form"
+          className="flex flex-col gap-3"
           onSubmit={(e) => {
             e.preventDefault();
             connect();
           }}
         >
-          <p className="fine">
+          <p className="text-[13px] text-black/55 dark:text-white/55">
             {st.state === "reauth" ? `${t("WHOOP needs you to sign in again.")} ` : ""}
             {t("Create your own app in the WHOOP developer dashboard, then copy its Client ID and Client Secret here.")}{" "}
             <WebLink url={WHOOP_DASHBOARD} label={t("Open the WHOOP developer dashboard")} />
           </p>
-          <p className="fine">
-            {t("Add this redirect URL to the app:")} <span className="mono">{redirect}</span>{" "}
+          <p className="text-[13px] text-black/55 dark:text-white/55">
+            {t("Add this redirect URL to the app:")} <span className="font-mono text-[13px] break-all">{redirect}</span>{" "}
             <Copy text={redirect} label={t("Copy")} />
           </p>
-          <label>
+          <label className="flex flex-col gap-1.5 text-[13px] text-black/60 dark:text-white/60">
             {t("Client ID")}
-            <input value={id} onChange={(e) => setId(e.target.value)} autoComplete="off" spellCheck={false} />
+            <input className="w-full rounded-xl bg-black/5 px-3 py-2.5 text-base text-black outline-none focus:ring-2 focus:ring-primary dark:bg-white/10 dark:text-white" value={id} onChange={(e) => setId(e.target.value)} autoComplete="off" spellCheck={false} />
           </label>
           <PasswordField label={t("Client Secret")} value={secret} onChange={setSecret} auto="off" />
-          <div className="actions">
-            <button type="submit" className="primary" disabled={busy || !id.trim() || !secret.trim()}>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+            <Btn type="submit" primary disabled={busy || !id.trim() || !secret.trim()}>
               {t("Connect WHOOP")}
-            </button>
+            </Btn>
           </div>
         </form>
       )}
-      {note && <p className="fine" role="status">{note}</p>}
+      {note && <p className="text-[13px] text-black/55 dark:text-white/55" role="status">{note}</p>}
       <Problem text={err} />
     </div>
   );
@@ -3787,17 +3978,30 @@ const sexLabel = (s?: string) => (s === "Male" ? t("Male") : s === "Female" ? t(
 const birthLabel = (b: string) =>
   new Intl.DateTimeFormat(i18nLocale(), { year: "numeric", month: "long", timeZone: "UTC" }).format(Date.UTC(Number(b.slice(0, 4)), Number(b.slice(5, 7)) - 1, 1));
 
-function ProfilePage() {
+function ProfilePage({ want }: { want?: string }) {
   const [me, , reloadMe] = useOp(() => op<Personal>("profile.get"), []);
   const [latest, , reloadLatest] = useOp(() => op<Point[]>("obs.latest"), []);
-  const [edit, setEdit] = useState<ProfileField>();
+  const edit = (["sex", "birth", "height", "weight"] as const).find((f) => f === want);
+  const setEdit = (f: ProfileField) => nav(`profile/${f}`);
+  if (edit)
+    return (
+      <ProfileEdit
+        field={edit}
+        me={me ?? {}}
+        done={() => {
+          goBack("profile");
+          reloadMe();
+          reloadLatest();
+        }}
+      />
+    );
   const latestOf = (code: string) => {
     const v = latest?.find((p) => p.metric === code)?.value;
     return typeof v === "number" ? v : undefined;
   };
   const h = latestOf(HEIGHT);
   const w = latestOf(WEIGHT);
-  const unset = <span className="fine">{t("Not set")}</span>;
+  const unset = <span className="text-[13px] text-black/55 dark:text-white/55">{t("Not set")}</span>;
   // as the web shows them: one decimal at most
   const one = (v: number) => (Math.round(v * 10) / 10).toLocaleString(i18nLocale(), { maximumFractionDigits: 1 });
   const rows: { k: ProfileField; label: string; value: ReactNode }[] = [
@@ -3807,36 +4011,13 @@ function ProfilePage() {
     { k: "weight", label: t("Weight"), value: w !== undefined ? `${one(w)} kg` : unset },
   ];
   return (
-    <section className="page">
-      <h2>{t("Profile")}</h2>
-      <ul className="rows-card">
+    <section className="mx-auto w-full max-w-3xl">
+      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Profile")}</h2>
+      <Group>
         {rows.map((x) => (
-          <li key={x.k}>
-            <button type="button" className="row-btn" onClick={() => setEdit(x.k)}>
-              <span className="row-l">
-                <strong>{x.label}</strong>
-              </span>
-              <span className="row-v">{x.value}</span>
-              <span className="row-chev" aria-hidden="true">
-                ›
-              </span>
-            </button>
-          </li>
+          <Item key={x.k} title={x.label} after={x.value} onClick={() => setEdit(x.k)} />
         ))}
-      </ul>
-      {edit && (
-        <Sheet label={rows.find((x) => x.k === edit)!.label} close={() => setEdit(undefined)}>
-          <ProfileEdit
-            field={edit}
-            me={me ?? {}}
-            done={() => {
-              setEdit(undefined);
-              reloadMe();
-              reloadLatest();
-            }}
-          />
-        </Sheet>
-      )}
+      </Group>
     </section>
   );
 }
@@ -3867,101 +4048,107 @@ function ProfileEdit({ field, me, done }: { field: ProfileField; me: Personal; d
   };
   const title = { sex: t("Sex"), birth: t("Birth month"), height: t("Height"), weight: t("Weight") }[field];
   return (
-    <section className="record">
-      <h2>{title}</h2>
+    <section className="[&_h3]:mt-6">
+      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{title}</h2>
       {field === "sex" && (
         <>
-          <ul className="rows-card" role="radiogroup" aria-label={t("Sex")}>
+          <Group role="radiogroup" aria-label={t("Sex")}>
             {(["Female", "Male"] as const).map((s) => (
               <li key={s}>
                 <button
                   type="button"
-                  className="row-btn"
+                  className="flex w-full items-center gap-3 px-4 py-3 text-start"
                   role="radio"
                   aria-checked={me.sex === s}
                   disabled={busy}
                   onClick={() => run(() => op("profile.set", { sex: s }))}
                 >
-                  <span className="row-l">
+                  <span className="me-auto grid min-w-0 gap-px">
                     <strong>{sexLabel(s)}</strong>
                   </span>
-                  <span className="row-check" aria-hidden="true">
+                  <span className="min-w-4 text-end font-semibold text-primary" aria-hidden="true">
                     {me.sex === s ? "✓" : ""}
                   </span>
                 </button>
               </li>
             ))}
-          </ul>
+          </Group>
           {me.sex && (
-            <button type="button" className="link" disabled={busy} onClick={() => run(() => op("profile.set", { sex: null }))}>
+            <Btn type="button" link disabled={busy} onClick={() => run(() => op("profile.set", { sex: null }))}>
               {t("Clear")}
-            </button>
+            </Btn>
           )}
         </>
       )}
       {field === "birth" && (
         <form
-          className="form"
+          className="flex flex-col gap-3"
           onSubmit={(e) => {
             e.preventDefault();
             if (!year || !month) return setErr(t("Choose a year and a month."));
             run(() => op("profile.set", { birth: `${year}-${month.padStart(2, "0")}` }));
           }}
         >
-          <label>
-            {t("Year")}
-            <select value={year} onChange={(e) => setYear(e.target.value)} required>
-              <option value="">{t("Choose…")}</option>
-              {Array.from({ length: now.getFullYear() - 1900 + 1 }, (_, i) => now.getFullYear() - i).map((y) => (
-                <option key={y} value={y}>
-                  {y}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            {t("Month")}
-            <select value={month} onChange={(e) => setMonth(e.target.value)} required>
-              <option value="">{t("Choose…")}</option>
-              {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-                <option key={m} value={m}>
-                  {new Intl.DateTimeFormat(i18nLocale(), { month: "long", timeZone: "UTC" }).format(Date.UTC(2000, m - 1, 1))}
-                </option>
-              ))}
-            </select>
-          </label>
+          {isTouch ? (
+            <BirthWheels year={year} month={month} setYear={setYear} setMonth={setMonth} />
+          ) : (
+            <>
+            <label className="flex flex-col gap-1.5 text-[13px] text-black/60 dark:text-white/60">
+              {t("Year")}
+              <select className="w-full rounded-xl bg-black/5 px-3 py-2.5 text-base text-black outline-none focus:ring-2 focus:ring-primary dark:bg-white/10 dark:text-white" value={year} onChange={(e) => setYear(e.target.value)} required>
+                <option value="">{t("Choose…")}</option>
+                {Array.from({ length: now.getFullYear() - 1900 + 1 }, (_, i) => now.getFullYear() - i).map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1.5 text-[13px] text-black/60 dark:text-white/60">
+              {t("Month")}
+              <select className="w-full rounded-xl bg-black/5 px-3 py-2.5 text-base text-black outline-none focus:ring-2 focus:ring-primary dark:bg-white/10 dark:text-white" value={month} onChange={(e) => setMonth(e.target.value)} required>
+                <option value="">{t("Choose…")}</option>
+                {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                  <option key={m} value={m}>
+                    {new Intl.DateTimeFormat(i18nLocale(), { month: "long", timeZone: "UTC" }).format(Date.UTC(2000, m - 1, 1))}
+                  </option>
+                ))}
+              </select>
+            </label>
+            </>
+          )}
           <Problem text={err} />
-          <div className="actions">
-            <button type="submit" className="primary" disabled={busy}>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+            <Btn type="submit" primary disabled={busy}>
               {t("Save")}
-            </button>
+            </Btn>
             {me.birth && (
-              <button type="button" className="link" disabled={busy} onClick={() => run(() => op("profile.set", { birth: null }))}>
+              <Btn type="button" link disabled={busy} onClick={() => run(() => op("profile.set", { birth: null }))}>
                 {t("Clear")}
-              </button>
+              </Btn>
             )}
           </div>
         </form>
       )}
       {(field === "height" || field === "weight") && (
         <form
-          className="form"
+          className="flex flex-col gap-3"
           onSubmit={(e) => {
             e.preventDefault();
             if (field === "height") measure(HEIGHT, "cm", 30, 272);
             else measure(WEIGHT, "kg", 1, 650);
           }}
         >
-          <label>
+          <label className="flex flex-col gap-1.5 text-[13px] text-black/60 dark:text-white/60">
             {field === "height" ? t("Height (cm)") : t("Weight (kg)")}
-            <input inputMode="decimal" value={value} onChange={(e) => setValue(e.target.value)} autoFocus required />
+            <input className="w-full rounded-xl bg-black/5 px-3 py-2.5 text-base text-black outline-none focus:ring-2 focus:ring-primary dark:bg-white/10 dark:text-white" inputMode="decimal" value={value} onChange={(e) => setValue(e.target.value)} autoFocus required />
           </label>
-          <p className="fine">{t("Saved as a new reading now, entered by you.")}</p>
+          <p className="text-[13px] text-black/55 dark:text-white/55">{t("Saved as a new reading now, entered by you.")}</p>
           <Problem text={err} />
-          <div className="actions">
-            <button type="submit" className="primary" disabled={busy}>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+            <Btn type="submit" primary disabled={busy}>
               {t("Save")}
-            </button>
+            </Btn>
           </div>
         </form>
       )}
@@ -3978,32 +4165,32 @@ function LinkHistoryList({ history }: { history?: { state: "ok"; entries: LinkEn
   if (!history) return null;
   return (
     <>
-      <h3>{t("Connection history")}</h3>
-      <ul className="rows-card" aria-label={t("Connection history")}>
-        <li className="row-static">
+      <h3 className="mb-2 text-[17px] font-semibold">{t("Connection history")}</h3>
+      <Group aria-label={t("Connection history")}>
+        <li className="flex items-center gap-3 px-4 py-3">
           <Icon k="account" />
-          <span className="row-l">
+          <span className="me-auto grid min-w-0 gap-px">
             <strong>{t("This device")}</strong>
           </span>
-          <span className="tag">{t("This one")}</span>
+          <span className="inline-block rounded-full bg-black/5 px-2 py-0.5 text-xs whitespace-nowrap text-black/60 dark:bg-white/10 dark:text-white/60">{t("This one")}</span>
         </li>
         {history.state === "unreadable" ? (
-          <li className="row-static fine">{t("Can't read the connection history")}</li>
+          <li className="flex items-center gap-3 px-4 py-3 text-[13px] text-black/55 dark:text-white/55">{t("Can't read the connection history")}</li>
         ) : history.entries.length === 0 ? (
-          <li className="row-static fine">{t("No connections recorded on this device")}</li>
+          <li className="flex items-center gap-3 px-4 py-3 text-[13px] text-black/55 dark:text-white/55">{t("No connections recorded on this device")}</li>
         ) : (
           history.entries.map((x) => (
-            <li key={x.id} className="row-static">
+            <li key={x.id} className="flex items-center gap-3 px-4 py-3">
               <Icon k="account" />
-              <span className="row-l">
+              <span className="me-auto grid min-w-0 gap-px">
                 <strong>{x.dir === "gave" ? t("Handed over from this device") : t("Received from another device")}</strong>
-                <span className="fine">{t("{{date}} · Check code {{code}}", { date: when(x.at), code: x.check })}</span>
-                {x.dir === "gave" && <span className="fine">{t("The other device may not have confirmed it")}</span>}
+                <span className="text-[13px] text-black/55 dark:text-white/55">{t("{{date}} · Check code {{code}}", { date: when(x.at), code: x.check })}</span>
+                {x.dir === "gave" && <span className="text-[13px] text-black/55 dark:text-white/55">{t("The other device may not have confirmed it")}</span>}
               </span>
             </li>
           ))
         )}
-      </ul>
+      </Group>
     </>
   );
 }
@@ -4105,7 +4292,7 @@ function peerState(p: LivePeer): string {
 
 /** LAN sync (docs/lan-sync.md §11) on its own page: the switch, a row per device with its state, and the two
  *  questions as a dialog that says what happens. */
-function SyncPage({ back, entry }: { back: () => void; entry?: boolean }) {
+function SyncPage() {
   const [st, err, reload] = useOp(() => op<SyncShown>("sync.state"), []);
   const live = useSyncLive();
   const [busy, setBusy] = useState(false);
@@ -4124,23 +4311,20 @@ function SyncPage({ back, entry }: { back: () => void; entry?: boolean }) {
   const askKey = asking ? `${asking.device}:${JSON.stringify(asking.asking)}` : undefined;
   const answer = (device: string, allow: boolean) => run(() => op("sync.answer", { device, allow }));
   return (
-    <section className="page narrow">
-      <button type="button" className={`link back${entry ? " entry" : ""}`} onClick={back}>
-        ‹ {t("Health account")}
-      </button>
-      <h2>{t("Local network sync")}</h2>
+    <section className="mx-auto w-full max-w-3xl">
+      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Local network sync")}</h2>
       <Problem text={err} />
       {st?.paused && (
-        <div className="notice banner">
+        <div className="mb-4 rounded-2xl bg-amber-500/15 px-4 py-3 text-[15px] flex items-center justify-between gap-4">
           <span>{t("Sync is paused: you chose Not now when another device would delete data here.")}</span>
-          <button type="button" className="primary" disabled={busy} onClick={() => run(() => op("sync.set", { paused: false }))}>
+          <Btn type="button" primary disabled={busy} onClick={() => run(() => op("sync.set", { paused: false }))}>
             {t("Continue syncing")}
-          </button>
+          </Btn>
         </div>
       )}
-      {live?.clock_off && <p className="notice">{t("This computer's clock is off by more than 2 minutes, so other devices can't be reached.")}</p>}
+      {live?.clock_off && <p className="mb-4 rounded-2xl bg-amber-500/15 px-4 py-3 text-[15px]">{t("This computer's clock is off by more than 2 minutes, so other devices can't be reached.")}</p>}
       {st && (
-        <ul className="rows-card">
+        <Group>
           <SwitchRow
             icon={<Icon k="wifi" />}
             label={t("Sync on this network")}
@@ -4148,22 +4332,22 @@ function SyncPage({ back, entry }: { back: () => void; entry?: boolean }) {
             on={st.enabled}
             set={(on) => run(() => op("sync.set", { enabled: on }))}
           />
-        </ul>
+        </Group>
       )}
-      {st?.enabled && live?.idle === "offline" && <p className="fine">{t("Health is offline, so it doesn't sync.")}</p>}
+      {st?.enabled && live?.idle === "offline" && <p className="text-[13px] text-black/55 dark:text-white/55">{t("Health is offline, so it doesn't sync.")}</p>}
       {st?.enabled && (
         <>
-          <h3 className="rows-head">{t("Devices")}</h3>
-          <ul className="rows-card" aria-label={t("Devices on this network")}>
+          <h3 className="mt-6 mb-2 px-4 text-[13px] font-semibold text-black/55 dark:text-white/55">{t("Devices")}</h3>
+          <Group aria-label={t("Devices on this network")}>
             {livePeers.length === 0 && known.length === 0 && (
-              <li className="row-static fine">{t("No other device seen yet. Open Health on your other device on this network.")}</li>
+              <li className="flex items-center gap-3 px-4 py-3 text-[13px] text-black/55 dark:text-white/55">{t("No other device seen yet. Open Health on your other device on this network.")}</li>
             )}
             {livePeers.map((p) => (
-              <li key={p.device} className="row-static sync-peer">
+              <li key={p.device} className="flex items-center gap-3 px-4 py-3 [&_progress]:mt-1.5 [&_progress]:h-1 [&_progress]:w-full [&_progress]:accent-primary">
                 <Icon k="device" />
-                <span className="row-l">
+                <span className="me-auto grid min-w-0 gap-px">
                   <strong>{deviceName(p.name)}</strong>
-                  <span className="fine" role="status">
+                  <span className="text-[13px] text-black/55 dark:text-white/55" role="status">
                     {peerState(p)}
                     {p.last_synced ? ` · ${t("Last synced {{date}}", { date: when(p.last_synced) })}` : ""}
                   </span>
@@ -4171,62 +4355,62 @@ function SyncPage({ back, entry }: { back: () => void; entry?: boolean }) {
                     <progress max={p.wanted} value={p.received ?? 0} aria-label={t("Syncing")} />
                   ) : null}
                   {p.state === "partly" && (
-                    <span className="fine">
+                    <span className="text-[13px] text-black/55 dark:text-white/55">
                       {t("{{count}} items can't be merged, for example a measure whose unit differs between the two devices. Health tries again every day.", { count: p.skipped ?? 0 })}
                     </span>
                   )}
                   {p.state === "asking" && (
-                    <button type="button" className="link" onClick={() => setDismissed(undefined)}>
+                    <Btn type="button" link onClick={() => setDismissed(undefined)}>
                       {t("Answer")}
-                    </button>
+                    </Btn>
                   )}
                   {p.state === "ended" && p.code && (
-                    <details className="fine">
-                      <summary>{t("Details")}</summary>
-                      <span className="mono">{p.code}</span>
+                    <details className="text-[13px] text-black/55 dark:text-white/55">
+                      <summary className="cursor-pointer py-1.5">{t("Details")}</summary>
+                      <span className="font-mono text-[13px] break-all">{p.code}</span>
                     </details>
                   )}
                 </span>
-                <span className={`tag state-${p.state}`}>{p.state === "up_to_date" ? "✓" : ""}</span>
+                <span className="inline-block rounded-full bg-black/5 px-2 py-0.5 text-xs whitespace-nowrap text-black/60 dark:bg-white/10 dark:text-white/60">{p.state === "up_to_date" ? "✓" : ""}</span>
               </li>
             ))}
             {known.map((p) => (
-              <li key={p.device} className="row-static">
+              <li key={p.device} className="flex items-center gap-3 px-4 py-3">
                 <Icon k="device" />
-                <span className="row-l">
+                <span className="me-auto grid min-w-0 gap-px">
                   <strong>{deviceName(p.name)}</strong>
-                  <span className="fine">
+                  <span className="text-[13px] text-black/55 dark:text-white/55">
                     {t("Not on this network now")}
                     {p.last_synced ? ` · ${t("Last synced {{date}}", { date: when(p.last_synced) })}` : ""}
                   </span>
                 </span>
               </li>
             ))}
-          </ul>
+          </Group>
         </>
       )}
       {asking?.asking && askKey !== dismissed && (
         <Sheet label={t("Sync")} close={() => setDismissed(askKey)}>
           {asking.asking.ask === "join" ? (
-            <div className="form">
-              <h3>{t("Combine with {{device}}?", { device: deviceName(asking.name) })}</h3>
+            <div className="flex flex-col gap-3">
+              <h3 className="mb-2 text-[17px] font-semibold">{t("Combine with {{device}}?", { device: deviceName(asking.name) })}</h3>
               <p>
                 {t("This computer's data and that device's data are combined, and both then hold the same. This computer has {{count}} imports. Combining can't be undone.", {
                   count: asking.asking.imports,
                 })}
               </p>
-              <div className="actions">
-                <button type="button" className="primary" disabled={busy} onClick={() => answer(asking.device, true)}>
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                <Btn type="button" primary disabled={busy} onClick={() => answer(asking.device, true)}>
                   {t("Combine")}
-                </button>
-                <button type="button" disabled={busy} onClick={() => answer(asking.device, false)}>
+                </Btn>
+                <Btn type="button" disabled={busy} onClick={() => answer(asking.device, false)}>
                   {t("Not now")}
-                </button>
+                </Btn>
               </div>
             </div>
           ) : (
-            <div className="form">
-              <h3>{t("Delete here too?")}</h3>
+            <div className="flex flex-col gap-3">
+              <h3 className="mb-2 text-[17px] font-semibold">{t("Delete here too?")}</h3>
               <p>
                 {t("{{device}} deleted {{imports}} imports. Syncing deletes their {{rows}} readings on this computer too.", {
                   device: deviceName(asking.name),
@@ -4234,13 +4418,13 @@ function SyncPage({ back, entry }: { back: () => void; entry?: boolean }) {
                   rows: asking.asking.rows,
                 })}
               </p>
-              <div className="actions">
-                <button type="button" className="danger" disabled={busy} onClick={() => answer(asking.device, true)}>
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                <Btn type="button" danger disabled={busy} onClick={() => answer(asking.device, true)}>
                   {t("Delete here too")}
-                </button>
-                <button type="button" disabled={busy} onClick={() => answer(asking.device, false)}>
+                </Btn>
+                <Btn type="button" disabled={busy} onClick={() => answer(asking.device, false)}>
                   {t("Not now (pauses sync)")}
-                </button>
+                </Btn>
               </div>
             </div>
           )}
@@ -4282,14 +4466,14 @@ function Privacy() {
     <>
       {sections.map(([title, lines]) => (
         <section key={title} aria-label={title}>
-          <h3 className="rows-head">{title}</h3>
-          <ul className="rows-card">
+          <h3 className="mt-6 mb-2 px-4 text-[13px] font-semibold text-black/55 dark:text-white/55">{title}</h3>
+          <Group>
             {lines.map((line) => (
-              <li key={line} className="row-static">
-                <span className="row-l">{line}</span>
+              <li key={line} className="flex items-center gap-3 px-4 py-3">
+                <span className="me-auto grid min-w-0 gap-px">{line}</span>
               </li>
             ))}
-          </ul>
+          </Group>
         </section>
       ))}
     </>
@@ -4336,52 +4520,52 @@ function Licenses() {
     import("./licenses.json").then((m) => setAll(m.default as typeof all));
   }, []);
   const list = (items: LicenseEntry[]) => (
-    <ul className="lic-all">
+    <ul className="mb-3 columns-2 gap-6 text-xs [&_li]:break-inside-avoid [&_li]:py-0.5">
       {items.map((c) => (
         <li key={c.name}>
-          {c.url ? <WebLink url={c.url} label={c.name} /> : c.name} <span className="fine">{c.versions.join(", ")}</span>{" "}
-          <span className="fine mono">{c.license}</span>
+          {c.url ? <WebLink url={c.url} label={c.name} /> : c.name} <span className="text-[13px] text-black/55 dark:text-white/55">{c.versions.join(", ")}</span>{" "}
+          <span className="text-[13px] text-black/55 dark:text-white/55 font-mono text-[13px] break-all">{c.license}</span>
         </li>
       ))}
     </ul>
   );
   return (
     <>
-      <p className="lede">{t("Health is open-source software under the MIT License. It uses these open-source components and data, with thanks to their authors.")}</p>
-      <ul className="rows-card" aria-label={t("Components")}>
+      <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55">{t("Health is open-source software under the MIT License. It uses these open-source components and data, with thanks to their authors.")}</p>
+      <Group aria-label={t("Components")}>
         {MAIN_COMPONENTS.map((c) => (
-          <li key={c.name} className="row-static lic-row">
-            <span className="row-l">
+          <li key={c.name} className="flex items-center gap-3 px-4 py-3">
+            <span className="me-auto grid min-w-0 gap-px">
               <strong>
                 <WebLink url={c.url} label={c.name} />
               </strong>
-              <span className="fine">{c.by}</span>
+              <span className="text-[13px] text-black/55 dark:text-white/55">{c.by}</span>
             </span>
-            <span className="tag">{c.license}</span>
+            <span className="inline-block rounded-full bg-black/5 px-2 py-0.5 text-xs whitespace-nowrap text-black/60 dark:bg-white/10 dark:text-white/60">{c.license}</span>
           </li>
         ))}
-      </ul>
-      <h3 className="rows-head">LOINC</h3>
-      <p className="fine lic-notice">{LOINC_NOTICE}</p>
+      </Group>
+      <h3 className="mt-6 mb-2 px-4 text-[13px] font-semibold text-black/55 dark:text-white/55">LOINC</h3>
+      <p className="text-[13px] text-black/55 dark:text-white/55 mb-5 leading-snug">{LOINC_NOTICE}</p>
       {all && (
         <>
-          <h3 className="rows-head">{t("All components")}</h3>
-          <details className="lic-texts">
-            <summary>{t("{{count}} Rust crates", { count: all.crates.length })}</summary>
+          <h3 className="mt-6 mb-2 px-4 text-[13px] font-semibold text-black/55 dark:text-white/55">{t("All components")}</h3>
+          <details className="mb-2 [&_summary]:cursor-pointer [&_summary]:py-1.5 [&_pre]:max-h-96 [&_pre]:overflow-auto [&_pre]:text-xs [&_pre]:leading-snug [&_pre]:whitespace-pre-wrap [&_pre]:text-black/55">
+            <summary className="cursor-pointer py-1.5">{t("{{count}} Rust crates", { count: all.crates.length })}</summary>
             {list(all.crates)}
           </details>
-          <details className="lic-texts">
-            <summary>{t("{{count}} JavaScript packages", { count: all.npm.length })}</summary>
+          <details className="mb-2 [&_summary]:cursor-pointer [&_summary]:py-1.5 [&_pre]:max-h-96 [&_pre]:overflow-auto [&_pre]:text-xs [&_pre]:leading-snug [&_pre]:whitespace-pre-wrap [&_pre]:text-black/55">
+            <summary className="cursor-pointer py-1.5">{t("{{count}} JavaScript packages", { count: all.npm.length })}</summary>
             {list(all.npm)}
           </details>
-          <h3 className="rows-head">{t("License texts")}</h3>
+          <h3 className="mt-6 mb-2 px-4 text-[13px] font-semibold text-black/55 dark:text-white/55">{t("License texts")}</h3>
           {Object.entries(all.texts).map(([name, text]) => (
-            <details key={name} className="lic-texts">
-              <summary>{name}</summary>
-              <pre>{text}</pre>
+            <details key={name} className="mb-2 [&_summary]:cursor-pointer [&_summary]:py-1.5 [&_pre]:max-h-96 [&_pre]:overflow-auto [&_pre]:text-xs [&_pre]:leading-snug [&_pre]:whitespace-pre-wrap [&_pre]:text-black/55">
+              <summary className="cursor-pointer py-1.5">{name}</summary>
+              <pre className="overflow-x-auto rounded-xl bg-black/5 p-3 font-mono text-xs whitespace-pre-wrap break-all dark:bg-white/10">{text}</pre>
             </details>
           ))}
-          <p className="fine">
+          <p className="text-[13px] text-black/55 dark:text-white/55">
             {t("Other licenses named above:")} <WebLink url="https://www.mozilla.org/MPL/2.0/" label="MPL-2.0" />, <WebLink url="https://cdla.dev/permissive-2-0/" label="CDLA-Permissive-2.0" />,{" "}
             <WebLink url="https://www.boost.org/LICENSE_1_0.txt" label="BSL-1.0" />
           </p>
@@ -4393,26 +4577,17 @@ function Licenses() {
 
 /** About (as the web's 更多 › 关于): the version, privacy and open-source licenses. */
 function About({ version, want }: { version?: string; want?: string }) {
-  const [view, setView] = useState<"privacy" | "licenses" | undefined>(want === "privacy" || want === "licenses" ? want : undefined);
-  const [entry] = useState(view);
-  if (view)
-    return (
-      <section className="page narrow">
-        <button type="button" className={`link back${view === entry ? " entry" : ""}`} onClick={() => setView(undefined)}>
-          ‹ {t("About")}
-        </button>
-        <h2>{view === "privacy" ? t("Privacy") : t("Open-source licenses")}</h2>
-        {view === "privacy" ? <Privacy /> : <Licenses />}
-      </section>
-    );
+  const view = want === "privacy" || want === "licenses" ? want : undefined;
+  const setView = (v: "privacy" | "licenses") => nav(`about/${v}`);
+  if (view) return <Screen title={view === "privacy" ? t("Privacy") : t("Open-source licenses")}>{view === "privacy" ? <Privacy /> : <Licenses />}</Screen>;
   return (
-    <section className="page narrow">
-      <h2>{t("About")}</h2>
-      <p className="lede">{version ? t("Health {{version}}", { version }) : "Health"}</p>
-      <ul className="rows-card">
+    <section className="mx-auto w-full max-w-3xl">
+      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("About")}</h2>
+      <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55">{version ? t("Health {{version}}", { version }) : "Health"}</p>
+      <Group>
         <Row icon={<Icon k="shield" />} label={t("Privacy")} onClick={() => setView("privacy")} />
         <Row icon={<Icon k="scale" />} label={t("Open-source licenses")} onClick={() => setView("licenses")} />
-      </ul>
+      </Group>
     </section>
   );
 }
@@ -4494,18 +4669,55 @@ function trendOf(list: FdSession[], i: number, code: string): { v: number; at: n
   return out;
 }
 
-/** On the home page's Strength and jumps card: the latest time on the plates, its jumps and its best jump. */
-function FdReportRow({ session, open }: { session: FdSession; open: () => void }) {
+/** The latest VALD ForceDecks session as the dashboard's card: its best jump's height, RSI and power. */
+function FdCard({ session, open }: { session: FdSession; open: () => void }) {
+  const best = session.trials[session.best];
+  const v = (code: string, digits: number) => {
+    const x = figure(best, code);
+    return x === null ? "–" : `${fixed(x, digits)}`;
+  };
   return (
-    <ul className="rows-card report-row">
-      <Row
-        icon={<GroupIcon k="force" />}
-        label={t("VALD ForceDecks test record")}
-        sub={`${shortDate(fdStart(session))} · ${t("{{count}} jumps", { count: session.trials.length })}`}
-        value={t("Best jump {{v}}", { v: keyText(session, session.best) })}
-        onClick={open}
-      />
-    </ul>
+    <LabCard
+      color={TINT.force!}
+      icon={<GroupIcon k="force" />}
+      title={t("VALD ForceDecks test record")}
+      text={`${shortDate(fdStart(session))} · ${t("{{count}} jumps", { count: session.trials.length })}`}
+      stats={[
+        [t("Jump height"), v("x:fd/cmj/jump_height_imp_mom", 1), "cm"],
+        ["RSI", v("x:fd/cmj/rsi_modified", 2), ""],
+        [t("Peak power"), v("x:fd/cmj/peak_power_bm", 1), "W/kg"],
+      ]}
+      open={open}
+    />
+  );
+}
+
+/** A lab device's report on the dashboard: what it is and when, its key figures side by side; a tap opens it. */
+function LabCard({ color, icon, title, text, stats, open }: { color: string; icon: ReactNode; title: string; text: string; stats: [string, string, string][]; open: () => void }) {
+  return (
+    <button type="button" className="flex w-full flex-col gap-3 px-4 py-3.5 text-start transition-colors active:bg-black/5 dark:active:bg-white/10" onClick={open}>
+      <span className="flex w-full items-center gap-3">
+        <IconDot color={color}>{icon}</IconDot>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[16px] font-semibold leading-snug">{title}</span>
+          <span className="block text-[13px] text-black/55 dark:text-white/55">{text}</span>
+        </span>
+        <svg className="h-4 w-4 shrink-0 text-black/30 dark:text-white/30" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M6 3.5 10.5 8 6 12.5" />
+        </svg>
+      </span>
+      <span className="grid w-full grid-cols-3 gap-2">
+        {stats.map(([label, value, unit]) => (
+          <span key={label} className="min-w-0">
+            <span className="block truncate text-[13px] text-black/55 dark:text-white/55">{label}</span>
+            <span className="block text-[22px] font-semibold tracking-tight tabular-nums">
+              {value}
+              {unit && value !== "–" && <span className="ms-0.5 text-[13px] font-medium text-black/55 dark:text-white/55">{unitLabel(unit)}</span>}
+            </span>
+          </span>
+        ))}
+      </span>
+    </button>
   );
 }
 
@@ -4513,7 +4725,7 @@ function Delta({ d, unit }: { d: number | null; unit: string }) {
   if (d === null || num(Math.abs(d)).replace(/[0.,\s]/g, "") === "") return null;
   const text = `${d > 0 ? "↑" : "↓"} ${num(Math.abs(d))}`;
   return (
-    <span className="fd-delta" role="img" aria-label={t("Compared with last time: {{d}}", { d: `${d > 0 ? "+" : "−"}${num(Math.abs(d))} ${unit}`.trim() })}>
+    <span className="ms-2.5 text-xs font-normal text-black/55 dark:text-white/55" role="img" aria-label={t("Compared with last time: {{d}}", { d: `${d > 0 ? "+" : "−"}${num(Math.abs(d))} ${unit}`.trim() })}>
       {t("vs last time")} {text}
     </span>
   );
@@ -4526,17 +4738,17 @@ function FdTrend({ list, i, code }: { list: FdSession[]; i: number; code: string
   const hi = Math.max(...pts.map((p) => p.v));
   const xy = pts.map((p, k) => ({ x: (k / (pts.length - 1)) * 100, y: hi === lo ? 50 : 90 - ((p.v - lo) / (hi - lo)) * 80 }));
   return (
-    <figure className="fd-trend" aria-label={t("Trend over {{count}} tests", { count: pts.length })}>
-      <div className="fd-plot">
+    <figure className="mt-2 text-primary" aria-label={t("Trend over {{count}} tests", { count: pts.length })}>
+      <div className="relative mx-1 h-16 [&_svg]:h-full [&_svg]:w-full [&_svg]:overflow-visible">
         <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
           <polyline points={xy.map((p) => `${p.x},${p.y}`).join(" ")} fill="none" stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
         </svg>
         {/* round dots over the stretched line, this test's filled */}
         {xy.map((p, k) => (
-          <span key={pts[k]!.at} className={`fd-dot${k === xy.length - 1 ? " now" : ""}`} style={{ left: `${p.x}%`, top: `${p.y}%` }} />
+          <span key={pts[k]!.at} className={`absolute -ms-[3.5px] -mt-[3.5px] h-[7px] w-[7px] rounded-full border-[1.5px] border-current ${k === xy.length - 1 ? "bg-current" : "bg-white dark:bg-neutral-900"}`} style={{ left: `${p.x}%`, top: `${p.y}%` }} />
         ))}
       </div>
-      <figcaption className="fine">
+      <figcaption className="text-[13px] text-black/55 dark:text-white/55">
         <span>{shortDate(pts[0]!.at)}</span>
         <span>{t("This test")}</span>
       </figcaption>
@@ -4545,8 +4757,9 @@ function FdTrend({ list, i, code }: { list: FdSession[]; i: number; code: string
 }
 
 /** VALD ForceDecks tests: the latest by default; each jump can be opened; the best jump against the previous
- *  best of the same test; a trend from three tests; every test in History. */
-function FdReport({ sessions }: { sessions: FdSession[] }) {
+ *  best of the same test; a trend from three tests; every test in History. `names`: the catalog's names of the
+ *  measures (from the dashboard's readings), for the English list. */
+function FdReport({ sessions, names }: { sessions: FdSession[]; names?: Record<string, string> }) {
   const [i, setI] = useState(0);
   const [jump, setJump] = useState<number | null>(null);
   const [hist, setHist] = useState(false);
@@ -4554,9 +4767,9 @@ function FdReport({ sessions }: { sessions: FdSession[] }) {
   const cur = sessions[at];
   if (!cur)
     return (
-      <div className="form">
-        <h3>{t("No VALD ForceDecks tests yet")}</h3>
-        <p className="fine">{t("After a test on VALD ForceDecks at the lab, the results show here.")}</p>
+      <div className="flex flex-col gap-3">
+        <h3 className="mb-2 text-[17px] font-semibold">{t("No VALD ForceDecks tests yet")}</h3>
+        <p className="text-[13px] text-black/55 dark:text-white/55">{t("After a test on VALD ForceDecks at the lab, the results show here.")}</p>
       </div>
     );
   const k = jump !== null && jump < cur.trials.length ? jump : cur.best;
@@ -4568,47 +4781,47 @@ function FdReport({ sessions }: { sessions: FdSession[] }) {
     setHist(false);
   };
   return (
-    <div className="fd">
-      <header className="fd-head">
+    <div className="[&_h4]:mt-3 [&_h4]:mb-1">
+      <header className="mb-3 flex items-start justify-between gap-4 [&_h3]:m-0 [&_p]:m-0">
         <div>
-          <h3>{t("VALD ForceDecks tests")}</h3>
-          <p className="fine">VALD ForceDecks · {when(fdStart(cur))}</p>
+          <h3 className="mb-2 text-[17px] font-semibold">{t("VALD ForceDecks tests")}</h3>
+          <p className="text-[13px] text-black/55 dark:text-white/55">VALD ForceDecks · {when(fdStart(cur))}</p>
         </div>
-        <button type="button" aria-expanded={hist} onClick={() => setHist(!hist)}>
+        <Btn type="button" aria-expanded={hist} onClick={() => setHist(!hist)}>
           {t("History")}
-        </button>
+        </Btn>
       </header>
       {hist && (
-        <ul className="rows-card" aria-label={t("Test history")}>
+        <Group aria-label={t("Test history")}>
           {sessions.map((s, n) => (
             <li key={`${s.device}|${s.test}|${fdStart(s)}`}>
-              <button type="button" className="row-btn" aria-current={n === at ? "true" : undefined} onClick={() => pick(n)}>
-                <span className="row-l">
+              <button type="button" className="flex w-full items-center gap-3 px-4 py-3 text-start" aria-current={n === at ? "true" : undefined} onClick={() => pick(n)}>
+                <span className="me-auto grid min-w-0 gap-px">
                   <strong>{when(fdStart(s))}</strong>
-                  <span className="fine">
+                  <span className="text-[13px] text-black/55 dark:text-white/55">
                     {testLabel(s.test)} · {t("{{count}} jumps", { count: s.trials.length })} · {keyText(s, s.best)}
                   </span>
                 </span>
-                {n === 0 && <span className="tag">{t("Latest")}</span>}
+                {n === 0 && <span className="inline-block rounded-full bg-black/5 px-2 py-0.5 text-xs whitespace-nowrap text-black/60 dark:bg-white/10 dark:text-white/60">{t("Latest")}</span>}
                 {n === at && <span aria-hidden="true">✓</span>}
               </button>
             </li>
           ))}
-        </ul>
+        </Group>
       )}
       {at > 0 && (
-        <p className="notice banner" role="status">
+        <p className="mb-4 rounded-2xl bg-amber-500/15 px-4 py-3 text-[15px] flex items-center justify-between gap-4" role="status">
           <span>{t("Viewing the test of {{date}}", { date: when(fdStart(cur)) })}</span>
-          <button type="button" onClick={() => pick(0)}>
+          <Btn type="button" onClick={() => pick(0)}>
             {t("Back to the latest")}
-          </button>
+          </Btn>
         </p>
       )}
       <section aria-label={testLabel(cur.test)}>
-        <h4>
-          {testLabel(cur.test)} <span className="fine">{t("{{count}} jumps", { count: cur.trials.length })}</span>
+        <h4 className="mb-1 text-[15px] font-semibold">
+          {testLabel(cur.test)} <span className="text-[13px] text-black/55 dark:text-white/55">{t("{{count}} jumps", { count: cur.trials.length })}</span>
         </h4>
-        <p className="fine">
+        <p className="text-[13px] text-black/55 dark:text-white/55">
           {onBest
             ? cur.trials.length > 1
               ? t("Below is this test's best jump (jump {{k}})", { k: k + 1 })
@@ -4616,23 +4829,23 @@ function FdReport({ sessions }: { sessions: FdSession[] }) {
             : t("Below is jump {{k}}, at {{time}}", { k: k + 1, time: new Date(tr.start_ms).toLocaleTimeString([], { timeStyle: "short" }) })}
         </p>
         {cur.trials.length > 1 && (
-          <div className="fd-jumps" role="group" aria-label={t("Each jump")}>
+          <div className="my-2.5 flex flex-wrap gap-1.5" role="group" aria-label={t("Each jump")}>
             {cur.trials.map((x, n) => (
-              <button key={x.start_ms} type="button" aria-pressed={n === k} className={n === k ? "on" : ""} onClick={() => setJump(n === cur.best ? null : n)}>
+              <Btn key={x.start_ms} type="button" aria-pressed={n === k} on={n === k} onClick={() => setJump(n === cur.best ? null : n)}>
                 {t("Jump {{k}}", { k: n + 1 })} · {keyText(cur, n)}
-                {n === cur.best && <span className="tag">{t("Best")}</span>}
-              </button>
+                {n === cur.best && <span className="inline-block rounded-full bg-black/5 px-2 py-0.5 text-xs whitespace-nowrap text-black/60 dark:bg-white/10 dark:text-white/60">{t("Best")}</span>}
+              </Btn>
             ))}
           </div>
         )}
       </section>
-      <dl className="fd-vals" aria-label={t("Each measure")}>
+      <dl className="my-3 grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-2 [&>div]:rounded-2xl [&>div]:bg-white [&>div]:px-3 [&>div]:py-2.5 [&>div]:shadow-sm dark:[&>div]:bg-neutral-900 [&>div.key]:col-span-full [&_dt]:text-xs [&_dt]:text-black/55 [&_dd]:mt-0.5 [&_dd]:text-lg [&_dd]:font-semibold [&_dd]:tabular-nums [&_dd_small]:text-xs [&_dd_small]:font-normal" aria-label={t("Each measure")}>
         {(FD_ROWS[cur.test] ?? []).map(([code, unit]) => {
           const v = figure(tr, code);
           const u = unitLabel(unit);
           return (
-            <div key={code} className={code === FD_KEY[cur.test] ? "key" : ""}>
-              <dt>{nameOf(code, code)}</dt>
+            <div key={code} className={code === FD_KEY[cur.test] ? "col-span-full" : ""}>
+              <dt>{nameOf(code, names?.[code] ?? code)}</dt>
               <dd>
                 {v === null ? "–" : num(v)}
                 {v !== null && u ? <small> {u}</small> : null}
@@ -4643,7 +4856,7 @@ function FdReport({ sessions }: { sessions: FdSession[] }) {
           );
         })}
       </dl>
-      <p className="fine">{t("Each test is compared by its best jump with the previous test's best jump.")}</p>
+      <p className="text-[13px] text-black/55 dark:text-white/55">{t("Each test is compared by its best jump with the previous test's best jump.")}</p>
     </div>
   );
 }
@@ -4736,7 +4949,7 @@ function SecaDelta({ ctx, code, digits, scale = 1, unit, label = true }: { ctx: 
   const d = now === null || before === null ? null : Number(((now - before) * scale).toFixed(digits));
   if (d === null || d === 0) return null;
   return (
-    <span className="fd-delta" role="img" aria-label={t("Compared with last time: {{d}}", { d: `${d > 0 ? "+" : "−"}${fixed(Math.abs(d), digits)} ${unit ?? ""}`.trim() })}>
+    <span className="ms-2.5 text-xs font-normal text-black/55 dark:text-white/55" role="img" aria-label={t("Compared with last time: {{d}}", { d: `${d > 0 ? "+" : "−"}${fixed(Math.abs(d), digits)} ${unit ?? ""}`.trim() })}>
       {label ? `${t("vs last time")} ` : ""}
       {d > 0 ? "↑" : "↓"} {fixed(Math.abs(d), digits)}
     </span>
@@ -4754,16 +4967,16 @@ function SecaTrend({ ctx, code }: { ctx: SecaCtx; code: string }) {
   const hi = Math.max(...pts.map((p) => p.v));
   const xy = pts.map((p, k) => ({ x: (k / (pts.length - 1)) * 100, y: hi === lo ? 50 : 90 - ((p.v - lo) / (hi - lo)) * 80 }));
   return (
-    <figure className="fd-trend" aria-label={t("Trend over {{count}} measurements", { count: pts.length })}>
-      <div className="fd-plot">
+    <figure className="mt-2 text-primary" aria-label={t("Trend over {{count}} measurements", { count: pts.length })}>
+      <div className="relative mx-1 h-16 [&_svg]:h-full [&_svg]:w-full [&_svg]:overflow-visible">
         <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
           <polyline points={xy.map((p) => `${p.x},${p.y}`).join(" ")} fill="none" stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
         </svg>
         {xy.map((p, k) => (
-          <span key={pts[k]!.at} className={`fd-dot${k === xy.length - 1 ? " now" : ""}`} style={{ left: `${p.x}%`, top: `${p.y}%` }} />
+          <span key={pts[k]!.at} className={`absolute -ms-[3.5px] -mt-[3.5px] h-[7px] w-[7px] rounded-full border-[1.5px] border-current ${k === xy.length - 1 ? "bg-current" : "bg-white dark:bg-neutral-900"}`} style={{ left: `${p.x}%`, top: `${p.y}%` }} />
         ))}
       </div>
-      <figcaption className="fine">
+      <figcaption className="text-[13px] text-black/55 dark:text-white/55">
         <span>{shortDate(pts[0]!.at)}</span>
         <span>{t("This measurement")}</span>
       </figcaption>
@@ -4778,24 +4991,24 @@ function SecaCard({ ctx, title, abbr, main, subs = [], missing, children }: { ct
   const s = ctx.scans[ctx.i];
   const v = main ? figure(s, main.code) : null;
   return (
-    <section className="seca-card" aria-label={title}>
+    <section className="rounded-2xl bg-white shadow-sm dark:bg-neutral-900 p-3.5 [&_h4]:m-0 [&_h4]:text-[13px] [&_header]:flex [&_header]:items-baseline [&_header]:justify-between [&_header]:gap-2" aria-label={title}>
       <header>
-        <h4>{title}</h4>
-        <span className="fine">{abbr}</span>
+        <h4 className="mb-1 text-[15px] font-semibold">{title}</h4>
+        <span className="text-[13px] text-black/55 dark:text-white/55">{abbr}</span>
       </header>
       {main &&
         (v !== null ? (
-          <p className="seca-v">
+          <p className="my-1 tabular-nums [&_b]:text-xl [&_small]:text-black/55 dark:[&_small]:text-white/55">
             <b>{fixed(v * (main.scale ?? 1), main.digits)}</b>
             {main.unit && <small> {main.unit}</small>}
             <SecaDelta ctx={ctx} code={main.code} digits={main.digits} scale={main.scale ?? 1} unit={main.unit} />
           </p>
         ) : (
-          <p className="fine">{missing ?? t("No data")}</p>
+          <p className="text-[13px] text-black/55 dark:text-white/55">{missing ?? t("No data")}</p>
         ))}
       {children}
       {subs.length > 0 && (
-        <dl className="seca-sub">
+        <dl className="mt-1.5 grid gap-0.5 text-xs [&_dd]:m-0 [&_dd]:tabular-nums [&_div]:flex [&_div]:justify-between [&_div]:gap-2 [&_dt]:text-black/55 dark:[&_dt]:text-white/55">
           {subs.map((x) => {
             const sv = figure(s, x.code);
             const pv = x.pct ? figure(s, x.pct) : null;
@@ -4820,11 +5033,11 @@ function ZScale({ z }: { z: number | null }) {
   if (z === null) return null;
   const pos = Math.min(1, Math.max(0, (z + 3) / 6));
   return (
-    <div className="seca-scale" role="img" aria-label={t("Muscle mass z-score {{z}}", { z: fixed(z, 2) })}>
-      <div className="seca-track">
+    <div className="my-2" role="img" aria-label={t("Muscle mass z-score {{z}}", { z: fixed(z, 2) })}>
+      <div className="relative h-1.5 rounded-full bg-gradient-to-r from-primary/20 to-primary [&_span]:absolute [&_span]:-top-[3px] [&_span]:-ms-1.5 [&_span]:h-3 [&_span]:w-3 [&_span]:rounded-full [&_span]:border-2 [&_span]:border-primary [&_span]:bg-white">
         <span style={{ left: `${pos * 100}%` }} />
       </div>
-      <div className="seca-ends fine">
+      <div className="mt-1 flex justify-between text-[13px] text-black/55 dark:text-white/55">
         <span>{t("Less muscle")}</span>
         <span>{t("More muscle")}</span>
       </div>
@@ -4832,18 +5045,20 @@ function ZScale({ z }: { z: number | null }) {
   );
 }
 
+/** Where each limb sits around the figure (facing the person) */
+const AREA: Record<Seg, string> = { rightArm: "ra", leftArm: "la", torso: "tr", rightLeg: "rl", leftLeg: "ll" };
 function Segments({ ctx, codes }: { ctx: SecaCtx; codes: Record<Seg, string> }) {
   const s = ctx.scans[ctx.i];
   const label: Record<Seg, string> = { torso: t("Torso"), rightArm: t("Right arm"), leftArm: t("Left arm"), rightLeg: t("Right leg"), leftLeg: t("Left leg") };
   // the right limbs on the left, as when facing the person
   const order: Seg[] = ["rightArm", "leftArm", "torso", "rightLeg", "leftLeg"];
   return (
-    <div className="seca-segs">
+    <div className="my-2 grid grid-cols-[1fr_5rem_1fr] items-center gap-x-2.5 gap-y-1 [grid-template-areas:'ra_fig_la'_'tr_fig_.'_'rl_fig_ll']">
       {order.map((seg) => {
         const v = figure(s, codes[seg]);
         return (
-          <div key={seg} className={`seca-limb seg-${seg}`}>
-            <span className="fine">{label[seg]}</span>
+          <div key={seg} className="flex flex-col tabular-nums" style={{ gridArea: AREA[seg] }}>
+            <span className="text-[13px] text-black/55 dark:text-white/55">{label[seg]}</span>
             <b>
               {v === null ? "–" : fixed(v, 2)}
               {v !== null && <small> kg</small>}
@@ -4852,7 +5067,7 @@ function Segments({ ctx, codes }: { ctx: SecaCtx; codes: Record<Seg, string> }) 
           </div>
         );
       })}
-      <svg className="seca-fig" viewBox="0 0 120 200" aria-hidden="true">
+      <svg className="w-20 fill-primary/20 [grid-area:fig]" viewBox="0 0 120 200" aria-hidden="true">
         <circle cx="60" cy="18" r="13" />
         <rect x="38" y="36" width="44" height="74" rx="10" />
         <rect x="18" y="38" width="16" height="72" rx="8" />
@@ -4868,12 +5083,12 @@ function WaterBar({ tbw, ecw }: { tbw: number | null; ecw: number | null }) {
   if (tbw === null || ecw === null || tbw <= 0 || ecw < 0 || ecw > tbw) return null;
   const share = (ecw / tbw) * 100;
   return (
-    <div className="seca-water">
-      <div className="seca-bar" role="img" aria-label={t("Extracellular water is {{p}} % of total body water", { p: fixed(share, 1) })}>
-        <span className="ecw" style={{ width: `${share}%` }} />
-        <span className="icw" style={{ width: `${100 - share}%` }} />
+    <div>
+      <div className="mt-2 mb-1 flex h-2.5 overflow-hidden rounded-full" role="img" aria-label={t("Extracellular water is {{p}} % of total body water", { p: fixed(share, 1) })}>
+        <span className="bg-primary" style={{ width: `${share}%` }} />
+        <span className="bg-primary/30" style={{ width: `${100 - share}%` }} />
       </div>
-      <div className="seca-ends fine">
+      <div className="mt-1 flex justify-between text-[13px] text-black/55 dark:text-white/55">
         <span>
           {t("Extracellular water")} {fixed(ecw, 1)} L
         </span>
@@ -4893,17 +5108,17 @@ function Biva({ zr, zxc }: { zr: number | null; zxc: number | null }) {
   const y = (1 - (clip(zxc) + 4) / 8) * S;
   const g = (z: number) => ((z + 4) / 8) * S;
   return (
-    <svg className="seca-biva" viewBox={`-24 -8 ${S + 32} ${S + 30}`} role="img" aria-label={`Z(R/H) ${fixed(zr, 2)}, Z(Xc/H) ${fixed(zxc, 2)}`}>
-      <rect x="0" y="0" width={S} height={S} className="bg" />
+    <svg className="mx-auto my-1.5 block w-full max-w-56 [&_text]:fill-black/55 [&_text]:text-[10px]" viewBox={`-24 -8 ${S + 32} ${S + 30}`} role="img" aria-label={`Z(R/H) ${fixed(zr, 2)}, Z(Xc/H) ${fixed(zxc, 2)}`}>
+      <rect x="0" y="0" width={S} height={S} className="fill-black/5 dark:fill-white/5" />
       {[-2, 2].map((z) => (
-        <g key={z} className="grid">
+        <g key={z} className="stroke-black/10 dark:stroke-white/10">
           <line x1={g(z)} y1="0" x2={g(z)} y2={S} />
           <line x1="0" y1={S - g(z)} x2={S} y2={S - g(z)} />
         </g>
       ))}
-      <line className="axis" x1={S / 2} y1="0" x2={S / 2} y2={S} />
-      <line className="axis" x1="0" y1={S / 2} x2={S} y2={S / 2} />
-      <circle cx={x} cy={y} r="5" className="pt" />
+      <line className="stroke-black/55 [stroke-width:0.6] dark:stroke-white/55" x1={S / 2} y1="0" x2={S / 2} y2={S} />
+      <line className="stroke-black/55 [stroke-width:0.6] dark:stroke-white/55" x1="0" y1={S / 2} x2={S} y2={S / 2} />
+      <circle cx={x} cy={y} r="5" className="fill-primary" />
       <text x={S / 2} y={S + 18} textAnchor="middle">
         Z(R/H)
       </text>
@@ -4945,15 +5160,15 @@ function Bcc({ ctx }: { ctx: SecaCtx }) {
   const cls = textOf(s, C.bcc);
   const w = textOf(s, C.bccWeight);
   const m = textOf(s, C.bccMuscle);
-  if (!cls && !w && !m) return <p className="fine">{t("No data")}</p>;
+  if (!cls && !w && !m) return <p className="text-[13px] text-black/55 dark:text-white/55">{t("No data")}</p>;
   const levels = [t("Low"), t("Normal"), t("High"), t("Very high")];
   const row = (label: string, all: string[], v: string | null) => {
     const k = v === null ? -1 : all.indexOf(v);
     return (
-      <div className="seca-bcc-row">
-        <span className="fine">{label}</span>
+      <div className="my-1 flex items-center justify-between gap-2">
+        <span className="text-[13px] text-black/55 dark:text-white/55">{label}</span>
         {k >= 0 ? (
-          <ol className="seca-steps">
+          <ol className="m-0 flex list-none gap-0.5 p-0 text-[11px] [&_li]:rounded [&_li]:bg-black/5 [&_li]:px-1.5 [&_li]:py-0.5 [&_li]:text-black/55 [&_li[aria-current=true]]:bg-primary [&_li[aria-current=true]]:text-white">
             {all.map((lv, j) => (
               <li key={lv} aria-current={j === k ? "true" : undefined}>
                 {levels[j]}
@@ -4968,7 +5183,7 @@ function Bcc({ ctx }: { ctx: SecaCtx }) {
   };
   return (
     <div>
-      {cls && <p className="seca-v">{bccLabel(cls)}</p>}
+      {cls && <p className="my-1 tabular-nums [&_b]:text-xl [&_small]:text-black/55 dark:[&_small]:text-white/55">{bccLabel(cls)}</p>}
       {row(t("Weight"), WEIGHT_LEVELS, w)}
       {row(t("Muscle"), MUSCLE_LEVELS, m)}
     </div>
@@ -4984,7 +5199,7 @@ function SecaCards({ ctx }: { ctx: SecaCtx }) {
   const kcal = "kcal/d";
   const pts = t("points");
   return (
-    <div className="seca-cards">
+    <div className="my-3 grid grid-cols-[repeat(auto-fill,minmax(18rem,1fr))] gap-2.5">
       <SecaCard ctx={ctx} title={t("Fat mass index")} abbr="FMI" main={{ code: C.fmi, unit: kgm2, digits: 1 }} subs={[{ label: t("Fat mass"), code: C.fm, unit: kg, digits: 2 }, { label: t("Body fat percentage"), code: C.fmp, unit: "%", digits: 1 }]} />
       <SecaCard ctx={ctx} title={t("Fat-free mass index")} abbr="FFMI" main={{ code: C.ffmi, unit: kgm2, digits: 1 }} subs={[{ label: t("Fat-free mass"), code: C.ffm, unit: kg, digits: 2, pct: C.ffmp }]} />
       <SecaCard ctx={ctx} title={t("Body fat percentage")} abbr="FM %" main={{ code: C.fmp, unit: "%", digits: 1 }} subs={[{ label: t("Fat mass"), code: C.fm, unit: kg, digits: 2 }, { label: t("Fat mass index"), code: C.fmi, unit: kgm2, digits: 1 }]} />
@@ -5016,8 +5231,8 @@ function SecaCards({ ctx }: { ctx: SecaCtx }) {
       </SecaCard>
       <SecaCard ctx={ctx} title={t("TRU body score")} abbr="TBS" main={{ code: C.tbs, unit: pts, digits: 0 }} subs={[{ label: t("Muscle score"), code: C.tbsMuscle, unit: pts, digits: 0 }, { label: t("Fat score"), code: C.tbsFat, unit: pts, digits: 0 }]} />
       <SecaCard ctx={ctx} title={t("Resting energy expenditure")} abbr="REE" main={{ code: C.ree, unit: kcal, digits: 0 }} subs={[{ label: t("Total energy expenditure"), code: C.tee, unit: kcal, digits: 0 }]}>
-        {ree !== null && <p className="fine">{t("About {{mj}} MJ a day", { mj: fixed(ree * KCAL_TO_MJ, 2) })}</p>}
-        {figure(s, C.tee) === null && <p className="fine">{t("No activity level (PAL), so total energy expenditure can't be calculated")}</p>}
+        {ree !== null && <p className="text-[13px] text-black/55 dark:text-white/55">{t("About {{mj}} MJ a day", { mj: fixed(ree * KCAL_TO_MJ, 2) })}</p>}
+        {figure(s, C.tee) === null && <p className="text-[13px] text-black/55 dark:text-white/55">{t("No activity level (PAL), so total energy expenditure can't be calculated")}</p>}
       </SecaCard>
       <SecaCard ctx={ctx} title={t("Body mass index")} abbr="BMI" main={{ code: C.bmi, unit: kgm2, digits: 1 }} subs={[{ label: t("Weight"), code: C.weight, unit: kg, digits: 1 }, { label: t("Height"), code: C.height, unit: "cm", digits: 1, scale: 100 }]} />
       <SecaCard ctx={ctx} title={t("Weight")} abbr="Weight" main={{ code: C.weight, unit: kg, digits: 1 }} />
@@ -5033,75 +5248,78 @@ function SecaReport({ scans }: { scans: Measurement[] }) {
   const cur = scans[at];
   if (!cur)
     return (
-      <div className="form">
-        <h3>{t("No body composition data yet")}</h3>
-        <p className="fine">{t("After a seca mBCA Pro measurement at the lab, the results show here.")}</p>
+      <div className="flex flex-col gap-3">
+        <h3 className="mb-2 text-[17px] font-semibold">{t("No body composition data yet")}</h3>
+        <p className="text-[13px] text-black/55 dark:text-white/55">{t("After a seca mBCA Pro measurement at the lab, the results show here.")}</p>
       </div>
     );
   return (
-    <div className="fd">
-      <header className="fd-head">
+    <div className="[&_h4]:mt-3 [&_h4]:mb-1">
+      <header className="mb-3 flex items-start justify-between gap-4 [&_h3]:m-0 [&_p]:m-0">
         <div>
-          <h3>{t("Body composition")}</h3>
-          <p className="fine">seca mBCA Pro · {when(cur.start_ms)}</p>
+          <h3 className="mb-2 text-[17px] font-semibold">{t("Body composition")}</h3>
+          <p className="text-[13px] text-black/55 dark:text-white/55">seca mBCA Pro · {when(cur.start_ms)}</p>
         </div>
-        <button type="button" aria-expanded={hist} onClick={() => setHist(!hist)}>
+        <Btn type="button" aria-expanded={hist} onClick={() => setHist(!hist)}>
           {t("History")}
-        </button>
+        </Btn>
       </header>
       {hist && (
-        <ul className="rows-card" aria-label={t("Measurement history")}>
+        <Group aria-label={t("Measurement history")}>
           {scans.map((s, k) => (
             <li key={`${s.device}|${s.start_ms}`}>
               <button
                 type="button"
-                className="row-btn"
+                className="flex w-full items-center gap-3 px-4 py-3 text-start"
                 aria-current={k === at ? "true" : undefined}
                 onClick={() => {
                   setI(k);
                   setHist(false);
                 }}
               >
-                <span className="row-l">
+                <span className="me-auto grid min-w-0 gap-px">
                   <strong>{when(s.start_ms)}</strong>
                 </span>
-                {k === 0 && <span className="tag">{t("Latest")}</span>}
+                {k === 0 && <span className="inline-block rounded-full bg-black/5 px-2 py-0.5 text-xs whitespace-nowrap text-black/60 dark:bg-white/10 dark:text-white/60">{t("Latest")}</span>}
                 {k === at && <span aria-hidden="true">✓</span>}
               </button>
             </li>
           ))}
-        </ul>
+        </Group>
       )}
       {at > 0 && (
-        <p className="notice banner" role="status">
+        <p className="mb-4 rounded-2xl bg-amber-500/15 px-4 py-3 text-[15px] flex items-center justify-between gap-4" role="status">
           <span>{t("Viewing the measurement of {{date}}", { date: when(cur.start_ms) })}</span>
-          <button type="button" onClick={() => setI(0)}>
+          <Btn type="button" onClick={() => setI(0)}>
             {t("Back to the latest")}
-          </button>
+          </Btn>
         </p>
       )}
       <SecaCards ctx={{ scans, i: at }} />
-      <p className="fine">{t("For reference ranges and ratings, go by the report the lab gives you.")}</p>
+      <p className="text-[13px] text-black/55 dark:text-white/55">{t("For reference ranges and ratings, go by the report the lab gives you.")}</p>
     </div>
   );
 }
 
-/** On the home page's body card: the latest body composition measurement, its body fat and skeletal muscle. */
-function SecaReportRow({ scan, open }: { scan: Measurement; open: () => void }) {
-  const v = (code: string, unit: string, digits: number) => {
+/** The latest seca measurement as the dashboard's card: body fat, skeletal muscle, weight. */
+function SecaLabCard({ scan, open }: { scan: Measurement; open: () => void }) {
+  const v = (code: string, digits: number) => {
     const x = figure(scan, code);
-    return x === null ? "–" : `${fixed(x, digits)} ${unit}`;
+    return x === null ? "–" : fixed(x, digits);
   };
   return (
-    <ul className="rows-card report-row">
-      <Row
-        icon={<GroupIcon k="body" />}
-        label={t("Body composition report")}
-        sub={`seca mBCA Pro · ${shortDate(scan.start_ms)}`}
-        value={`${t("Body fat")} ${v(C.fmp, "%", 1)} · ${t("Skeletal muscle")} ${v(C.smm, "kg", 1)}`}
-        onClick={open}
-      />
-    </ul>
+    <LabCard
+      color={TINT.body!}
+      icon={<GroupIcon k="body" />}
+      title={t("Body composition report")}
+      text={`seca mBCA Pro · ${shortDate(scan.start_ms)}`}
+      stats={[
+        [t("Body fat"), v(C.fmp, 1), "%"],
+        [t("Skeletal muscle"), v(C.smm, 1), "kg"],
+        [t("Weight"), v(C.weight, 1), "kg"],
+      ]}
+      open={open}
+    />
   );
 }
 
@@ -5114,10 +5332,10 @@ function ClearDataRow() {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <p className="clear-row">
-        <button type="button" className="link danger" onClick={() => setOpen(true)}>
+      <p className="mt-5">
+        <Btn type="button" link danger onClick={() => setOpen(true)}>
           {t("Clear data")}
-        </button>
+        </Btn>
       </p>
       {open && (
         <Sheet label={t("Clear data")} close={() => setOpen(false)}>
@@ -5156,39 +5374,39 @@ function ClearData({ cancel }: { cancel: () => void }) {
     }
   };
   return (
-    <section className="record">
-      <h2>{t("Clear data")}</h2>
+    <section className="[&_h3]:mt-6">
+      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Clear data")}</h2>
       <form
-        className="form"
+        className="flex flex-col gap-3"
         aria-busy={busy}
         onSubmit={(e) => {
           e.preventDefault();
           run();
         }}
       >
-        <p className="warn">
+        <p className="text-amber-600">
           {t("This deletes all Health data on this device: every record, your health account and identity code, links to other devices, and settings. This can't be undone.")}
         </p>
-        <p className="fine">
+        <p className="text-[13px] text-black/55 dark:text-white/55">
           {t("To keep your data, save a backup first. Data on your other devices isn't affected; to sync again, link them again.")}
         </p>
-        <label>
+        <label className="flex flex-col gap-1.5 text-[13px] text-black/60 dark:text-white/60">
           {t("Type “{{words}}” to confirm", { words: CLEAR_WORD })}
-          <input value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" autoCapitalize="characters" spellCheck={false} disabled={busy || done} />
+          <input className="w-full rounded-xl bg-black/5 px-3 py-2.5 text-base text-black outline-none focus:ring-2 focus:ring-primary dark:bg-white/10 dark:text-white" value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" autoCapitalize="characters" spellCheck={false} disabled={busy || done} />
         </label>
         <Problem text={err} />
         {done ? (
-          <p className="notice" role="status">
+          <p className="mb-4 rounded-2xl bg-amber-500/15 px-4 py-3 text-[15px]" role="status">
             {t("Cleared. Reloading…")}
           </p>
         ) : (
-          <div className="actions">
-            <button type="button" disabled={busy} onClick={cancel}>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+            <Btn type="button" disabled={busy} onClick={cancel}>
               {t("Cancel")}
-            </button>
-            <button type="submit" className="danger" disabled={!ok || busy}>
+            </Btn>
+            <Btn type="submit" danger disabled={!ok || busy}>
               {busy ? t("Clearing…") : t("Clear data")}
-            </button>
+            </Btn>
           </div>
         )}
       </form>

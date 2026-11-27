@@ -15,16 +15,19 @@
     "@tauri-apps/plugin-barcode-scanner": "^2.5.3",
     "@tauri-apps/plugin-dialog": "^2.8.4",
     "i18next": "^25.10.10",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
+    "konsta": "^5.5.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "react-i18next": "^15.7.4"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.3.5",
     "@tauri-apps/cli": "^2.12.6",
     "@types/node": "^24.10.1",
-    "@types/react": "^18.3.31",
-    "@types/react-dom": "^18.3.7",
+    "@types/react": "^19.3.3",
+    "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^4.7.0",
+    "tailwindcss": "^4.3.5",
     "typescript": "^5.9.3",
     "vite": "^6.4.6"
   }

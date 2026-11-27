@@ -9,9 +9,11 @@
 /* Begin PBXBuildFile section */
 		0C4864B6A2369F909E3631F6 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E879632D196AC51D6567DD08 /* QuartzCore.framework */; };
 		37841E29AA9883B40E4B622E /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = B5510791F3E18318120966E1 /* LaunchScreen.storyboard */; };
+		40FE8A740EAA7664AC2D310B /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = C4FF95EF9D789E966EDBECC1 /* InfoPlist.strings */; };
 		4649B2978833FBDF12EBA77E /* libapp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = ED4F555A812485421D9FA4F7 /* libapp.a */; };
 		60DF7BD9337160494CE860AB /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F1313E00167C7853BD02E3C7 /* Metal.framework */; };
 		6E26A172F5468539AE7D166A /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1A684A04B4091BF004DBB328 /* MetalKit.framework */; };
+		83E8745C66FB053576A30F53 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = B645A77AA5EA957DF1393F88 /* InfoPlist.strings */; };
 		C1021D17A167149D7F6172EE /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F1258E18859CB4B5F33E5E33 /* Assets.xcassets */; };
 		C5FCD9C6E07B7773B68A3940 /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E3A7DDD9AF0345BBA924A6B0 /* WebKit.framework */; };
 		DA019BCEDDA280761E0FF4FE /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 775723BF2742943847829CE3 /* CoreGraphics.framework */; };
@@ -25,14 +27,17 @@
 		1A684A04B4091BF004DBB328 /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
 		1D021C6EC9190F8C479E64F1 /* lib.rs */ = {isa = PBXFileReference; path = lib.rs; sourceTree = "<group>"; };
 		48B4F23A06C485F4A0019EAB /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
+		4F4E9B40F79FF9C380F3A734 /* clients.rs */ = {isa = PBXFileReference; path = clients.rs; sourceTree = "<group>"; };
 		775723BF2742943847829CE3 /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
 		808C34F16DD77412AA14239D /* health-app_iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "health-app_iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		81B0B0B01EF954B57C5533F0 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		8E02C6E0A9657DB2F4987BB6 /* bindings.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bindings.h; sourceTree = "<group>"; };
 		A1B425DAF3509D72332AF5E8 /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
 		B5510791F3E18318120966E1 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
+		B645A77AA5EA957DF1393F88 /* InfoPlist.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = InfoPlist.strings; path = "zh-Hant.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		BAE802FE2FC2E4F06B916977 /* desktop.rs */ = {isa = PBXFileReference; path = desktop.rs; sourceTree = "<group>"; };
 		C2D3E4BE89BAEC9280E569D4 /* mobile.rs */ = {isa = PBXFileReference; path = mobile.rs; sourceTree = "<group>"; };
+		C4FF95EF9D789E966EDBECC1 /* InfoPlist.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = InfoPlist.strings; path = "zh-Hans.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		DA34A7D02AC5F76F3396AD1A /* main.rs */ = {isa = PBXFileReference; path = main.rs; sourceTree = "<group>"; };
 		E3A7DDD9AF0345BBA924A6B0 /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
 		E879632D196AC51D6567DD08 /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
@@ -81,6 +86,7 @@
 		4936A8C005A11863C9CDBD8C /* src */ = {
 			isa = PBXGroup;
 			children = (
+				4F4E9B40F79FF9C380F3A734 /* clients.rs */,
 				BAE802FE2FC2E4F06B916977 /* desktop.rs */,
 				1D021C6EC9190F8C479E64F1 /* lib.rs */,
 				DA34A7D02AC5F76F3396AD1A /* main.rs */,
@@ -110,6 +116,8 @@
 			children = (
 				FD92D4C35260A7D96487F26D /* health-app_iOS.entitlements */,
 				81B0B0B01EF954B57C5533F0 /* Info.plist */,
+				C4FF95EF9D789E966EDBECC1 /* InfoPlist.strings */,
+				B645A77AA5EA957DF1393F88 /* InfoPlist.strings */,
 			);
 			path = "health-app_iOS";
 			sourceTree = "<group>";
@@ -154,6 +162,20 @@
 			path = "health-app";
 			sourceTree = "<group>";
 		};
+		"TEMP_1BF15CDC-FE5C-41B0-893C-9589FD598140" /* x86_64 */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = x86_64;
+			sourceTree = "<group>";
+		};
+		"TEMP_24456FC1-3D39-4CA5-BF2A-48D3A557F340" /* arm64 */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = arm64;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -194,6 +216,8 @@
 			knownRegions = (
 				Base,
 				en,
+				"zh-Hans",
+				"zh-Hant",
 			);
 			mainGroup = 577D535F2B8E624ED317AAC1;
 			minimizedProjectReferenceProxies = 1;
@@ -213,6 +237,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				C1021D17A167149D7F6172EE /* Assets.xcassets in Resources */,
+				40FE8A740EAA7664AC2D310B /* InfoPlist.strings in Resources */,
+				83E8745C66FB053576A30F53 /* InfoPlist.strings in Resources */,
 				37841E29AA9883B40E4B622E /* LaunchScreen.storyboard in Resources */,
 				DFFC3435EA31B9E4B492C313 /* assets in Resources */,
 			);

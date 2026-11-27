@@ -811,7 +811,15 @@ fn run(cli: &Cli) -> Result<Value> {
             if cli.offline && from.is_none() {
                 return Err(usage("offline", "offline: install from local files with --from"));
             }
-            return ocr::install(&dir, from.as_deref(), !no_matching);
+            // a line per percent on stderr, "progress <bytes done> <bytes in all>": the desktop shell shows a bar
+            let mut last = u64::MAX;
+            return ocr::install(&dir, from.as_deref(), !no_matching, &mut |done, total| {
+                let pct = done * 100 / total.max(1);
+                if pct != last {
+                    last = pct;
+                    eprintln!("progress {done} {total}");
+                }
+            });
         }
         Cmd::Serve { port, idle_lock, exit_with_parent } => {
             if *exit_with_parent {

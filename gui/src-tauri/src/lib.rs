@@ -36,15 +36,52 @@ fn shell_info() -> Value {
     })
 }
 
-/// A file the system handed the UI (a photo, a picked file): its bytes arrive raw, with its name in `x-file-name`.
-/// Written under the app's cache directory; returns the path the import ops take.
+/// A file the system handed the UI (a photo, a picked file), written under the app's cache directory; returns the
+/// path the import ops take. Its bytes arrive raw, with its name in `x-file-name`. Android's IPC can't carry raw
+/// bytes (it would send a JSON array of numbers), so there the UI sends `{ id, name, data, first }` chunks, `data` in
+/// base64: the first creates the file, the others append to it.
 #[tauri::command]
 fn stage_file(app: AppHandle, request: tauri::ipc::Request<'_>) -> Result<String, Value> {
     let fail = |m: String| json!({ "code": "stage_failed", "message": m });
-    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else { return Err(fail("expected raw bytes".into())) };
-    let name = request.headers().get("x-file-name").and_then(|v| v.to_str().ok()).unwrap_or("file");
-    let name = percent_decode(name);
-    // only the base name, in a safe alphabet: the name comes from the web view
+    let dir = app.path().app_cache_dir().map_err(|e| fail(e.to_string()))?.join("import");
+    std::fs::create_dir_all(&dir).map_err(|e| fail(e.to_string()))?;
+    match request.body() {
+        tauri::ipc::InvokeBody::Raw(bytes) => {
+            let name = request.headers().get("x-file-name").and_then(|v| v.to_str().ok()).unwrap_or("file");
+            clear_old(&dir);
+            let path = dir.join(format!("{}-{}", std::process::id(), safe_name(&percent_decode(name))));
+            std::fs::write(&path, bytes).map_err(|e| fail(e.to_string()))?;
+            Ok(path.to_string_lossy().into_owned())
+        }
+        #[cfg(target_os = "android")]
+        tauri::ipc::InvokeBody::Json(v) => {
+            use base64::Engine as _;
+            use std::io::Write as _;
+            let id = v["id"].as_str().filter(|s| !s.is_empty() && s.len() <= 32 && s.chars().all(|c| c.is_ascii_alphanumeric()));
+            let (Some(id), Some(data)) = (id, v["data"].as_str()) else { return Err(fail("expected a chunk".into())) };
+            let bytes = base64::engine::general_purpose::STANDARD.decode(data).map_err(|e| fail(e.to_string()))?;
+            let first = v["first"].as_bool() == Some(true);
+            if first {
+                clear_old(&dir);
+            }
+            let path = dir.join(format!("{}-{id}-{}", std::process::id(), safe_name(v["name"].as_str().unwrap_or("file"))));
+            let mut f = std::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .append(!first)
+                .truncate(first)
+                .open(&path)
+                .map_err(|e| fail(e.to_string()))?;
+            f.write_all(&bytes).map_err(|e| fail(e.to_string()))?;
+            Ok(path.to_string_lossy().into_owned())
+        }
+        #[allow(unreachable_patterns)]
+        _ => Err(fail("expected raw bytes".into())),
+    }
+}
+
+/// Only the base name, in a safe alphabet: the name comes from the web view.
+fn safe_name(name: &str) -> String {
     let safe: String = name
         .rsplit(['/', '\\'])
         .next()
@@ -52,12 +89,7 @@ fn stage_file(app: AppHandle, request: tauri::ipc::Request<'_>) -> Result<String
         .chars()
         .map(|c| if c.is_alphanumeric() || "._-".contains(c) { c } else { '_' })
         .collect();
-    let dir = app.path().app_cache_dir().map_err(|e| fail(e.to_string()))?.join("import");
-    std::fs::create_dir_all(&dir).map_err(|e| fail(e.to_string()))?;
-    clear_old(&dir);
-    let path = dir.join(format!("{}-{}", std::process::id(), if safe.is_empty() { "file".into() } else { safe }));
-    std::fs::write(&path, bytes).map_err(|e| fail(e.to_string()))?;
-    Ok(path.to_string_lossy().into_owned())
+    if safe.is_empty() { "file".into() } else { safe }
 }
 
 /// Where a mobile export is written before the share sheet takes it (the app's cache, which Android may share).

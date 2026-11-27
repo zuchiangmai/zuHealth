@@ -45,8 +45,6 @@
  "{{count}} years old_other": "{{count}} years old",
  "{{obs}} entries from {{count}} sources_one": "{{obs}} entries from {{count}} source",
  "{{obs}} entries from {{count}} sources_other": "{{obs}} entries from {{count}} sources",
- "Read {{count}} results. Please check them._one": "Read {{count}} result. Please check it.",
- "Read {{count}} results. Please check them._other": "Read {{count}} results. Please check them.",
  "The data of {{count}} syncs will be deleted, and WHOOP disconnected._one": "The data of {{count}} sync will be deleted, and WHOOP disconnected.",
  "The data of {{count}} syncs will be deleted, and WHOOP disconnected._other": "The data of {{count}} syncs will be deleted, and WHOOP disconnected.",
  "The data of {{count}} imports will be deleted._one": "The data of {{count}} import will be deleted.",
