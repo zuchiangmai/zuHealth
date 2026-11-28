@@ -89,7 +89,10 @@ const handed = new Map<string, unknown>();
 /** Leaves `value` for the page at `path` (as `go` names it), to take when it is on top. */
 export function handTo(path: string, value: unknown) {
   handed.set(`#/${path}`, value);
+  // a page already on top takes it at once
+  for (const f of handedSubs) f();
 }
+export const handedSubs = new Set<() => void>();
 /** What was left for the page at `path` (a hash), once. */
 export function takeHanded(path: string): unknown {
   const v = handed.get(path);

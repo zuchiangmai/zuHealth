@@ -513,6 +513,25 @@ fn menu(app: &AppHandle, lang: &str) -> tauri::Result<tauri::menu::Menu<tauri::W
     Menu::with_items(app, &[&health, &edit, &view, &go, &window])
 }
 
+/// A phone's update check (mobile.rs): a computer updates as a whole app (Tauri's updater, later).
+#[tauri::command]
+pub(crate) fn check_update() -> Result<Value, Value> {
+    Err(json!({ "code": "no_op", "message": "not on a computer" }))
+}
+
+#[tauri::command]
+pub(crate) fn open_update(url: String) -> Result<(), Value> {
+    let _ = url;
+    Err(json!({ "code": "no_op", "message": "not on a computer" }))
+}
+
+/// A phone's WHOOP sign-in (mobile.rs): a computer's goes through serve (`whoop.begin` with `open`).
+#[tauri::command]
+pub(crate) fn whoop_sign_in(client_id: String, client_secret: String) -> Result<Value, Value> {
+    let _ = (client_id, client_secret);
+    Err(json!({ "code": "no_op", "message": "a computer signs in to WHOOP through whoop.begin" }))
+}
+
 /// Opens one of `LINKS` in the default browser.
 #[tauri::command]
 pub(crate) fn open_link(url: String) -> Result<(), String> {

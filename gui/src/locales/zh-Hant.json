@@ -776,7 +776,6 @@
  "Restore": "恢復這一項",
  "Skipped": "已略過",
  "The first time, PhysiMind needs the text-recognition models (about {{mb}} MB), once. Reports are read here; nothing is uploaded.": "首次使用需下載識別模型（約 {{mb}} MB），只需一次。識別在本機完成，圖片不會上傳",
- "WHOOP can't be connected on a phone yet. Connect it in PhysiMind on your computer; its data reaches this phone when your devices sync.": "手機上暫時還不能連接 WHOOP。請在電腦上的 PhysiMind 中連接，數據會在設備同步時到達這臺手機。",
  "iOS style, dark": "iOS 風格 · 深色",
  "iOS style, light": "iOS 風格 · 淺色",
  "{{n}} matched": "已匹配 {{n}} 項",
@@ -828,5 +827,16 @@
  "Changing phones: on the new one open PhysiMind › More › Connect another device and show the connection code, then scan it with this one. The new phone then has the same identity code.": "換手機時，在新手機上打開 PhysiMind › 更多 › 連接其他設備，出示連接碼，再用這臺手機掃，新手機就會用同一個身份碼。",
  "Labs and service desks send results to your health account, sealed so only your devices can open them. PhysiMind checks for new results when it opens and every few minutes while it's open.": "檢測室和服務檯會把結果加密發到你的健康賬戶，只有你的設備能打開。PhysiMind 打開時和使用期間每隔幾分鐘會檢查新結果。",
  "Show your identity code (the button at the top of the dashboard) at a lab or service desk to receive results here.": "在檢測室或服務檯出示你的身份碼（看板右上角的按鈕），結果就會發到這裡。",
- "Sent to you by labs and service desks": "檢測室和服務檯發給你的結果"
+ "Sent to you by labs and service desks": "檢測室和服務檯發給你的結果",
+ "WHOOP is connected. Its data arrives in a moment.": "WHOOP 已連接，數據稍後就到。",
+ "Close": "關閉",
+ "Point the camera at the QR code on a lab device, or at the connection code another device of yours shows.": "把相機對準檢測設備上的二維碼，或你另一臺設備顯示的連接碼。",
+ "Check for updates": "檢查更新",
+ "Can't check for updates": "無法檢查更新",
+ "PhysiMind {{version}} is available": "PhysiMind {{version}} 已推出",
+ "PhysiMind is up to date": "PhysiMind 已是最新版本",
+ "You have {{version}}. The new version downloads in your browser; open it to install it.": "當前版本是 {{version}}。新版本會在瀏覽器中下載，下載後打開即可安裝。",
+ "You have the latest version, {{version}}.": "你使用的是最新版本 {{version}}。",
+ "Later": "以後再說",
+ "Download": "下載"
 }

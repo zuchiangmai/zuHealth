@@ -1,7 +1,7 @@
 // What a page knows of its place in the stack (App's pages stay mounted under the one on top, as a native
 // navigation stack keeps them): whether it is on top, and its own elements.
 import { createContext, useContext, useEffect, useRef } from "react";
-import { takeHanded } from "./router";
+import { handedSubs, takeHanded } from "./router";
 
 export type PageInfo = {
   /** Its address (a hash) */
@@ -39,7 +39,12 @@ export function useHanded<T>(take: (value: T) => void) {
   latest.current = take;
   useEffect(() => {
     if (!active) return;
-    const v = takeHanded(path);
-    if (v !== undefined) latest.current(v as T);
+    const take = () => {
+      const v = takeHanded(path);
+      if (v !== undefined) latest.current(v as T);
+    };
+    take();
+    handedSubs.add(take);
+    return () => void handedSubs.delete(take);
   }, [active, path]);
 }

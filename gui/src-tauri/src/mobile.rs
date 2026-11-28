@@ -105,6 +105,47 @@ pub(crate) fn open_link(app: AppHandle, url: String) -> std::result::Result<(), 
     app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
 }
 
+/// Starts WHOOP's sign-in on a phone and opens WHOOP's page in the browser (only that page: the address comes from
+/// the core, and the web view opens no pages). WHOOP returns to the site's page, which opens the app; the UI then
+/// finishes with `whoop.complete`.
+#[tauri::command(async)]
+pub(crate) fn whoop_sign_in(app: AppHandle, client_id: String, client_secret: String) -> std::result::Result<Value, Value> {
+    use tauri_plugin_opener::OpenerExt;
+    let r = runtime(&app)?
+        .owner("whoop.begin", &json!({ "client_id": client_id, "client_secret": client_secret, "app": true }), Opts::default())
+        .map_err(|e| error_json(&e))?;
+    let url = r.value["url"].as_str().unwrap_or_default();
+    // health-api whoop::AUTH_URL
+    if !url.starts_with("https://api.prod.whoop.com/oauth/oauth2/auth?") {
+        return Err(json!({ "code": "whoop_url", "message": "not WHOOP's sign-in page" }));
+    }
+    app.opener().open_url(url, None::<&str>).map_err(|e| json!({ "code": "open_failed", "message": e.to_string() }))?;
+    Ok(json!({ "redirect": r.value["redirect"] }))
+}
+
+/// Whether GitHub has a newer app (Android: the person installs the APK; iOS updates through the App Store, so it
+/// isn't asked there). Only when the person asks.
+#[tauri::command(async)]
+pub(crate) fn check_update(app: AppHandle) -> std::result::Result<Value, Value> {
+    if cfg!(target_os = "ios") {
+        return Err(json!({ "code": "no_op", "message": "updates come from the App Store" }));
+    }
+    let current = app.package_info().version.to_string();
+    let u = health_runtime::update::check(&current).map_err(|_| json!({ "code": "network", "message": "" }))?;
+    Ok(serde_json::to_value(u).unwrap_or(Value::Null))
+}
+
+/// Opens an update's package in the browser, which downloads it; Android then offers to install it. Only GitHub's
+/// downloads of this app's repository.
+#[tauri::command]
+pub(crate) fn open_update(app: AppHandle, url: String) -> std::result::Result<(), Value> {
+    use tauri_plugin_opener::OpenerExt;
+    if !url.starts_with(health_runtime::update::DOWNLOADS) || url.contains("..") {
+        return Err(json!({ "code": "bad_request", "message": "not this app's download" }));
+    }
+    app.opener().open_url(url, None::<&str>).map_err(|e| json!({ "code": "open_failed", "message": e.to_string() }))
+}
+
 /// The system share sheet for a file the app wrote (an export, a backup).
 #[tauri::command(async)]
 pub(crate) fn share_file(app: AppHandle, path: String, mime: String) -> std::result::Result<(), String> {

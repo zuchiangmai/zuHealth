@@ -28,6 +28,17 @@
 	<string>0.1.0</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>$(PRODUCT_BUNDLE_IDENTIFIER).physimind</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>physimind</string>
+			</array>
+		</dict>
+	</array>
 	<key>NSCameraUsageDescription</key>
 	<string>Scan a lab device&apos;s code or another device&apos;s link code, and photograph lab reports.</string>
 	<key>NSHealthShareUsageDescription</key>

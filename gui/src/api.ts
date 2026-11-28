@@ -462,19 +462,37 @@ async function stageInChunks(file: File): Promise<string> {
   return path;
 }
 
-/** Mobile: scans a QR code with the camera; null if the person closed the scanner. */
-export async function scanCode(): Promise<string | null> {
-  const { scan, cancel, Format, checkPermissions, requestPermissions } = await import("@tauri-apps/plugin-barcode-scanner");
-  let p = await checkPermissions();
-  if (p !== "granted") p = await requestPermissions();
-  if (p !== "granted") throw new OpError("camera", t("Allow the camera in Settings to scan codes."));
+/** Opens the camera for a QR code (scanner.tsx: the screen over it, with the way out). */
+export { scanCode } from "./scanner";
+
+export { type CodeTarget, codeTarget, SITE_HOST } from "./codes";
+
+/** Where WHOOP's sign-in returns on a phone (health-api whoop::APP_REDIRECT), to register in the WHOOP developer app */
+export const WHOOP_APP_REDIRECT = "https://zuchiangmai.com/health/whoop";
+
+/** A phone's WHOOP sign-in: the shell starts it and opens WHOOP's page; the link back (deeplink.ts) finishes it. */
+export async function whoopSignIn(clientId: string, clientSecret: string): Promise<{ redirect: string }> {
   try {
-    const r = await scan({ windowed: false, formats: [Format.QRCode] });
-    return r.content || null;
-  } catch {
-    await cancel().catch(() => {});
-    return null;
+    return await invoke<{ redirect: string }>("whoop_sign_in", { clientId, clientSecret });
+  } catch (e) {
+    const err = e as ApiError;
+    throw new OpError(err.code ?? "error", err.message ?? String(e));
   }
 }
 
-export { type CodeTarget, codeTarget, SITE_HOST } from "./codes";
+/** What GitHub's latest release means for this app (Android only: the update button is shown nowhere else). */
+export type AppUpdate = { current: string; latest: string | null; newer: boolean; url?: string; notes?: string };
+
+export async function checkUpdate(): Promise<AppUpdate> {
+  try {
+    return await invoke<AppUpdate>("check_update");
+  } catch (e) {
+    const err = e as ApiError;
+    throw new OpError(err.code ?? "error", err.message ?? String(e));
+  }
+}
+
+/** Opens the update's package in the browser (it downloads; Android offers to install it). */
+export function openUpdate(url: string): void {
+  invoke("open_update", { url }).catch(() => {});
+}

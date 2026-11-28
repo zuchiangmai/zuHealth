@@ -3,8 +3,22 @@
 import { isMobile } from "./api";
 import { codeTarget } from "./codes";
 
-/** Where a link leads: a lab device's page, or an address the app can't open */
-export type LinkTarget = { path: string } | { unknown: true };
+/** Where a link leads: a lab device's page, WHOOP's sign-in coming back (its query), or an address the app can't
+ *  open */
+export type LinkTarget = { path: string } | { whoop: string } | { unknown: true };
+
+/** WHOOP's sign-in returning to the phone: the site's page (an App Link / Universal Link) or the scheme that page
+ *  hands on to (`physimind://whoop?code=…&state=…`); the query, else null */
+function whoopReturn(url: string): string | null {
+  try {
+    const u = new URL(url.trim());
+    const site = u.protocol === "https:" && u.hostname === "zuchiangmai.com" && /^\/health\/whoop\/?$/.test(u.pathname);
+    const scheme = u.protocol === "physimind:" && (u.hostname === "whoop" || u.pathname.replace(/^\/+/, "") === "whoop");
+    return site || scheme ? u.search.replace(/^\?/, "") : null;
+  } catch {
+    return null;
+  }
+}
 
 let pending: LinkTarget | undefined;
 /** The pages links opened, each until the person has gone on from it (it waits for a tap before contacting the
@@ -37,6 +51,12 @@ function take(url: string, replay: boolean) {
     sessionStorage.setItem(LAST, url);
   } catch {
     // no storage: at worst a reload reopens the page
+  }
+  const back = whoopReturn(url);
+  if (back !== null) {
+    pending = { whoop: back };
+    for (const f of subs) f();
+    return;
   }
   const c = codeTarget(url);
   pending = c.kind === "device" && url.trim().startsWith("https://") ? { path: `data/lab/${c.page}/${c.device}` } : { unknown: true };

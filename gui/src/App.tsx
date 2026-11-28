@@ -8,8 +8,10 @@ import meadowLight from "./backdrop/meadow-light.webp";
 import { HOME_GROUPS } from "./format";
 import { t, tk } from "./i18n";
 import { rubberBand } from "./overscroll";
+import { isTouch } from "./pickers";
+import { useSwipeBack } from "./swipeback";
 import { PageContext, type PageInfo } from "./page";
-import { type Entry, back as goBack, go as nav, parts, scrollBack, useRoute, useStack } from "./router";
+import { type Entry, back as goBack, handTo, go as nav, parts, scrollBack, useRoute, useStack } from "./router";
 import { About, ClearDataRow } from "./screens/about";
 import { HealthAccount, IdentityPage, useInbox, useSyncLive } from "./screens/account";
 import { AddPage } from "./screens/add";
@@ -263,7 +265,18 @@ function Shell({ status }: { status?: Status }) {
     const open = () => {
       const l = takeLink();
       if (l && "path" in l) nav(l.path);
-      else if (l) setStrangeLink(true);
+      else if (l && "whoop" in l) {
+        // WHOOP's sign-in came back (a phone): finished here, then said on WHOOP's page
+        op("whoop.complete", { query: l.whoop })
+          .then(
+            () => {
+              handTo("data/whoop", t("WHOOP is connected. Its data arrives in a moment."));
+              void op("whoop.sync", { force: true }).catch(() => {});
+            },
+            (e) => handTo("data/whoop", errText(e)),
+          )
+          .finally(() => nav("data/whoop"));
+      } else if (l) setStrangeLink(true);
     };
     open();
     return onLink(open);
@@ -294,6 +307,16 @@ function Shell({ status }: { status?: Status }) {
     return () => clearTimeout(t);
   }, [shown]);
   const { dark } = useAppearance();
+  // back by swiping from the left edge (a touch screen, narrow: a wide window has its side panel), where the top
+  // page has a way back and a page under it to show
+  const stackEl = useRef<HTMLElement>(null);
+  const canSwipe = useCallback(() => {
+    const r = parts();
+    const p = fromRoute(r).page;
+    return isTouch && !matchMedia("(min-width: 761px)").matches && (r.length > 1 || !TABS.some((x) => x.key === p));
+  }, []);
+  const swipeBack = useCallback(() => goBack(parentOf(parts(), pathOf(tab.current))), []);
+  useSwipeBack(stackEl, canSwipe, swipeBack);
   // narrow screens: the tab a section was opened from, where its back button returns
   // opened at an address under no tab (#/data/lab): More, where those sections are; a measure or report: Dashboard
   const tab = useRef<Tab>(TABS.some((x) => x.key === page) ? (page as Tab) : metric || route[0] === "report" || !route.length ? "readings" : "more");
@@ -598,7 +621,7 @@ function Shell({ status }: { status?: Status }) {
       </nav>
       {/* the pages, one over another as a native navigation stack has them: those under the top one stay as they
           were left (scrolled, opened, typed into), out of sight and out of reach */}
-      <main className="relative h-dvh min-w-0 overflow-hidden">
+      <main ref={stackEl} className="relative h-dvh min-w-0 overflow-hidden">
         {[...stack.entries, ...shown.leaving].map((e, i) => {
           const at = i < stack.entries.length ? (i === stack.entries.length - 1 ? "top" : "under") : "leaving";
           return (

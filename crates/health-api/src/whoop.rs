@@ -18,6 +18,9 @@ pub const REDIRECT_PORT: u16 = 47630;
 pub fn redirect() -> String {
     format!("http://localhost:{REDIRECT_PORT}/whoop")
 }
+/// Where WHOOP's sign-in returns on a phone (a phone has no loopback page to catch it): the site's page, which opens
+/// the app (an App Link / Universal Link, or, until the site's association files are up, `physimind://whoop`)
+pub const APP_REDIRECT: &str = "https://zuchiangmai.com/health/whoop";
 const DAY: i64 = 86_400_000;
 const FIRST_DAYS: i64 = 30;
 const AGAIN_DAYS: i64 = 7;
@@ -175,6 +178,9 @@ pub struct Begin {
     /// Through serve (the app): serve opens the sign-in page and catches the redirect itself
     #[serde(default)]
     pub open: bool,
+    /// On a phone: the sign-in returns to APP_REDIRECT, and the app hands its query to whoop.complete
+    #[serde(default)]
+    pub app: bool,
 }
 
 #[derive(Serialize, JsonSchema)]
@@ -192,11 +198,13 @@ pub(crate) fn begin(net: &Net, r: Begin) -> Result<Begun> {
     }
     let st = health_proto::b64::b64u(&health_core::aead::random::<12>());
     let prev = load(net)?;
+    let back = if r.app { APP_REDIRECT.to_string() } else { redirect() };
     // connecting again keeps the last sync time and user: then only 7 days are fetched
     let w = Whoop {
         client_id: id.clone(),
         client_secret: secret,
         pending: Some(st.clone()),
+        redirect: r.app.then(|| back.clone()),
         user_id: prev.as_ref().and_then(|p| p.user_id.clone()),
         last_sync: prev.as_ref().and_then(|p| p.last_sync),
         ..Default::default()
@@ -204,9 +212,9 @@ pub(crate) fn begin(net: &Net, r: Begin) -> Result<Begun> {
     keep(net, &w)?;
     let url = format!(
         "{AUTH_URL}?{}",
-        query(&[("response_type", "code"), ("client_id", &id), ("redirect_uri", &redirect()), ("scope", SCOPE), ("state", &st)])
+        query(&[("response_type", "code"), ("client_id", &id), ("redirect_uri", &back), ("scope", SCOPE), ("state", &st)])
     );
-    Ok(Begun { url, redirect: redirect() })
+    Ok(Begun { url, redirect: back })
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -264,7 +272,7 @@ pub(crate) fn complete(net: &Net, r: Complete) -> Result<Connected> {
             ("code", &code),
             ("client_id", &s.client_id),
             ("client_secret", &s.client_secret),
-            ("redirect_uri", &redirect()),
+            ("redirect_uri", &s.redirect.clone().unwrap_or_else(redirect)),
         ],
     )
     .map_err(|e| if e.code == "whoop_reauth" { stop("state") } else { e })?;

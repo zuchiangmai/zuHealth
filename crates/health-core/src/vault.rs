@@ -206,6 +206,9 @@ pub struct Whoop {
     /// The `state` of a sign-in not yet back
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending: Option<String>,
+    /// Where that sign-in returns (the token exchange must name the same): None, the computer's loopback
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub redirect: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

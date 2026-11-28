@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { type Batch, type BatchDetail, inBackground, isAndroid, isMobile, op, type Source } from "../api";
+import { type Batch, type BatchDetail, inBackground, isAndroid, isMobile, op, type Source, WHOOP_APP_REDIRECT, whoopSignIn } from "../api";
 import { ago, shortDate, shown, sourceKind, when } from "../format";
 import { t } from "../i18n";
 import { LabSelfService } from "../lab";
@@ -391,7 +391,8 @@ function WhoopConnect() {
   const [st, setSt] = useState<WhoopStatus>();
   const [id, setId] = useState("");
   const [secret, setSecret] = useState("");
-  const [redirect, setRedirect] = useState("http://localhost:47630/whoop");
+  // where WHOOP's sign-in returns: this computer's own page, or on a phone the site's page that opens the app
+  const [redirect, setRedirect] = useState(isMobile ? WHOOP_APP_REDIRECT : "http://localhost:47630/whoop");
   const [err, setErr] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string>();
@@ -419,9 +420,17 @@ function WhoopConnect() {
       load();
     }
   };
+  // the result of a sign-in that came back to a phone (App.tsx finishes it), said here
+  useHanded<string>((m) => {
+    setNote(m);
+    load();
+  });
   const connect = () =>
     run(async () => {
-      const b = await op<{ url: string; redirect: string }>("whoop.begin", { client_id: id, client_secret: secret, open: true });
+      // a phone: the shell opens WHOOP's page (the web view opens no pages) and the link back finishes it
+      const b = isMobile
+        ? await whoopSignIn(id, secret)
+        : await op<{ url: string; redirect: string }>("whoop.begin", { client_id: id, client_secret: secret, open: true });
       setRedirect(b.redirect);
       setSecret("");
       setNote(t("WHOOP's sign-in page opened in your browser. PhysiMind finishes when you come back."));
@@ -450,9 +459,6 @@ function WhoopConnect() {
             </Btn>
           </div>
         </>
-      ) : isMobile ? (
-        // nothing on a phone opens WHOOP's sign-in or catches its redirect yet (plan D14)
-        <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55">{t("WHOOP can't be connected on a phone yet. Connect it in PhysiMind on your computer; its data reaches this phone when your devices sync.")}</p>
       ) : st.state === "pending" ? (
         <p className="text-[13px] text-black/55 dark:text-white/55">{t("Waiting for the WHOOP sign-in in your browser…")}</p>
       ) : (

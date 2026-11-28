@@ -46,6 +46,11 @@ targets:
       properties:
         CFBundleDisplayName: PhysiMind
         LSRequiresIPhoneOS: true
+        # physimind://whoop: WHOOP's sign-in coming back through the site's page, until Universal Links are set up
+        # (the deep-link plugin writes the same at build time; this keeps it through `xcodegen generate`)
+        CFBundleURLTypes:
+          - CFBundleURLName: $(PRODUCT_BUNDLE_IDENTIFIER).physimind
+            CFBundleURLSchemes: [physimind]
         NSLocalNetworkUsageDescription: "Sync health data directly with your other devices on the same network."
         NSCameraUsageDescription: "Scan a lab device's code or another device's link code, and photograph lab reports."
         NSPhotoLibraryUsageDescription: "Choose photos of lab reports for PhysiMind to read on this device."

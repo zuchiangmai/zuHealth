@@ -135,7 +135,15 @@ Never exercised yet: on a phone after the runtime move (Android blocked by a run
 register / start / result and every ForceDecks step after the lookup (they act on real lab devices); scanning, camera
 capture and the share sheet; LAN sync after the move; OCR on a phone; Android network ops with the bundled roots.
 
-Not done on phones: WHOOP sign-in (nothing opens the page or catches the redirect: plan D14), HEIC photos,
+WHOOP on a phone (D14): the shell's `whoop_sign_in` opens WHOOP's page; the sign-in returns to
+`https://zuchiangmai.com/health/whoop` (register it in the WHOOP developer app), which opens the app as an App Link /
+Universal Link, or, until the site's association files are up, through its page handing the query on to
+`physimind://whoop` (the deep-link plugin's custom scheme); the UI finishes with `whoop.complete`.
+Scanning uses the scanner's windowed mode: the camera behind the web view and the app's own screen over it
+(`scanner.tsx`), with a close button, Android's back and the swipe back. The swipe back from the left edge is the
+page stack's (`swipeback.ts`, as Framework7 has it; Konsta has no navigation).
+
+Not done on phones: HEIC photos,
 biometrics before unlock, CI workflows (not brought over yet). The web code's licence is the owner's to confirm.
 Built but not yet run on a device: deep links from the system camera (they also need the site's association files),
 Apple Health / Health Connect.

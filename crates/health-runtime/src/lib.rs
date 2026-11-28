@@ -9,6 +9,7 @@ pub mod backend;
 pub mod lan;
 pub mod ocr;
 pub mod syshealth;
+pub mod update;
 
 pub use health_core::keys::{Key, KeyStore};
 pub use health_core::{Error, Kind, Result};
@@ -461,7 +462,7 @@ impl Runtime {
             })??;
         let changed = match name {
             "inbox.poll" => ["saved", "review"].iter().any(|k| v[*k].as_u64().unwrap_or(0) > 0),
-            "link.adopt" | "account.register" => true,
+            "link.adopt" | "account.register" | "whoop.complete" => true,
             "seca.poll" => v["state"] == "ready",
             "fd.check" | "fd.catch_up" => v["taken"].as_u64().unwrap_or(0) > 0,
             "whoop.sync" => v["written"].as_u64().unwrap_or(0) > 0,

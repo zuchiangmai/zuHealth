@@ -3,6 +3,7 @@ import { App as KonstaApp } from "konsta/react";
 import { StrictMode, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import { ScannerOverlay } from "./scanner";
 import { useAppearance } from "./ui";
 import "./app.css";
 
@@ -20,6 +21,8 @@ function Root() {
   return (
     <KonstaApp theme={theme} dark={dark} safeAreas>
       <App />
+      {/* over the camera while scanning (it hides the app, so it lives outside it) */}
+      <ScannerOverlay />
     </KonstaApp>
   );
 }

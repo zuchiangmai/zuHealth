@@ -1,8 +1,9 @@
-import { type ReactNode } from "react";
-import { type Batch, isMobile, op, type Status } from "../api";
+import { Dialog, DialogButton } from "konsta/react";
+import { type ReactNode, useState } from "react";
+import { type AppUpdate, type Batch, checkUpdate, isAndroid, isMobile, op, openUpdate, type Status } from "../api";
 import { ago, shortDate } from "../format";
 import { t } from "../i18n";
-import { birthLabel, Callout, Choice, Group, GroupIcon, Heading, Icon, Item, LangSelect, type Look, type Page, type Personal, Row, setLook, sexLabel, type SyncShown, useLook, useOp, type WhoopStatus } from "../ui";
+import { birthLabel, Callout, Choice, errText, Group, GroupIcon, Heading, Icon, Item, LangSelect, type Look, type Page, type Personal, Row, setLook, sexLabel, type SyncShown, useLook, useOp, type WhoopStatus } from "../ui";
 import { SyncValue, useSyncLive } from "./account";
 
 /** How the app looks: the platform's own (and the system's dark mode), or either look, light or dark, chosen to
@@ -17,6 +18,62 @@ function LookSelect() {
     { key: "material-dark", label: t("Android style, dark") },
   ];
   return <Choice label={t("Appearance")} icon={<Icon k="look" />} color="#c2185b" value={value} options={options} onChange={setLook} />;
+}
+
+/** Asks GitHub for a newer app and, if there is one, opens its package to download and install. */
+function UpdateRow() {
+  const [busy, setBusy] = useState(false);
+  const [found, setFound] = useState<AppUpdate>();
+  const [err, setErr] = useState<string>();
+  const check = async () => {
+    if (busy) return;
+    setBusy(true);
+    setErr(undefined);
+    try {
+      setFound(await checkUpdate());
+    } catch (e) {
+      setErr(errText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const close = () => (setFound(undefined), setErr(undefined));
+  return (
+    <>
+      <Row color="#43a047" icon={<Icon k="update" />} label={t("Check for updates")} value={busy ? t("Checking…") : undefined} onClick={() => void check()} />
+      <Dialog
+        opened={!!found || !!err}
+        onBackdropClick={close}
+        title={err ? t("Can't check for updates") : found?.newer ? t("PhysiMind {{version}} is available", { version: found.latest }) : t("PhysiMind is up to date")}
+        content={
+          <span className="whitespace-pre-line">
+            {err ??
+              (found?.newer
+                ? `${t("You have {{version}}. The new version downloads in your browser; open it to install it.", { version: found.current })}${found.notes ? `\n\n${found.notes}` : ""}`
+                : t("You have the latest version, {{version}}.", { version: found?.current ?? "" }))}
+          </span>
+        }
+        buttons={
+          found?.newer && found.url ? (
+            <>
+              <DialogButton onClick={close}>{t("Later")}</DialogButton>
+              <DialogButton
+                strong
+                onClick={() => {
+                  openUpdate(found.url!);
+                  close();
+                }}
+              >
+                {t("Download")}
+              </DialogButton>
+            </>
+          ) : (
+            <DialogButton onClick={close}>{t("OK")}</DialogButton>
+          )
+        }
+      />
+    </>
+  );
 }
 
 /** More (narrow screens), as the web's 更多: one card per part (profile, data sources, backup and export, other
@@ -80,6 +137,8 @@ export function More({ go, status }: { go: (p: Page, want?: string) => void; sta
         <LookSelect />
         <LangSelect />
         <Item color="#9e9e9e" icon={<Icon k="about" />} title={t("Version")} after={status?.version ?? "–"} />
+        {/* Android installs updates from GitHub by hand; an iPhone updates through the App Store */}
+        {isAndroid && <UpdateRow />}
       </Group>
     </section>
   );

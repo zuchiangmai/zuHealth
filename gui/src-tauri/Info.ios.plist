@@ -7,6 +7,17 @@
 <dict>
   <key>CFBundleDisplayName</key>
   <string>PhysiMind</string>
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key>
+      <string>$(PRODUCT_BUNDLE_IDENTIFIER).physimind</string>
+      <key>CFBundleURLSchemes</key>
+      <array>
+        <string>physimind</string>
+      </array>
+    </dict>
+  </array>
   <key>NSLocalNetworkUsageDescription</key>
   <string>Sync health data directly with your other devices on the same network.</string>
   <key>NSCameraUsageDescription</key>

@@ -95,6 +95,33 @@ pub fn download(url: &str, dest: &Path, sha256: &str, bytes: u64, progress: &mut
     }
 }
 
+/// The latest published release of a GitHub repository (`owner/name`), as GitHub's API gives it; None when there is
+/// none yet. Asked only when the person checks for an update; the request carries nothing of theirs.
+pub fn latest_release(repo: &str) -> Result<Option<serde_json::Value>, Error> {
+    let tls = ureq::tls::TlsConfig::builder().root_certs(roots()).build();
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .tls_config(tls)
+        .user_agent("PhysiMind")
+        .http_status_as_error(false)
+        .timeout_connect(Some(std::time::Duration::from_secs(15)))
+        .timeout_global(Some(std::time::Duration::from_secs(30)))
+        .build()
+        .into();
+    let mut res = agent
+        .get(format!("https://api.github.com/repos/{repo}/releases/latest"))
+        .header("accept", "application/vnd.github+json")
+        .call()
+        .map_err(|e| Error::Network(e.to_string()))?;
+    match res.status().as_u16() {
+        404 => Ok(None),
+        200 => {
+            let text = res.body_mut().with_config().limit(1 << 20).read_to_string().map_err(|e| Error::Network(e.to_string()))?;
+            serde_json::from_str(&text).map(Some).map_err(|e| Error::Network(e.to_string()))
+        }
+        s => Err(Error::Network(format!("GitHub answered {s}"))),
+    }
+}
+
 /// The health backend (protocol 0): JSON to one base URL, no redirects (a signed request never goes to another
 /// host). Failures are codes only: transport messages carry URLs with the channel or the inbox key, so they are
 /// never passed on.
