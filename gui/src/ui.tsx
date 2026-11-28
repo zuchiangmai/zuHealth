@@ -223,7 +223,7 @@ export const Callout = ({ icon, title, text, onClick }: { icon: ReactNode; title
 /** A card (a form, a code to show, a step): each theme's surface, rounded as its groups. */
 export const card = `mb-4 rounded-3xl p-4 ${rowBg}`;
 
-export type Page = "readings" | "add" | "data" | "backup" | "profile" | "account" | "agents" | "about" | "review" | "more";
+export type Page = "readings" | "add" | "data" | "backup" | "profile" | "id" | "account" | "agents" | "about" | "review" | "more";
 
 export const MAC = typeof navigator !== "undefined" && /Mac/.test(navigator.userAgent);
 

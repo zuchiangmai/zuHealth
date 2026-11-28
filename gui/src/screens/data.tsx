@@ -6,7 +6,7 @@ import { LabSelfService } from "../lab";
 import { nameOf } from "../names";
 import { back as goBack, go as nav } from "../router";
 import { Btn, card, Chevron, Copy, errText, Group, GroupIcon, Heading, Icon, type Page, PasswordField, Problem, Row, rowBg, Screen, useOp, WebLink, type WhoopStatus } from "../ui";
-import { pollFast } from "./account";
+import { LabResults, pollFast } from "./account";
 import { Enter } from "./add";
 import { Import } from "./import";
 import { ExportNote, SystemHealthCard } from "./syshealth";
@@ -14,7 +14,7 @@ import { usePage } from "../page";
 
 const WHOOP_DASHBOARD = "https://developer-dashboard.whoop.com/";
 
-const SOURCE_SHEETS = ["manage", "whoop", "apple", "health", "report", "lab", "restore", "manual", "file"] as const;
+const SOURCE_SHEETS = ["manage", "whoop", "apple", "health", "report", "results", "lab", "restore", "manual", "file"] as const;
 
 type SourceSheet = (typeof SOURCE_SHEETS)[number];
 
@@ -59,6 +59,7 @@ export function DataSources({
     apple: t("Apple Health"),
     health: "Health Connect",
     report: t("Lab report"),
+    results: t("Lab results"),
     lab: t("Lab self-service"),
     restore: t("Restore a backup"),
     manual: t("Enter by hand"),
@@ -66,8 +67,9 @@ export function DataSources({
   };
   if (sheet === "manage") return <Sources go={go} path={path ?? []} />;
   if (sheet === "whoop") return <Screen title="WHOOP"><WhoopConnect /></Screen>;
-  if (sheet === "lab") return <LabSelfService errText={errText} showResults={() => go("readings")} showIdentity={() => go("account")} pollFast={pollFast} path={path ?? []} />;
+  if (sheet === "lab") return <LabSelfService errText={errText} showResults={() => go("readings")} showIdentity={() => go("id")} pollFast={pollFast} path={path ?? []} />;
   if (sheet === "manual") return <Enter done={done} />;
+  if (sheet === "results") return <LabResults go={go} />;
   // the phone's own store: Health Connect on Android; on an iPhone, Apple Health connected above its export's import
   if (sheet === "health")
     return (
@@ -102,6 +104,7 @@ export function DataSources({
         <Row color="#f4511e" icon={<GroupIcon k="activity" />} label={t("Apple Health")} sub={lastOf("apple_health") ?? t("Export from your iPhone")} onClick={() => setSheet("apple")} />
         {isAndroid && <Row color="#1e88e5" icon={<GroupIcon k="activity" />} label="Health Connect" sub={lastOf("health_connect") ?? t("This phone's health data")} onClick={() => setSheet("health")} />}
         <Row color="#00897b" icon={<GroupIcon k="lab" />} label={t("Lab report")} sub={lastOf("ocr") ?? t("A photo or a PDF")} onClick={() => setSheet("report")} />
+        <Row color="#3949ab" icon={<Icon k="inbox" />} label={t("Lab results")} sub={t("Sent to you by labs and service desks")} onClick={() => setSheet("results")} />
         <Row color="#43a047" icon={<GroupIcon k="infectious" />} label={t("Lab self-service")} sub={t("A code for a lab device")} onClick={() => setSheet("lab")} />
         <Row color="#fb8c00" icon={<Icon k="backup" />} label={t("Restore a backup")} sub={t("A .zuhealth file")} onClick={() => setSheet("restore")} />
         <Row color="#7c4dff" icon={<GroupIcon k="body" />} label={t("Enter by hand")} sub={lastOf("manual") ?? t("Write down a reading")} onClick={() => setSheet("manual")} />

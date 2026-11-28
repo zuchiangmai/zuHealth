@@ -3,6 +3,7 @@ import { type Batch, isMobile, op, type Status } from "../api";
 import { ago, shortDate } from "../format";
 import { t } from "../i18n";
 import { birthLabel, Callout, Choice, Group, GroupIcon, Heading, Icon, Item, LangSelect, type Look, type Page, type Personal, Row, setLook, sexLabel, type SyncShown, useLook, useOp, type WhoopStatus } from "../ui";
+import { SyncValue, useSyncLive } from "./account";
 
 /** How the app looks: the platform's own (and the system's dark mode), or either look, light or dark, chosen to
  *  review it on this device. */
@@ -20,7 +21,7 @@ function LookSelect() {
 
 /** More (narrow screens), as the web's 更多: one card per part (profile, data sources, backup and export, other
  *  devices, about), each row opening its section at the right place. */
-export function More({ go, status, syncAsking }: { go: (p: Page, want?: string) => void; status?: Status; syncAsking: boolean }) {
+export function More({ go, status }: { go: (p: Page, want?: string) => void; status?: Status }) {
   const reviews = status?.reviews ?? 0;
   // each row says how things stand, as Settings does, not what the section is for
   const [me] = useOp(() => op<Personal>("profile.get"), []);
@@ -42,7 +43,7 @@ export function More({ go, status, syncAsking }: { go: (p: Page, want?: string) 
         : whoop
           ? t("Not connected")
           : undefined;
-  const syncText = sync ? (sync.enabled ? t("On · {{n}} devices", { n: sync.peers.length }) : t("Off")) : undefined;
+  const live = useSyncLive();
   const row = (color: string, icon: ReactNode, label: string, p: Page, want?: string, text?: string, value?: ReactNode) => (
     <Row key={label} color={color} icon={icon} label={label} sub={text} value={value} onClick={() => go(p, want)} />
   );
@@ -58,6 +59,7 @@ export function More({ go, status, syncAsking }: { go: (p: Page, want?: string) 
         {row("#e53935", <GroupIcon k="cardio" />, "WHOOP", "data", "whoop", whoopText)}
         {row("#f4511e", <GroupIcon k="activity" />, t("Apple Health"), "data", "apple", lastOf("apple_health"))}
         {row("#00897b", <GroupIcon k="lab" />, t("Lab report"), "data", "report", lastOf("ocr"))}
+        {row("#3949ab", <Icon k="inbox" />, t("Lab results"), "data", "results", t("Sent to you by labs and service desks"))}
         {row("#43a047", <GroupIcon k="infectious" />, t("Lab self-service"), "data", "lab", t("A code for a lab device"))}
       </Group>
       <Group title={t("Backup and export")}>
@@ -66,9 +68,9 @@ export function More({ go, status, syncAsking }: { go: (p: Page, want?: string) 
         {row("#6d4c41", <GroupIcon k="other" />, t("Export a table (CSV)"), "backup", "csv", t("Unencrypted, for spreadsheets and other tools"))}
       </Group>
       <Group title={t("Other devices")}>
-        {row("#3949ab", <Icon k="account" />, t("Health account"), "account", undefined, syncAsking ? t("Waiting for you") : undefined, syncAsking ? <span className="inline-block h-2 w-2 rounded-full bg-brand-red" role="img" aria-label={t("Waiting for you")} /> : undefined)}
-        {row("#039be5", <Icon k="wifi" />, t("Local network sync"), "account", "sync", syncText)}
+        {row("#039be5", <Icon k="wifi" />, t("Local network sync"), "account", "sync", undefined, <SyncValue st={sync} live={live} />)}
         {row("#5e35b1", <Icon k="link" />, t("Connect another device"), "account", "connect")}
+        {row("#3949ab", <Icon k="list" />, t("Connection history"), "account", "history")}
       </Group>
       {/* agent apps on this computer (a narrow desktop window) */}
       {!isMobile && <Group title={t("Sharing")}>{row("#546e7a", <Icon k="agents" />, t("Agent access"), "agents")}</Group>}

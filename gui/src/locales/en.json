@@ -55,8 +55,6 @@
  "Showing the newest {{count}}._other": "Showing the newest {{count}}.",
  "{{count}} entries will be deleted._one": "{{count}} entry will be deleted.",
  "{{count}} entries will be deleted._other": "{{count}} entries will be deleted.",
- "{{count}} discarded_one": "{{count}} discarded",
- "{{count}} discarded_other": "{{count}} discarded",
  "Up to date · {{count}} devices_one": "Up to date · {{count}} device",
  "Up to date · {{count}} devices_other": "Up to date · {{count}} devices",
  "{{count}} items can't be merged, for example a measure whose unit differs between the two devices. PhysiMind tries again every day._one": "{{count}} item can't be merged, for example a measure whose unit differs between the two devices. PhysiMind tries again every day.",

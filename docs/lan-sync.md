@@ -490,7 +490,7 @@ Rules:
 
 ## 11. UI
 
-On the Health account page, below the linked devices:
+On the Local network sync page (More › Other devices on a phone, the side panel on a wide window):
 
 - A switch, "Sync on this network". On once the device is linked (owner to confirm). The first sync with each
   device still asks (§10).

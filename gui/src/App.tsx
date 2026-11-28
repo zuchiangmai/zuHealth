@@ -11,7 +11,7 @@ import { rubberBand } from "./overscroll";
 import { PageContext, type PageInfo } from "./page";
 import { type Entry, back as goBack, go as nav, parts, scrollBack, useRoute, useStack } from "./router";
 import { About, ClearDataRow } from "./screens/about";
-import { HealthAccount, useInbox, useSyncLive } from "./screens/account";
+import { HealthAccount, IdentityPage, useInbox, useSyncLive } from "./screens/account";
 import { AddPage } from "./screens/add";
 import { Agents } from "./screens/agents";
 import { Backup } from "./screens/backup";
@@ -41,7 +41,7 @@ const PAGES: { key: Page; label: string }[] = [
   { key: "data", label: tk("Data sources") },
   { key: "backup", label: tk("Backup") },
   { key: "profile", label: tk("Profile") },
-  { key: "account", label: tk("Health account") },
+  { key: "id", label: tk("Identity code") },
   { key: "agents", label: tk("Agent access") },
   { key: "about", label: tk("About") },
 ];
@@ -53,7 +53,7 @@ const pathOf = (p: Page) => (p === "readings" ? "dashboard" : p);
 function fromRoute([a, b, ...c]: string[]): { page: Page; want?: string; metric?: string; rest?: string[] } {
   if (a === "metric" && b) return { page: "readings", metric: b };
   if (a === "report") return { page: "readings", want: b };
-  if (a && a !== "dashboard" && (PAGES.some((x) => x.key === a) || a === "add" || a === "review" || a === "more")) return { page: a as Page, want: b, rest: c };
+  if (a && a !== "dashboard" && (PAGES.some((x) => x.key === a) || a === "add" || a === "review" || a === "more" || a === "account")) return { page: a as Page, want: b, rest: c };
   return { page: "readings" };
 }
 
@@ -61,6 +61,8 @@ function fromRoute([a, b, ...c]: string[]): { page: Page; want?: string; metric?
  *  dashboard, a screen inside a section to that section, a section to the tab it was opened from. */
 function parentOf(route: string[], tab: string): string {
   if (route[0] === "metric" || route[0] === "report") return "dashboard";
+  // other devices' pages (connecting, LAN sync, the history) have no page above them: the tab they came from
+  if (route[0] === "account" && route.length === 2) return tab;
   return route.length > 1 ? route.slice(0, -1).map(encodeURIComponent).join("/") : tab;
 }
 
@@ -393,7 +395,6 @@ function Shell({ status }: { status?: Status }) {
         () => setPage(p.key),
         <>
           {p.key === "review" && status && status.reviews > 0 && <span className="inline-block min-w-5 rounded-full bg-brand-red px-1.5 text-center text-xs font-semibold text-white">{status.reviews}</span>}
-          {p.key === "account" && syncAsking && <span className="inline-block h-2 w-2 rounded-full bg-brand-red align-middle" role="img" aria-label={t("Waiting for you")} />}
         </>,
         hint,
         page === p.key ? "page" : undefined,
@@ -401,6 +402,23 @@ function Shell({ status }: { status?: Status }) {
     </li>
   );
   const railHead = "px-3 pb-1 text-[13px] font-semibold text-black/45 dark:text-white/45";
+  // other devices: pages of their own with no section above them
+  const deviceItem = (want: string, label: string, icon: string, asking = false) => {
+    const on = page === "account" && (route[1] ?? "sync") === want;
+    return (
+      <li key={want}>
+        {navButton(
+          on,
+          label,
+          <Icon k={icon} />,
+          () => setPage("account", want),
+          asking ? <span className="inline-block h-2 w-2 rounded-full bg-brand-red align-middle" role="img" aria-label={t("Waiting for you")} /> : undefined,
+          undefined,
+          on ? "page" : undefined,
+        )}
+      </li>
+    );
+  };
   const hint = (k: Page) => {
     const i = PAGES.findIndex((x) => x.key === k);
     return `${t(PAGES[i]!.label)} (${MOD}${i + 1})`;
@@ -419,7 +437,16 @@ function Shell({ status }: { status?: Status }) {
           title={title}
           photo={page === "readings"}
           // the dashboard's scanner (a phone's: a computer has no camera to scan with)
-          right={isMobile && page === "readings" && !metric && r[0] !== "report" ? <ScanButton /> : undefined}
+          // the dashboard's: the identity code (as the web's 身份码 at its top right), and on a phone the scanner (a
+          // computer has no camera to scan with)
+          right={
+            page === "readings" && !metric && r[0] !== "report" ? (
+              <>
+                {isMobile && <ScanButton />}
+                <IdButton />
+              </>
+            ) : undefined
+          }
           className={r.length > 1 ? "" : "wide:hidden"}
           back={r.length > 1 || !isTab ? () => goBack(parentOf(r, pathOf(tab.current))) : undefined}
         />
@@ -455,7 +482,8 @@ function Shell({ status }: { status?: Status }) {
           {page === "agents" && <Agents want={want} path={rest} />}
           {page === "backup" && <Backup want={want} go={(p) => setPage(p)} />}
           {page === "profile" && <ProfilePage want={want} />}
-          {page === "account" && <HealthAccount go={(p) => setPage(p)} want={want} />}
+          {page === "account" && <HealthAccount want={want} />}
+          {page === "id" && <IdentityPage />}
           {page === "about" && <About version={status?.version} want={want} />}
           {page === "more" && (
             <More
@@ -463,7 +491,6 @@ function Shell({ status }: { status?: Status }) {
                 setPage(p, w);
               }}
               status={status}
-              syncAsking={syncAsking}
             />
           )}
         </div>
@@ -538,7 +565,15 @@ function Shell({ status }: { status?: Status }) {
           <p className={railHead}>{t("Me")}</p>
           <ul className="flex flex-col gap-0.5">
             {navItem(PAGES[3]!, hint("profile"))}
-            {navItem(PAGES[4]!, hint("account"))}
+            {navItem(PAGES[4]!, hint("id"))}
+          </ul>
+        </div>
+        <div>
+          <p className={railHead}>{t("Other devices")}</p>
+          <ul className="flex flex-col gap-0.5">
+            {deviceItem("sync", t("Local network sync"), "wifi", syncAsking)}
+            {deviceItem("connect", t("Connect another device"), "link")}
+            {deviceItem("history", t("Connection history"), "list")}
           </ul>
         </div>
         {/* agent apps on this computer; a phone opens its own LAN interface to agents instead (later) */}
@@ -611,6 +646,20 @@ function Totals({ status }: { status?: Status }) {
         count: status.sources,
       })}
     </p>
+  );
+}
+
+/** The dashboard's way to the identity code, at the top bar's end (the web's 身份码 button). */
+function IdButton() {
+  return (
+    <button
+      type="button"
+      aria-label={t("Identity code")}
+      onClick={() => nav("id")}
+      className="grid h-11 shrink-0 select-none place-items-center px-2 text-primary transition-opacity active:opacity-60"
+    >
+      <Icon k="id" className="h-6 w-6" />
+    </button>
   );
 }
 

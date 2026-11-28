@@ -3,7 +3,7 @@ import { codeTarget, isMobile, onSync, op, scanCode } from "../api";
 import { when } from "../format";
 import { t } from "../i18n";
 import { back as goBack, go as nav } from "../router";
-import { Btn, card, errText, Failed, Group, Heading, Icon, type Page, Problem, Row, Sheet, SwitchRow, type SyncShown, useOp } from "../ui";
+import { Btn, card, errText, Group, Heading, Icon, type Page, Problem, Screen, Sheet, SwitchRow, type SyncShown, useOp } from "../ui";
 
 type AccountInfo = { id: string; registered: boolean; identity?: string; drops: number };
 
@@ -67,41 +67,87 @@ function Qr({ text, label }: { text: string; label: string }) {
   return svg ? <div className="h-42 w-42 flex-none rounded-xl bg-white p-2 [&_svg]:block [&_svg]:h-full [&_svg]:w-full" role="img" aria-label={label} dangerouslySetInnerHTML={{ __html: svg }} /> : <div className="h-42 w-42 flex-none rounded-xl bg-white p-2 [&_svg]:block [&_svg]:h-full [&_svg]:w-full" />;
 }
 
-type AccountSheet = "identity" | "results" | "history";
+/** Other devices: connecting one (showing or scanning a connection code), LAN sync, the connection history. Each
+ *  its own page, opened from More (a phone) or the side panel (a wide window); the account itself has no page
+ *  (owner 2026-11-28): the identity code opens from the dashboard, lab results from Data sources. */
+export function HealthAccount({ want }: { want?: string }) {
+  type View = "connect" | "join" | "give" | "sync" | "history";
+  const view: View = want === "connect" || want === "join" || want === "give" || want === "history" ? want : "sync";
+  // join and give open from connect (back returns there); a result replaces the step it ends
+  const setView = (v: View, replace = false) => nav(`account/${v}`, replace);
+  const [acc, setAcc] = useState<AccountInfo | null>();
+  const load = useCallback(() => {
+    op<{ account: AccountInfo | null }>("account.show").then((r) => setAcc(r.account), () => setAcc(null));
+  }, []);
+  useEffect(load, [load]);
+  if (view === "connect") return <ConnectDevice hasAccount={!!acc} join={() => setView("join")} give={() => setView("give")} />;
+  // joined: on to sync, the reason most people connect a device
+  // a match goes on to sync in place of this step; otherwise back to where it began, without a second copy of it
+  if (view === "join") return <LinkThis done={(ok) => { load(); if (ok) setView("sync", true); else goBack("account/connect"); }} />;
+  if (view === "give") return <GiveAccount done={() => goBack("account/connect")} />;
+  if (view === "history") return <LinkHistory />;
+  return <SyncPage />;
+}
 
-/** The health account, as the web's 更多 groups it: the identity, results, and other devices, each a row with its
- *  state; details in a sheet, connecting and LAN sync on their own pages. */
-export function HealthAccount({ go, want }: { go: (p: Page) => void; want?: string }) {
+/** The identity code, full screen (the web's 身份码): shown at a lab or service desk so results come here. Opening
+ *  it makes the health account the first time and registers its inbox (account.register, idempotent), then fetches
+ *  results quickly for an hour (protocol 3.2). */
+export function IdentityPage() {
+  const [st, setSt] = useState<{ s: "working" } | { s: "ok"; identity: string; id: string } | { s: "fail"; err: string }>({ s: "working" });
+  const run = useCallback(async () => {
+    setSt({ s: "working" });
+    try {
+      const r = await op<{ id: string; identity: string }>("account.register");
+      setSt({ s: "ok", ...r });
+      pollFast();
+    } catch (e) {
+      setSt({ s: "fail", err: errText(e) });
+    }
+  }, []);
+  useEffect(() => void run(), [run]);
+  return (
+    <Screen title={t("Identity code")}>
+      <div className={`${card} flex flex-col items-center gap-3 text-center`}>
+        {st.s === "working" && <p className="text-[15px] text-black/55 dark:text-white/55" role="status">{t("Contacting the service…")}</p>}
+        {st.s === "fail" && (
+          <>
+            <Problem text={st.err} />
+            <Btn type="button" primary onClick={() => void run()}>
+              {t("Try again")}
+            </Btn>
+          </>
+        )}
+        {st.s === "ok" && (
+          <>
+            <Qr text={st.identity} label={t("Your identity code")} />
+            <p className="text-[15px] font-medium">{t("Ready to show to the staff")}</p>
+            <p className="font-mono text-[13px] break-all text-black/55 dark:text-white/55">{t("Account {{id}}…", { id: st.id.slice(0, 8) })}</p>
+          </>
+        )}
+      </div>
+      <Group title={t("Where your data is")}>
+        <li className="px-4 py-3 text-[15px]">{isMobile ? t("Your health data is kept entirely on this device.") : t("Your health data is kept entirely on this computer.")}</li>
+        <li className="px-4 py-3 text-[15px]">{t("Results are held encrypted on the server for 7 days, and only you can open them. PhysiMind collects them when it opens.")}</li>
+      </Group>
+      <p className="mt-4 px-4 text-[13px] text-black/55 dark:text-white/55">
+        {t("Changing phones: on the new one open PhysiMind › More › Connect another device and show the connection code, then scan it with this one. The new phone then has the same identity code.")}
+      </p>
+    </Screen>
+  );
+}
+
+/** Lab results sent to the account: checked by themselves (on open and every few minutes); here, at once, and
+ *  how many were discarded. A page of Data sources. */
+export function LabResults({ go }: { go: (p: Page) => void }) {
   const [acc, setAcc] = useState<AccountInfo | null>();
   const [err, setErr] = useState<string>();
   const [busy, setBusy] = useState(false);
-  type View = "main" | "connect" | "join" | "give" | "sync";
-  const view: View = want === "connect" || want === "sync" || want === "join" || want === "give" ? want : "main";
-  // join and give open from connect (back returns there); a result replaces the step it ends
-  const setView = (v: Exclude<View, "main">, replace = false) => nav(`account/${v}`, replace);
-  const [sheet, setSheet] = useState<AccountSheet>();
   const [polled, setPolled] = useState<string>();
   const [waiting, setWaiting] = useState(false);
-  const [history] = useOp(() => op<{ state: "ok"; entries: LinkEntry[] } | { state: "unreadable" }>("link.devices"), []);
-  const [sync] = useOp(() => op<SyncShown>("sync.state"), []);
-  const live = useSyncLive();
   const load = useCallback(() => {
     op<{ account: AccountInfo | null }>("account.show").then((r) => setAcc(r.account), (e) => setErr(errText(e)));
   }, []);
   useEffect(load, [load]);
-  const show = async () => {
-    setErr(undefined);
-    setBusy(true);
-    try {
-      await op("account.register");
-      pollFast();
-      load();
-    } catch (e) {
-      setErr(errText(e));
-    } finally {
-      setBusy(false);
-    }
-  };
   const check = async () => {
     setErr(undefined);
     setBusy(true);
@@ -121,114 +167,43 @@ export function HealthAccount({ go, want }: { go: (p: Page) => void; want?: stri
       setBusy(false);
     }
   };
-  if (acc === undefined && err) return <Failed text={err} retry={() => (setErr(undefined), load())} />;
-  if (acc === undefined) return <section className="mx-auto w-full max-w-3xl" aria-busy="true"><Heading>{t("Health account")}</Heading></section>;
-  if (view === "connect") return <ConnectDevice hasAccount={!!acc} join={() => setView("join")} give={() => setView("give")} />;
-  // joined: on to sync, the reason most people connect a device
-  // a match goes on to sync in place of this step; otherwise back to where it began, without a second copy of it
-  if (view === "join") return <LinkThis done={(ok) => { load(); if (ok) setView("sync", true); else goBack("account/connect"); }} />;
-  if (view === "give") return <GiveAccount done={() => goBack("account/connect")} />;
-  if (view === "sync") return <SyncPage />;
-  const entries = history?.state === "ok" ? history.entries.length : undefined;
   return (
-    <section className="mx-auto w-full max-w-3xl">
-      <Heading>{t("Health account")}</Heading>
-      <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55">
-        {t("Labs and service desks send results to your health account, sealed so only your devices can open them. Your account key stays on your devices, and your readings only travel between your own devices.")}
-      </p>
-      {!acc && (
-        <div className={`${card} flex flex-col gap-3`}>
-          <p>{(isMobile ? t("There is no health account on this device yet.") : t("There is no health account on this computer yet."))}</p>
-          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-            <Btn type="button" primary disabled={busy} onClick={show}>
-              {busy ? t("Contacting the service…") : t("Create my account")}
+    <Screen title={t("Lab results")}>
+      <div className={`${card} flex flex-col gap-3`}>
+        <p className="text-[15px]">{t("Labs and service desks send results to your health account, sealed so only your devices can open them. PhysiMind checks for new results when it opens and every few minutes while it's open.")}</p>
+        {acc === null && <p className="text-[13px] text-black/55 dark:text-white/55">{t("Show your identity code (the button at the top of the dashboard) at a lab or service desk to receive results here.")}</p>}
+        {acc && acc.drops > 0 && <p className="text-[13px] text-black/55 dark:text-white/55">{t("{{count}} results were discarded because they failed a check.", { count: acc.drops })}</p>}
+        {acc && (
+          <div className="mt-1 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+            <Btn type="button" primary disabled={busy || !acc.registered} onClick={check}>
+              {busy ? t("Checking…") : t("Check for results now")}
             </Btn>
-            <Btn type="button" disabled={busy} onClick={() => setView("connect")}>
-              {t("Connect another device…")}
-            </Btn>
+            {waiting && (
+              <Btn type="button" link onClick={() => go("review")}>
+                {t("Check them now")}
+              </Btn>
+            )}
           </div>
-        </div>
-      )}
-      <Problem text={err} />
-      {acc && (
-        <>
-          <h3 className="mt-6 mb-2 px-4 text-[13px] font-semibold text-black/55 dark:text-white/55">{t("Health identity")}</h3>
-          <Group>
-            <Row
-              icon={<Icon k="id" />}
-              label={t("Identity code")}
-              sub={t("Show it at a lab or service desk so they can send your results here")}
-              value={acc.identity ? `${acc.id.slice(0, 4)}…${acc.id.slice(-4)}` : busy ? t("Contacting the service…") : t("Show")}
-              onClick={() => (acc.identity ? setSheet("identity") : show())}
-            />
-          </Group>
-          <h3 className="mt-6 mb-2 px-4 text-[13px] font-semibold text-black/55 dark:text-white/55">{t("Results")}</h3>
-          <Group>
-            <Row
-              icon={<Icon k="inbox" />}
-              label={t("Lab results")}
-              sub={t("Checked when PhysiMind opens and every few minutes")}
-              value={waiting ? t("Waiting for you") : acc.drops > 0 ? t("{{count}} discarded", { count: acc.drops }) : undefined}
-              onClick={() => setSheet("results")}
-            />
-          </Group>
-        </>
-      )}
-      <h3 className="mt-6 mb-2 px-4 text-[13px] font-semibold text-black/55 dark:text-white/55">{t("Other devices")}</h3>
-      <Group>
-        {acc && (
-          <Row
-            icon={<Icon k="wifi" />}
-            label={t("Local network sync")}
-            value={<SyncValue st={sync} live={live} />}
-            onClick={() => setView("sync")}
-          />
         )}
-        {acc && (
-          <Row icon={<Icon k="list" />} label={t("Connection history")} value={entries} onClick={() => setSheet("history")} />
-        )}
-        <Row icon={<Icon k="link" />} label={t("Connect another device")} onClick={() => setView("connect")} />
-      </Group>
-      {sheet && (
-        <Sheet
-          label={{ identity: t("Your identity code"), results: t("Lab results"), history: t("Connection history") }[sheet]}
-          close={() => setSheet(undefined)}
-        >
-          {sheet === "identity" && acc?.identity && (
-            <div className="flex items-center gap-5">
-              <h3 className="mb-2 text-[17px] font-semibold">{t("Your identity code")}</h3>
-              <Qr text={acc.identity} label={t("Your identity code")} />
-              <p className="text-[13px] text-black/55 dark:text-white/55">{t("Show it at a lab or service desk so they can send your results here.")}</p>
-              <p className="text-[13px] text-black/55 dark:text-white/55 font-mono text-[13px] break-all">{t("Account {{id}}…", { id: acc.id.slice(0, 8) })}</p>
-            </div>
-          )}
-          {sheet === "results" && acc && (
-            <div className="flex flex-col gap-3">
-              <h3 className="mb-2 text-[17px] font-semibold">{t("Lab results")}</h3>
-              <p className="text-[13px] text-black/55 dark:text-white/55">{t("PhysiMind checks for new results when it opens and every few minutes while it's open.")}</p>
-              {acc.drops > 0 && <p className="text-[13px] text-black/55 dark:text-white/55">{t("{{count}} results were discarded because they failed a check.", { count: acc.drops })}</p>}
-              <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-                <Btn type="button" primary disabled={busy || !acc.registered} onClick={check}>
-                  {busy ? t("Checking…") : t("Check for results now")}
-                </Btn>
-                {waiting && (
-                  <Btn type="button" link onClick={() => go("review")}>
-                    {t("Check them now")}
-                  </Btn>
-                )}
-              </div>
-              {polled && <p role="status" className="text-[13px] text-black/55 dark:text-white/55">{polled}</p>}
-            </div>
-          )}
-          {sheet === "history" && <LinkHistoryList history={history} />}
-        </Sheet>
-      )}
-    </section>
+        {polled && <p role="status" className="text-[13px] text-black/55 dark:text-white/55">{polled}</p>}
+        <Problem text={err} />
+      </div>
+    </Screen>
+  );
+}
+
+/** Which devices this account was handed to or received from, on this device. */
+function LinkHistory() {
+  const [history] = useOp(() => op<{ state: "ok"; entries: LinkEntry[] } | { state: "unreadable" }>("link.devices"), []);
+  return (
+    <Screen title={t("Connection history")}>
+      <LinkHistoryList history={history} />
+    </Screen>
   );
 }
 
 /** The value on the LAN sync row: off, paused, waiting for you, syncing, or how many devices are up to date. */
-function SyncValue({ st, live }: { st?: SyncShown; live?: SyncLive }) {
+export function SyncValue({ st, live }: { st?: SyncShown; live?: SyncLive }) {
   if (!st) return null;
   const asking = live?.peers.some((p) => p.state === "asking");
   const text = !st.enabled
@@ -496,7 +471,6 @@ function LinkHistoryList({ history }: { history?: { state: "ok"; entries: LinkEn
   if (!history) return null;
   return (
     <>
-      <h3 className="mb-2 text-[17px] font-semibold">{t("Connection history")}</h3>
       <Group aria-label={t("Connection history")}>
         <li className="flex items-center gap-3 px-4 py-3">
           <Icon k="account" />
