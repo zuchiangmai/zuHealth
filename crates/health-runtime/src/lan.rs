@@ -72,6 +72,9 @@ pub struct Live {
     pub peers: Vec<PeerRow>,
 }
 
+/// How often the loop reads the account again (also at once after a change, a lock or an unlock)
+const ACCOUNT_EVERY: Duration = Duration::from_secs(3);
+
 pub enum Cmd {
     Item(String),
     Changed,
@@ -95,6 +98,8 @@ struct Conn {
     /// A frame the channel refused for back-pressure, sent before any other
     held: Option<Vec<u8>>,
     reported: bool,
+    /// Data changed here since this connection's session began: another session follows the running one
+    dirty: bool,
     /// Bytes queued in the channel at the last look: going down is progress (the peer is reading)
     buffered: usize,
 }
@@ -183,7 +188,9 @@ struct Main {
     hello_to: HashMap<String, Instant>,
     last_hello: Option<Instant>,
     ips: Vec<IpAddr>,
-    dirty: bool,
+    /// The account key and this device's id, and when they were read: read again every few seconds or on a
+    /// change, not on every turn of the loop (each read decrypts the vault under the profile lock)
+    acct: Option<(([u8; 32], String), Instant)>,
     skews: u32,
     me: String,
 }
@@ -200,7 +207,7 @@ impl Main {
             hello_to: HashMap::new(),
             last_hello: None,
             ips: vec![],
-            dirty: false,
+            acct: None,
             skews: 0,
             me: String::new(),
         }
@@ -230,12 +237,23 @@ impl Main {
     fn run(mut self, rx: Receiver<Cmd>) {
         loop {
             let now = self.host.now_ms();
-            let (amk, me) = match self.account() {
-                Ok(x) => x,
+            let fresh = self.acct.as_ref().is_some_and(|(_, at)| at.elapsed() < ACCOUNT_EVERY);
+            let got = match &self.acct {
+                Some((a, _)) if fresh => Ok(a.clone()),
+                _ => self.account(),
+            };
+            let (amk, me) = match got {
+                Ok(x) => {
+                    if !fresh {
+                        self.acct = Some((x.clone(), Instant::now()));
+                    }
+                    x
+                }
                 Err(why) => {
+                    self.acct = None;
                     self.conns.clear();
                     self.rids.lock().unwrap().clear();
-                    self.publish(Some(why));
+                    self.publish(Some(why), true);
                     // wait for a change (unlock, linking, sync turned on) or a little while
                     let _ = rx.recv_timeout(Duration::from_secs(2));
                     continue;
@@ -261,12 +279,18 @@ impl Main {
             while let Some(cmd) = first.take().or_else(|| rx.try_recv().ok()) {
                 match cmd {
                     Cmd::Item(ct) => self.item(&days, &ct, now),
-                    Cmd::Changed => self.dirty = true,
+                    Cmd::Changed => {
+                        // offered to every connection, even one in the middle of a session (after it)
+                        for c in self.conns.values_mut() {
+                            c.dirty = true;
+                        }
+                        self.acct = None;
+                    }
                     Cmd::Answer { device, allow } => self.answer(&device, allow, now),
                 }
             }
             self.drive(now);
-            self.publish(None);
+            self.publish(None, !fresh);
         }
     }
 
@@ -342,7 +366,9 @@ impl Main {
     fn drive(&mut self, now: i64) {
         let host = self.host.clone();
         let mut gone = Vec::new();
-        let dirty = std::mem::take(&mut self.dirty);
+        // devices whose session brought data here: the others are offered it (lan-sync §2: data reaches a device
+        // through one that meets both)
+        let mut brought = Vec::new();
         for (dev, c) in self.conns.iter_mut() {
             if c.peer.is_closed() {
                 // closed (by the peer, or here): gone, a hello soon, no backoff
@@ -371,12 +397,7 @@ impl Main {
                             && let Err(e) = host.with_profile(&mut |p| s.on_frame(p, now, &f).map(|_| ()))
                         {
                             // codes and fixed texts only: never values (CLAUDE.md)
-                            eprintln!(
-                                "lan: session ended: {} ({}), frame kind {}",
-                                e.code,
-                                e.detail,
-                                f.first().map_or('?', |k| *k as char)
-                            );
+                            eprintln!("lan: session ended: {}, frame kind {}", e.code, f.first().map_or('?', |k| *k as char));
                         }
                         // the peer started over: a new session here, fed the hello that ended the old one
                         if c.session.as_ref().is_some_and(|s| s.restarted()) {
@@ -448,11 +469,17 @@ impl Main {
             }
             let idle = c.session.as_ref().is_none_or(|s| s.is_finished());
             let due = c.retry_at.is_some_and(|t| t.elapsed() >= RETRY_AFTER);
-            if idle && (dirty || due) {
+            if idle && (c.dirty || due) {
                 c.start(&host, now);
             }
             if c.session.as_ref().is_some_and(|s| s.is_finished()) && c.report_once() {
                 host.emit("changed", json!({ "op": "sync" }));
+                brought.push(dev.clone());
+            }
+        }
+        for (dev, c) in self.conns.iter_mut() {
+            if brought.iter().any(|b| b != dev) {
+                c.dirty = true;
             }
         }
         for (dev, back) in gone {
@@ -465,19 +492,34 @@ impl Main {
         }
     }
 
-    fn publish(&self, idle: Option<String>) {
+    /// The live state for the UI. `read`: with each device's last sync from the sync state (read under the lock,
+    /// so only every few seconds; meanwhile as last shown).
+    fn publish(&self, idle: Option<String>, read: bool) {
         let mut rows: Vec<PeerRow> = self.conns.values().map(|c| c.row.clone()).collect();
-        let _ = self.host.with_profile(&mut |p| {
-            let st = p.sync.load_or_reset()?;
+        if !read {
+            let live = self.live.lock().unwrap();
             for r in rows.iter_mut() {
-                if let Some(x) = st.peers.get(&r.device) {
+                if let Some(x) = live.peers.iter().find(|x| x.device == r.device) {
                     r.last_synced = x.last_synced;
                     if r.name.is_empty() {
                         r.name = x.name.clone();
                     }
                 }
             }
-            Ok(())
+        }
+        let _ = read.then(|| {
+            self.host.with_profile(&mut |p| {
+                let st = p.sync.load_or_reset()?;
+                for r in rows.iter_mut() {
+                    if let Some(x) = st.peers.get(&r.device) {
+                        r.last_synced = x.last_synced;
+                        if r.name.is_empty() {
+                            r.name = x.name.clone();
+                        }
+                    }
+                }
+                Ok(())
+            })
         });
         let next = Live { idle, clock_off: self.skews >= 3, peers: rows };
         let mut live = self.live.lock().unwrap();
@@ -499,6 +541,7 @@ impl Conn {
             last_progress: Instant::now(),
             row: PeerRow { device: device.into(), name: name.chars().take(64).collect(), state: "connecting".into(), ..Default::default() },
             retry_at: None,
+            dirty: false,
             held: None,
             reported: false,
             buffered: 0,
@@ -507,6 +550,8 @@ impl Conn {
 
     fn start(&mut self, host: &Arc<dyn Host>, now: i64) {
         eprintln!("lan: session starts");
+        // this session's inventory covers every change so far
+        self.dirty = false;
         let dev = self.row.device.clone();
         let mut made = None;
         let me = host.device_name();

@@ -547,7 +547,12 @@ impl lan::Host for Runtime {
         self.expire(false); // LAN sync too uses the data only within the grace period
         let p = self.lock_profile();
         let profile = p.as_ref().ok_or_else(|| self.closed_error())?;
-        f(profile)
+        // LAN sync merges what a peer sent: a panic there rolls back and ends that step, not the sync thread with an
+        // open transaction that would fail every later write
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(profile))).unwrap_or_else(|_| {
+            profile.recover();
+            Err(Error::other("internal", "sync step failed unexpectedly"))
+        })
     }
     fn emit(&self, event: &str, data: Value) {
         Runtime::emit(self, event, data);
@@ -755,13 +760,18 @@ impl LockedWriter<'_> {
         if write && !profile.is_writer() {
             return Err(Error::other("not_writer", "write op on a read-only profile"));
         }
-        f(&syshealth::ProfileWriter {
+        let w = syshealth::ProfileWriter {
             db: &profile.db,
             parser: self.parser,
             reader: self.reader,
             reader_name: self.reader_name,
             connected_at_ms: self.connected_at_ms,
             now_ms: self.now_ms,
+        };
+        // as an op: a panic rolls back and fails this sync, the app goes on
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&w))).unwrap_or_else(|_| {
+            profile.recover();
+            Err(Error::other("internal", "system health sync failed unexpectedly"))
         })
     }
 }

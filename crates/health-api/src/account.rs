@@ -383,8 +383,9 @@ fn link_poll(net: &Net, _: Empty) -> Result<LinkState> {
             let exp = g.link.as_ref().map_or(0, |l| l.expires_ms);
             return Ok(LinkState::Waiting { channel, expires_ms: exp });
         }
-        // a dropped connection or a busy relay: keep waiting, as the web's loop does
-        Err(c) if c == "network" => {
+        // a dropped connection or a busy relay (rate-limited, briefly failing): keep waiting, as the web's loop does;
+        // only a gone or refused channel ends the link
+        Err(c) if matches!(c.as_str(), "network" | "slow" | "busy" | "upstream" | "server") => {
             let g = net.session.lock().unwrap();
             let exp = g.link.as_ref().map_or(0, |l| l.expires_ms);
             return Ok(LinkState::Waiting { channel, expires_ms: exp });
@@ -640,7 +641,11 @@ fn poll_into(net: &Net, out: &mut Polled) -> Result<()> {
                 db.execute_batch("BEGIN IMMEDIATE")?;
                 match health_core::result::ingest(db, &doc, net.now_ms) {
                     Ok(i) => {
-                        db.execute_batch("COMMIT")?;
+                        // a failed commit (disk full) must not leave the transaction open for every later write
+                        if let Err(e) = db.execute_batch("COMMIT") {
+                            let _ = db.execute_batch("ROLLBACK");
+                            return Err(e.into());
+                        }
                         got = Some(i.outcome);
                     }
                     Err(e) => {

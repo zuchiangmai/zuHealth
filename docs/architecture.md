@@ -49,7 +49,7 @@ pub struct OpDef {
 }
 ```
 
-- `call()` = validate → authorize (`Caller::Owner` in M1) → execute → audit (no-op until M2). A `macro_rules!` wraps typed `fn(&mut Ctx, Req) -> Result<Resp>`.
+- `call()` = authorize → audit (a delegate's write is logged first, so it never runs unlogged) → validate and execute. (Built in M1/M2 in that order; the op's input is validated inside its run.) A `macro_rules!` wraps typed `fn(&mut Ctx, Req) -> Result<Resp>`.
 - `health schema [op]` prints JSON Schema. OpenAPI and the TS client come from the same registry when HTTP lands (decision 5).
 
 | Op | W handler / module | CLI | Write |
@@ -154,7 +154,7 @@ Revised after an independent review (2026-11-22).
 | `core::query` | every read takes `&Scope`; delegates get `detail` whitelisted to comparator / ref / flag | the SQL conditions |
 | `core::keys` | `wrap` / `unwrap` (Argon2id + AES-GCM, file `keywrap`) | KDF parameters |
 | `health-api::call` | `call(ctx, op, json) → Outcome { value, withheld }` | deny-by-default authorization, audit (fail closed), delegate-safe errors |
-| bin `serve` | `health serve [--port N] [--idle-lock MIN]` | `tiny_http` (sync, no tokio), one `Mutex<Option<Open>>` (None = locked), SSE |
+| bin `serve` | `health serve [--port N] [--idle-lock MIN]` | `tiny_http` (sync, no tokio), over `health-runtime` (which holds the profile, `None` = locked), SSE |
 | bin `client` | `forward(dir, op, json) → Option<Result>` | loopback HTTP over `std::net` |
 | bin `mcp` | `handle(msg, run) → Option<reply>` | JSON-RPC 2.0, shared by stdio and `POST /mcp` |
 
@@ -173,7 +173,7 @@ Revised after an independent review (2026-11-22).
 | `review.propose` | Propose | rows in groups; ≤ 10,000 rows per call; ≤ 20 pending proposals per grant |
 | `derived.write` | Derived | see below |
 
-Everything else is `Never`. That includes the batch list and detail, the review queue, manual entry, correct, source.update, daily.rebuild, grants, audit, backup and erase.
+`profile.get` is `Read`, gated by the grant's `profile` choice. Everything else is `Never`. That includes the batch list and detail, the review queue, manual entry, correct, source.update, daily.rebuild, grants, audit, backup and erase.
 
 - A delegate whose scope hides a metric gets `denied / out_of_scope`, whether or not the metric exists.
 - Every delegate call writes an audit row: op, metric codes, window, row count and denied flag, never values. Denials are audited too. Writes are audited before they run, reads after. If the audit write fails, the call fails and nothing commits.

@@ -140,7 +140,11 @@ fn take(net: &Net, a: &Account, ct: &str, info: &[u8], device: &str) -> Result<O
         db.execute_batch("BEGIN IMMEDIATE")?;
         match health_core::result::ingest(db, &doc, net.now_ms) {
             Ok(i) => {
-                db.execute_batch("COMMIT")?;
+                // a failed commit (disk full) must not leave the transaction open for every later write
+                if let Err(e) = db.execute_batch("COMMIT") {
+                    let _ = db.execute_batch("ROLLBACK");
+                    return Err(e.into());
+                }
                 got = Some(i.outcome);
                 Ok(Json::Null)
             }

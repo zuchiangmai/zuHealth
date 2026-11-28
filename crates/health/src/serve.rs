@@ -320,7 +320,10 @@ pub fn run(o: Opts) -> Result<()> {
             // tokens, a passphrase, a proof: wiped once the request is handled
             let mut headers: Vec<(String, String)> = rq.headers().iter().map(|h| (h.field.to_string(), h.value.to_string())).collect();
             let mut body = Zeroizing::new(Vec::new());
-            let _ = std::io::Read::take(rq.as_reader(), 64 * 1024 * 1024).read_to_end(&mut body);
+            // a large body (an import) only from a caller with a token; anyone else (the unlock, or a stranger) is
+            // read no further than a passphrase needs
+            let limit = if s.caller(&headers).is_ok() { 64 * 1024 * 1024 } else { 64 * 1024 };
+            let _ = std::io::Read::take(rq.as_reader(), limit).read_to_end(&mut body);
             let (status, b) = s.handle(rq.method().as_str(), rq.url(), &headers, &body);
             for (_, v) in &mut headers {
                 v.zeroize();

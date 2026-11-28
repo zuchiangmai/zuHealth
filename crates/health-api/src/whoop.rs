@@ -408,7 +408,11 @@ pub(crate) fn sync(net: &Net, r: SyncReq) -> Result<Synced> {
         db.execute_batch("BEGIN IMMEDIATE")?;
         match health_core::import::whoop(db, &data, now) {
             Ok(r) => {
-                db.execute_batch("COMMIT")?;
+                // a failed commit (disk full) must not leave the transaction open for every later write
+                if let Err(e) = db.execute_batch("COMMIT") {
+                    let _ = db.execute_batch("ROLLBACK");
+                    return Err(e.into());
+                }
                 written = r.added.max(0) as u64;
                 Ok(Json::Null)
             }
