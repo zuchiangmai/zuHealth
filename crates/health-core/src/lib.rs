@@ -28,6 +28,7 @@ pub mod review;
 pub mod scope;
 pub mod sync;
 pub mod syncstate;
+pub mod syshealth;
 pub mod units;
 pub mod value;
 pub mod vault;

@@ -201,6 +201,29 @@ pub struct Stats {
     pub skipped_types: std::collections::BTreeMap<String, u64>,
     /// bad time or value
     pub broken: u64,
+    /// written by this app itself (its lab results, already here)
+    #[serde(default)]
+    pub own: u64,
+}
+
+/// The source name this app's own samples carry in Apple Health: they are its lab results, already here, so they are
+/// not read back.
+pub const OWN_SOURCE: &str = "PhysiMind";
+
+/// One sample as Apple Health has it, from its export or read from HealthKit: the type identifier, the value (a
+/// number, or the sleep stage's name), the unit as Apple writes it, start and end with their offsets, the source.
+pub struct Record<'a> {
+    pub ty: &'a str,
+    /// The number, for quantity types
+    pub number: Option<f64>,
+    /// The category value as the export writes it (sleep: `HKCategoryValueSleepAnalysisAsleepREM`, ...)
+    pub category: &'a str,
+    pub unit: &'a str,
+    /// (UTC ms, offset in minutes)
+    pub start: Option<(i64, i64)>,
+    pub end: Option<(i64, i64)>,
+    /// The source's name, as the export writes it (entities still encoded)
+    pub source: &'a str,
 }
 
 struct Group {
@@ -248,13 +271,31 @@ impl Parser {
             return;
         }
         let Some(i) = l.find("<Record ") else { return };
-        self.stats.records += 1;
         let a = attrs(&l[i..]);
-        let ty = a.get("type").copied().unwrap_or("");
-        let start = a.get("startDate").and_then(|s| apple_time(s));
-        let end = a.get("endDate").and_then(|s| apple_time(s));
+        let raw = a.get("value").copied().unwrap_or("");
+        let r = Record {
+            ty: a.get("type").copied().unwrap_or(""),
+            number: raw.trim().parse().ok().filter(|v: &f64| v.is_finite() && !raw.is_empty()),
+            category: raw,
+            unit: a.get("unit").copied().unwrap_or(""),
+            start: a.get("startDate").and_then(|s| apple_time(s)),
+            end: a.get("endDate").and_then(|s| apple_time(s)),
+            source: a.get("sourceName").copied().unwrap_or(""),
+        };
+        self.record(&r, emit);
+    }
+
+    /// One sample: rows as the export's would be (the export and HealthKit share this, so both give the same rows).
+    pub fn record(&mut self, r: &Record, emit: &mut impl FnMut(Row)) {
+        self.stats.records += 1;
+        let (ty, start, end) = (r.ty, r.start, r.end);
+        let src = self.source(r.source);
+        if src == OWN_SOURCE {
+            self.stats.own += 1;
+            return;
+        }
         if ty == SLEEP {
-            let v = a.get("value").copied().unwrap_or("");
+            let v = r.category;
             let Some(metric) = stage(v) else {
                 *self.stats.skipped_types.entry(format!("{ty}/{v}")).or_default() += 1;
                 return;
@@ -268,7 +309,6 @@ impl Parser {
                 return;
             }
             self.stats.mapped += 1;
-            let src = self.source(a.get("sourceName").copied().unwrap_or(""));
             emit((
                 src,
                 ObsRow { metric: metric.into(), start_ms: s, end_ms: Some(e), tz_min: tz, value: Value::Null, unit: None, detail: None },
@@ -279,18 +319,15 @@ impl Parser {
             *self.stats.skipped_types.entry(ty.to_string()).or_default() += 1;
             return;
         };
-        let raw = a.get("value").copied().unwrap_or("");
-        let value: Option<f64> = raw.trim().parse().ok().filter(|v: &f64| v.is_finite());
-        let (Some((s, tz)), Some(mut value)) = (start, value.filter(|_| !raw.is_empty())) else {
+        let (Some((s, tz)), Some(mut value)) = (start, r.number) else {
             self.stats.broken += 1;
             return;
         };
-        let mut unit = unit_of(a.get("unit").copied().unwrap_or(""));
+        let mut unit = unit_of(r.unit);
         if unit == "%" {
             value = precision12(value * 100.0);
         }
         self.stats.mapped += 1;
-        let src = self.source(a.get("sourceName").copied().unwrap_or(""));
         match kind {
             Kind::Instant => emit((
                 src,
