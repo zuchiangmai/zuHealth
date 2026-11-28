@@ -310,7 +310,7 @@ pub fn write(c: &Db, from_ms: i64, groups: &[String], date_only: bool, out: &mut
                 pick("ref").filter(|_| !r.corrected).map(|s| defuse(&s)).unwrap_or_default(),
                 flag.into(),
                 source_label(&r.connector).into(),
-                r.code,
+                defuse(&r.code),
             ],
         )
     })?;

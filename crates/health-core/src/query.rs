@@ -378,12 +378,15 @@ pub fn report_search(c: &Db, scope: &Scope, q: &str, limit: i64) -> Result<Vec<R
         if q.chars().count() >= 3 { ("t.text MATCH ?1", format!("\"{}\"", q.replace('"', "\"\""))) } else { ("t.text LIKE ?1", like(q)) };
     let mut st = c.prepare(&format!(
         "SELECT t.rowid, i.source_id, snippet(report_text, 0, '[', ']', '…', 12) FROM report_text t JOIN import i ON i.id = t.rowid
-          WHERE {cond} AND i.status = 'done' ORDER BY t.rowid DESC LIMIT ?2"
+          WHERE {cond} AND i.status = 'done' ORDER BY t.rowid DESC"
     ))?;
-    let rows =
-        st.query_map(rusqlite::params![arg, limit], |r| Ok(ReportHit { import_id: r.get(0)?, source_id: r.get(1)?, snippet: r.get(2)? }))?;
+    // the window first, then the limit: an agent's window in the past still finds its reports under newer ones
+    let rows = st.query_map([arg], |r| Ok(ReportHit { import_id: r.get(0)?, source_id: r.get(1)?, snippet: r.get(2)? }))?;
     let mut out = Vec::new();
     for h in rows {
+        if out.len() as i64 >= limit {
+            break;
+        }
         let h = h?;
         if report_in_window(c, scope, h.import_id)? {
             out.push(h);

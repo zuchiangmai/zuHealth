@@ -44,10 +44,15 @@ pub fn tz_min(s: &J) -> Option<i64> {
         return Some(0);
     }
     let b = s.as_bytes();
-    if b.len() != 6 || !(b[0] == b'+' || b[0] == b'-') || b[3] != b':' {
+    let digits = |r: std::ops::Range<usize>| b[r].iter().all(u8::is_ascii_digit);
+    if b.len() != 6 || !(b[0] == b'+' || b[0] == b'-') || b[3] != b':' || !digits(1..3) || !digits(4..6) {
         return None;
     }
     let (h, m): (i64, i64) = (s[1..3].parse().ok()?, s[4..6].parse().ok()?);
+    // within what an offset can be (±14:00), checked before it's used
+    if h > 14 || m >= 60 || h * 60 + m > 840 {
+        return None;
+    }
     Some(if b[0] == b'-' { -1 } else { 1 } * (h * 60 + m))
 }
 
@@ -207,7 +212,8 @@ pub fn decode(d: &WhoopData, now: Option<i64>) -> Vec<ObsRow> {
     }
 
     if let (Some(b), Some(now)) = (d.body.as_ref().filter(|b| b.is_object()), now) {
-        let tz = d.tz.unwrap_or(0);
+        // from the file: an offset beyond ±14 h counts as absent, before it is multiplied
+        let tz = d.tz.filter(|t| t.abs() <= 840).unwrap_or(0);
         let day = (now + tz * 60_000).div_euclid(86_400_000) * 86_400_000 - tz * 60_000;
         let mut put = |metric: &str, v: &J, unit: Option<&str>| {
             if let Some(x) = num(v) {
@@ -219,4 +225,21 @@ pub fn decode(d: &WhoopData, now: Option<i64>) -> Vec<ObsRow> {
         put("x:max_heart_rate_profile", &b["max_heart_rate"], None);
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn offsets_beyond_fourteen_hours_are_refused() {
+        let tz = |s: &str| tz_min(&J::String(s.into()));
+        assert_eq!(tz("Z"), Some(0));
+        assert_eq!(tz("+14:00"), Some(840));
+        assert_eq!(tz("-05:30"), Some(-330));
+        assert_eq!(tz("+14:30"), None);
+        assert_eq!(tz("-15:00"), None);
+        assert_eq!(tz("+05:60"), None);
+        assert_eq!(tz("+-1:00"), None);
+    }
 }

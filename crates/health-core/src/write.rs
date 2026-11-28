@@ -168,15 +168,28 @@ pub fn source_id(c: &Db, s: &SourceSpec) -> Result<i64> {
 
 /// A UUIDv7 for `now_ms`, strictly greater than every uid in the database, so "the newer import wins"
 /// holds even when the clock is pinned or goes back.
+/// A hyphenated UUIDv7 (either case) as its 128-bit value, as the web's newUid reads one
+fn v7(uid: &str) -> Option<u128> {
+    let b = uid.as_bytes();
+    let shape = b.len() == 36
+        && b.iter().enumerate().all(|(i, &x)| if matches!(i, 8 | 13 | 18 | 23) { x == b'-' } else { x.is_ascii_hexdigit() })
+        && b[14] == b'7';
+    shape.then(|| u128::from_str_radix(&uid.replace('-', ""), 16).ok()).flatten()
+}
+
 pub fn new_uid(c: &Db, now_ms: i64) -> Result<String> {
     let ts = uuid::Timestamp::from_unix(uuid::NoContext, (now_ms.max(0) / 1000) as u64, ((now_ms.max(0) % 1000) * 1_000_000) as u32);
     let mut u = uuid::Uuid::new_v7(ts).as_u128();
-    let max: Option<String> =
-        one::<Option<String>>(c, "SELECT max(uid) FROM import WHERE length(uid) = 36 AND substr(uid, 15, 1) = '7'", [])?.flatten();
-    if let Some(m) = max.and_then(|m| uuid::Uuid::parse_str(&m).ok())
-        && u <= m.as_u128()
+    // above every UUIDv7 here, as 128-bit values: one uid that doesn't parse is skipped, not the floor
+    let floor = c
+        .prepare("SELECT uid FROM import WHERE length(uid) = 36 AND substr(uid, 15, 1) = '7'")?
+        .query_map([], |r| r.get::<_, String>(0))?
+        .filter_map(|r| r.ok().and_then(|uid| v7(&uid)))
+        .max();
+    if let Some(m) = floor
+        && u <= m
     {
-        u = m.as_u128() + 1;
+        u = m + 1;
     }
     Ok(uuid::Uuid::from_u128(u).hyphenated().to_string())
 }
@@ -392,4 +405,31 @@ pub fn finish(c: &Db, import_id: i64, now_ms: i64) -> Result<()> {
         c.execute("UPDATE import SET status = 'done' WHERE id = ?", [import_id])?;
         crate::daily::rebuild(c, &crate::daily::scopes_of_import(c, import_id)?, now_ms)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::keys::MemoryStore;
+    use crate::profile::Profile;
+
+    fn v7_at(ms: i64) -> String {
+        uuid::Uuid::from_u128(((ms as u128) << 80) | (7 << 76) | (2 << 62)).hyphenated().to_string()
+    }
+
+    /// The floor is the largest UUIDv7 here, even when the largest uid of that shape isn't one (it used to be
+    /// read with max(uid) and dropped when it didn't parse)
+    #[test]
+    fn new_uid_stays_above_every_uuidv7() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = Profile::init(dir.path(), "a", &MemoryStore::default()).unwrap();
+        let src = SourceSpec::new("lab", "dev-1");
+        let later = v7_at(1_900_000_000_000);
+        for uid in [later.clone(), "zzzzzzzz-zzzz-7zzz-zzzz-zzzzzzzzzzzz".into()] {
+            begin(&p.db, Begin { source: &src, parser: "test", blob: None, uid: Some(uid), candidates: None }, 0).unwrap();
+        }
+        let u = new_uid(&p.db, 1_795_176_000_000).unwrap();
+        assert!(u > later, "{u} not above {later}");
+        assert_eq!(v7(&u), v7(&later).map(|x| x + 1));
+    }
 }

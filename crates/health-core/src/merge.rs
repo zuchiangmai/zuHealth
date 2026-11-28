@@ -14,6 +14,29 @@ use serde::Serialize;
 use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 
+/// A pack row the writers would accept (R13, R14): times within write::MAX_TIME_MS, an offset an integer within ±14 h,
+/// an end not before its start. As the web's merge.ts ROW_SHAPE.
+const ROW_SHAPE: &str = "o.start_ms BETWEEN 0 AND 253402041600000 AND (o.end_ms IS NULL OR o.end_ms BETWEEN 0 AND 253402041600000)
+     AND typeof(o.tz_min) = 'integer' AND o.tz_min BETWEEN -840 AND 840 AND (o.end_ms IS NULL OR o.end_ms >= o.start_ms)";
+/// A number Value::number would store: an integer within ±(2^53 − 1), or a finite real that isn't an integer beyond it
+const NUMBER_OK: &str = "((typeof(o.value) = 'integer' AND o.value BETWEEN -9007199254740991 AND 9007199254740991)
+     OR (typeof(o.value) = 'real' AND o.value BETWEEN -1.7976931348623157e308 AND 1.7976931348623157e308
+         AND NOT (o.value = round(o.value) AND abs(o.value) > 9007199254740991)))";
+
+/// The value a row of a measure aggregated as `agg` (an SQL expression) may hold (R14), as the web's valueOk
+fn value_ok(agg: &str) -> String {
+    format!(
+        "CASE {agg} WHEN 'interval' THEN o.end_ms IS NOT NULL AND o.end_ms > o.start_ms AND o.value IS NULL
+           WHEN 'none' THEN typeof(o.value) = 'text' AND length(o.value) > 0
+           WHEN 'level' THEN o.value IS NULL OR {NUMBER_OK} ELSE {NUMBER_OK} END"
+    )
+}
+
+/// Both, a NULL counting as false
+fn row_ok(agg: &str) -> String {
+    format!("(coalesce({ROW_SHAPE}, 0) AND coalesce({}, 0))", value_ok(agg))
+}
+
 const TABLES: &[&str] = &["metric", "metric_alias", "source", "import", "observation", "correction", "genotype"];
 
 #[derive(Debug, Default, Serialize, schemars::JsonSchema)]
@@ -37,7 +60,8 @@ pub struct MergeReport {
     pub refused_corrections: u64,
     /// Reviews here that the other side had confirmed, now done (R2; the web's confirmedReviews)
     pub confirmed_reviews: u64,
-    /// Rows and corrections skipped for a time outside 0..=MAX_TIME_MS (R13)
+    /// Rows skipped for a time, offset or value the writers would refuse (R13, R14), and corrections skipped for a
+    /// time outside 0..=MAX_TIME_MS
     pub refused_rows: u64,
 }
 
@@ -671,10 +695,15 @@ fn merge_attached(c: &Db, now_ms: i64) -> Result<MergeReport> {
         .filter_map(|(id, n)| (n > 0).then_some(id))
         .collect();
 
+    // a row's value is judged by the local measure; a row of a measure skipped here counts only for its shape
     rep.refused_rows = c.query_row(
-        "SELECT (SELECT count(*) FROM plain.observation o JOIN merge_import mi ON mi.p = o.import_id
-                  WHERE o.start_ms NOT BETWEEN 0 AND ?1 OR o.end_ms NOT BETWEEN 0 AND ?1)
-              + (SELECT count(*) FROM plain.correction WHERE start_ms NOT BETWEEN 0 AND ?1)",
+        &format!(
+            "SELECT (SELECT count(*) FROM plain.observation o JOIN merge_import mi ON mi.p = o.import_id
+                       LEFT JOIN merge_metric mm ON mm.p = o.metric_id LEFT JOIN metric lm ON lm.id = mm.l
+                      WHERE NOT coalesce({ROW_SHAPE}, 0) OR (lm.agg IS NOT NULL AND NOT coalesce({}, 0)))
+                  + (SELECT count(*) FROM plain.correction WHERE start_ms NOT BETWEEN 0 AND ?1)",
+            value_ok("lm.agg")
+        ),
         [crate::write::MAX_TIME_MS],
         |r| r.get::<_, i64>(0),
     )? as u64;
@@ -686,17 +715,18 @@ fn merge_attached(c: &Db, now_ms: i64) -> Result<MergeReport> {
              SELECT mm.l, o.start_ms, ms.l, o.end_ms, o.tz_min, o.value, mi.l, o.detail
                FROM plain.observation o
                JOIN merge_metric mm ON mm.p = o.metric_id
+               JOIN metric lm ON lm.id = mm.l
                JOIN merge_source ms ON ms.p = o.source_id
                JOIN merge_import mi ON mi.p = o.import_id
               WHERE ms.l = (SELECT source_id FROM import WHERE id = mi.l) -- a row belongs to its import's source (R9)
-                AND o.start_ms BETWEEN 0 AND 253402041600000 -- times within the writers' bounds, write::MAX_TIME_MS (R13)
-                AND (o.end_ms IS NULL OR o.end_ms BETWEEN 0 AND 253402041600000)
+                AND {ok} -- only what the writers would accept (R13, R14)
              ON CONFLICT (metric_id, start_ms, source_id) DO UPDATE SET
                end_ms = excluded.end_ms, tz_min = excluded.tz_min, value = excluded.value, import_id = excluded.import_id, detail = excluded.detail
              WHERE (SELECT uid FROM import WHERE id = excluded.import_id) > (SELECT uid FROM import WHERE id = observation.import_id)
                 OR ((SELECT uid FROM import WHERE id = excluded.import_id) = (SELECT uid FROM import WHERE id = observation.import_id)
-                    AND {})",
-            newer_row("excluded", "observation")
+                    AND {newer})",
+            ok = row_ok("lm.agg"),
+            newer = newer_row("excluded", "observation")
         ),
         [],
     )?;
@@ -704,14 +734,16 @@ fn merge_attached(c: &Db, now_ms: i64) -> Result<MergeReport> {
     // spans cover every row that came with an import, even one outside the span it was sent with (R10): from the
     // incoming rows, grouped, so no local table is scanned by import_id
     let grown: Vec<(i64, i64, i64, i64)> = c
-        .prepare(
+        .prepare(&format!(
             "SELECT mi.l, mm.l, min(o.start_ms), max(o.start_ms)
                FROM plain.observation o
                JOIN merge_metric mm ON mm.p = o.metric_id
+               JOIN metric lm ON lm.id = mm.l
                JOIN merge_import mi ON mi.p = o.import_id
-              WHERE o.start_ms BETWEEN 0 AND 253402041600000 AND (o.end_ms IS NULL OR o.end_ms BETWEEN 0 AND 253402041600000)
+              WHERE {}
               GROUP BY 1, 2",
-        )?
+            row_ok("lm.agg")
+        ))?
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
         .collect::<rusqlite::Result<_>>()?;
     let mut by_import: HashMap<i64, Span> = HashMap::new();
@@ -833,4 +865,60 @@ fn merge_attached(c: &Db, now_ms: i64) -> Result<MergeReport> {
     }
     rep.orphan_blobs = orphans;
     Ok(rep)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Value;
+    use crate::keys::MemoryStore;
+    use crate::profile::Profile;
+    use crate::write::{Begin, ObsRow, SourceSpec, begin, finish, write};
+
+    const NOW: i64 = 1_795_176_000_000;
+    const T: i64 = 1_790_000_000_000;
+
+    /// R14 for an INTEGER beyond 2^53 too, which shared case 23 can't hold (the web's SQLite binding can't read it
+    /// back): rows the writers would refuse are skipped and counted, the good one merges.
+    #[test]
+    fn rows_the_writers_would_refuse_are_counted() {
+        let dir = tempfile::tempdir().unwrap();
+        let keys = MemoryStore::default();
+        let a = Profile::init(dir.path(), "a", &keys).unwrap();
+        let b = Profile::init(dir.path(), "b", &keys).unwrap();
+        let src = SourceSpec::new("whoop", "u1");
+        let (id, _) = begin(&b.db, Begin { source: &src, parser: "test", blob: None, uid: None, candidates: None }, NOW).unwrap();
+        let good = ObsRow {
+            metric: "loinc:40443-4".into(),
+            start_ms: T,
+            end_ms: None,
+            tz_min: 480,
+            value: Value::Int(60),
+            unit: None,
+            detail: None,
+        };
+        write(&b.db, id, &[good]).unwrap();
+        finish(&b.db, id, NOW).unwrap();
+        // past the writer, on the same import: an offset of 15 h, an INTEGER of 2^53, NULL on an instant measure
+        for (at, tz, v) in [(T + 1, 900, Value::Int(61)), (T + 8, 480, Value::Int(9_007_199_254_740_992)), (T + 9, 480, Value::Null)] {
+            b.db.execute(
+                "INSERT INTO observation (metric_id, start_ms, source_id, end_ms, tz_min, value, import_id)
+                 SELECT o.metric_id, ?2, o.source_id, NULL, ?3, ?4, o.import_id FROM observation o WHERE o.import_id = ?1 AND o.start_ms = ?5",
+                rusqlite::params![id, at, tz, v, T],
+            )
+            .unwrap();
+        }
+        let pack = dir.path().join("b.db");
+        export_plain(&b.db, &pack).unwrap();
+        let r = merge_from(&a.db, &pack, NOW).unwrap();
+        assert_eq!(r.refused_rows, 3);
+        let rows: Vec<(i64, i64)> =
+            a.db.prepare("SELECT start_ms, value FROM observation")
+                .unwrap()
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+                .unwrap()
+                .collect::<rusqlite::Result<_>>()
+                .unwrap();
+        assert_eq!(rows, [(T, 60)]);
+    }
 }

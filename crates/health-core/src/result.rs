@@ -85,6 +85,10 @@ const MAX_SAFE: i64 = 9_007_199_254_740_991;
 pub fn ingest(c: &Db, doc: &Map<String, Json>, now_ms: i64) -> Result<Ingested> {
     // the id becomes the import's uid: refused here if it couldn't sync (merge-fixes P5)
     let id = doc.get("id").and_then(Json::as_str).filter(|i| crate::write::plain_uid(i)).ok_or_else(|| bad("id"))?;
+    // a UUIDv7 id from the future would outrank every later import (larger uid wins), as a merge refuses it
+    if crate::batches::uuid_time(id).is_some_and(|t| t > now_ms + crate::merge::MAX_SKEW_MS) {
+        return Err(bad("id from the future"));
+    }
     let src = doc.get("src").and_then(Json::as_str).ok_or_else(|| bad("src"))?;
     let (kind, device) = src.split_once(':').ok_or_else(|| bad("src"))?;
     let device_ok = (1..=64).contains(&device.len()) && device.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
@@ -271,4 +275,31 @@ pub fn confirm(c: &Db, import_id: i64, choices: &[LineChoice], now_ms: i64) -> R
         return Err(Error::invalid("nothing_to_save", "skip fewer lines, or discard the result"));
     }
     crate::review::confirm(c, import_id, &rows, None, &[], now_ms)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::keys::MemoryStore;
+    use crate::profile::Profile;
+
+    const NOW: i64 = 1_795_176_000_000;
+
+    fn doc(id: &str) -> Map<String, Json> {
+        json!({ "id": id, "src": "lab:dev-1", "at": NOW - 60_000, "obs": [] }).as_object().unwrap().clone()
+    }
+    fn v7_at(ms: i64) -> String {
+        uuid::Uuid::from_u128(((ms as u128) << 80) | (7 << 76) | (2 << 62)).hyphenated().to_string()
+    }
+
+    /// A UUIDv7 id more than a day ahead is refused, as a merge refuses its uid; a day ahead and other ids are taken
+    #[test]
+    fn ids_from_the_future_are_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = Profile::init(dir.path(), "a", &MemoryStore::default()).unwrap();
+        let ahead = ingest(&p.db, &doc(&v7_at(NOW + crate::merge::MAX_SKEW_MS + 1)), NOW).map(|_| ()).unwrap_err();
+        assert!(ahead.to_string().contains("bad_result"), "{ahead}");
+        ingest(&p.db, &doc(&v7_at(NOW + crate::merge::MAX_SKEW_MS)), NOW).unwrap();
+        ingest(&p.db, &doc("res-42"), NOW).unwrap();
+    }
 }
