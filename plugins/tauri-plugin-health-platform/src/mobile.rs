@@ -112,6 +112,31 @@ impl<R: Runtime> NativePlatform<R> {
         Ok(d.days)
     }
 
+    /// This app's own written samples in the store: [{id, version, value}].
+    pub fn health_own(&self) -> Result<Vec<serde_json::Value>, String> {
+        #[derive(Deserialize)]
+        struct S {
+            samples: Vec<serde_json::Value>,
+        }
+        self.0.run_mobile_plugin::<S>("healthOwn", ()).map(|s| s.samples).map_err(|e| e.to_string())
+    }
+
+    /// Writes samples (each `{id, kind, value, unit, start_ms, tz_min, version}`).
+    pub fn health_write(&self, samples: &serde_json::Value) -> Result<(), String> {
+        self.0
+            .run_mobile_plugin::<serde::de::IgnoredAny>("healthWrite", serde_json::json!({ "samples": samples }))
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+
+    /// Deletes this app's samples with these ids.
+    pub fn health_delete(&self, ids: &[String]) -> Result<(), String> {
+        self.0
+            .run_mobile_plugin::<serde::de::IgnoredAny>("healthDelete", serde_json::json!({ "ids": ids }))
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+
     fn run(&self, command: &str, args: KeyArgs) -> Result<(), String> {
         self.0.run_mobile_plugin::<serde::de::IgnoredAny>(command, args).map(|_| ()).map_err(|e| e.to_string())
     }

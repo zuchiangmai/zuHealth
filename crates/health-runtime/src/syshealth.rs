@@ -7,6 +7,8 @@
 use health_core::apple::{Parser, Record};
 use health_core::syncstate::SystemHealthState;
 use health_core::syshealth::{DAY_MS, HcRecord, HcStats, SyncDay, sync_day};
+/// What the store holds from this app, and what it should (the shell's plugin speaks these)
+pub use health_core::syshealth::{Have, Want};
 use health_core::write::{ObsRow, SourceSpec};
 use health_core::{Error, Result};
 use serde::{Deserialize, Serialize};
@@ -59,6 +61,12 @@ pub trait SystemHealth: Send + Sync {
     fn changed_days(&self, anchors: &mut Value, floor_ms: i64) -> std::result::Result<Vec<i64>, String>;
     /// The oldest sample the store will give (HealthKit's earliest permitted date; Health Connect: what it allows)
     fn earliest_ms(&self) -> i64;
+    /// This app's own samples now in the store (its written lab results), read back
+    fn own(&self) -> std::result::Result<Vec<health_core::syshealth::Have>, String>;
+    /// Writes lab results (each with its id and version, so writing one again changes nothing)
+    fn write(&self, samples: &[health_core::syshealth::Want]) -> std::result::Result<(), String>;
+    /// Deletes this app's samples with these ids
+    fn delete(&self, ids: &[String]) -> std::result::Result<(), String>;
 }
 
 /// Rows of whole UTC days, per source: (source, day) → rows.
@@ -132,6 +140,9 @@ pub struct Report {
     /// Another device reads now: this one stopped
     #[serde(skip_serializing_if = "Option::is_none")]
     pub moved_to: Option<String>,
+    /// Lab results written to the store, and removed from it
+    pub wrote: u64,
+    pub removed: u64,
 }
 
 /// How much history one sync reads at most (the rest next time): about a quarter at a time
@@ -306,6 +317,15 @@ mod tests {
         }
         fn earliest_ms(&self) -> i64 {
             self.earliest
+        }
+        fn own(&self) -> std::result::Result<Vec<health_core::syshealth::Have>, String> {
+            Ok(vec![])
+        }
+        fn write(&self, _: &[health_core::syshealth::Want]) -> std::result::Result<(), String> {
+            Ok(())
+        }
+        fn delete(&self, _: &[String]) -> std::result::Result<(), String> {
+            Ok(())
         }
     }
 

@@ -140,6 +140,16 @@ impl health_runtime::syshealth::SystemHealth for NativeHealth {
     fn earliest_ms(&self) -> i64 {
         self.0.health_platform().health_earliest().unwrap_or(0)
     }
+    fn own(&self) -> std::result::Result<Vec<health_runtime::syshealth::Have>, String> {
+        let raw = self.0.health_platform().health_own()?;
+        Ok(raw.into_iter().filter_map(|v| serde_json::from_value(v).ok()).collect())
+    }
+    fn write(&self, samples: &[health_runtime::syshealth::Want]) -> std::result::Result<(), String> {
+        self.0.health_platform().health_write(&serde_json::to_value(samples).map_err(|e| e.to_string())?)
+    }
+    fn delete(&self, ids: &[String]) -> std::result::Result<(), String> {
+        self.0.health_platform().health_delete(ids)
+    }
 }
 
 impl KeyStore for NativeKeys {

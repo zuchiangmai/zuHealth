@@ -157,4 +157,104 @@ extension PlatformPlugin {
       if let failed { invoke.reject(failed) } else { invoke.resolve(["days": Array(days), "anchors": anchors]) }
     }
   }
+
+  /// This app's own samples of the written types, with their sync id, version and value in the unit it wrote.
+  @objc public func healthOwn(_ invoke: Invoke) throws {
+    let group = DispatchGroup()
+    let lock = NSLock()
+    var out: [[String: Any]] = []
+    var failed: String?
+    let mine = HKQuery.predicateForObjects(from: HKSource.default())
+    for id in writtenTypes {
+      guard let type = HKQuantityType.quantityType(forIdentifier: id) else { continue }
+      let unit = writeUnit(id)
+      group.enter()
+      let q = HKSampleQuery(sampleType: type, predicate: mine, limit: HKObjectQueryNoLimit, sortDescriptors: nil) { _, samples, error in
+        defer { group.leave() }
+        lock.lock()
+        defer { lock.unlock() }
+        if let error {
+          if (error as? HKError)?.code != .errorNoData { failed = error.localizedDescription }
+          return
+        }
+        for case let s as HKQuantitySample in samples ?? [] {
+          guard let sid = s.metadata?[HKMetadataKeySyncIdentifier] as? String else { continue }
+          let version = (s.metadata?[HKMetadataKeySyncVersion] as? NSNumber)?.int64Value ?? 0
+          out.append(["id": sid, "version": String(version), "value": s.quantity.doubleValue(for: unit)])
+        }
+      }
+      healthStore.execute(q)
+    }
+    group.notify(queue: .global()) {
+      if let failed { invoke.reject(failed) } else { invoke.resolve(["samples": out]) }
+    }
+  }
+
+  /// Saves lab results, each under its sync id and version: HealthKit keeps one sample per id, the higher version.
+  @objc public func healthWrite(_ invoke: Invoke) throws {
+    let args = try invoke.parseArgs(WriteArgs.self)
+    var samples: [HKQuantitySample] = []
+    for w in args.samples {
+      let id = HKQuantityTypeIdentifier(rawValue: "HKQuantityTypeIdentifier" + w.kind)
+      guard writtenTypes.contains(id), let type = HKQuantityType.quantityType(forIdentifier: id) else { continue }
+      let at = Date(timeIntervalSince1970: w.start_ms / 1000)
+      var meta: [String: Any] = [HKMetadataKeySyncIdentifier: w.id, HKMetadataKeySyncVersion: NSNumber(value: Int64(w.version) ?? 0)]
+      if let tz = TimeZone(secondsFromGMT: Int(w.tz_min) * 60) { meta[HKMetadataKeyTimeZone] = tz.identifier }
+      samples.append(HKQuantitySample(type: type, quantity: HKQuantity(unit: writeUnit(id), doubleValue: w.value), start: at, end: at, metadata: meta))
+    }
+    if samples.isEmpty { return invoke.resolve() }
+    healthStore.save(samples) { ok, error in
+      if ok { invoke.resolve() } else { invoke.reject(error?.localizedDescription ?? "Apple Health didn't save") }
+    }
+  }
+
+  /// Deletes this app's samples with these sync ids.
+  @objc public func healthDelete(_ invoke: Invoke) throws {
+    let args = try invoke.parseArgs(DeleteArgs.self)
+    let pred = NSCompoundPredicate(andPredicateWithSubpredicates: [
+      HKQuery.predicateForObjects(from: HKSource.default()),
+      HKQuery.predicateForObjects(withMetadataKey: HKMetadataKeySyncIdentifier, allowedValues: args.ids),
+    ])
+    let group = DispatchGroup()
+    var failed: String?
+    for id in writtenTypes {
+      guard let type = HKQuantityType.quantityType(forIdentifier: id) else { continue }
+      group.enter()
+      healthStore.deleteObjects(of: type, predicate: pred) { ok, _, error in
+        if !ok, let error, (error as? HKError)?.code != .errorNoData { failed = error.localizedDescription }
+        group.leave()
+      }
+    }
+    group.notify(queue: .global()) {
+      if let failed { invoke.reject(failed) } else { invoke.resolve() }
+    }
+  }
+}
+
+class WriteSample: Decodable {
+  let id: String
+  let kind: String
+  let value: Double
+  let start_ms: Double
+  let tz_min: Double
+  /// A decimal string: the HLC version exceeds a double's exact range
+  let version: String
+}
+
+class WriteArgs: Decodable {
+  let samples: [WriteSample]
+}
+
+class DeleteArgs: Decodable {
+  let ids: [String]
+}
+
+/// The unit each written type is kept in (the core's `Want` units)
+private func writeUnit(_ id: HKQuantityTypeIdentifier) -> HKUnit {
+  switch id.rawValue {
+  case "HKQuantityTypeIdentifierHeight", "HKQuantityTypeIdentifierWaistCircumference": return .meter()
+  case "HKQuantityTypeIdentifierBodyMassIndex": return .count()
+  case "HKQuantityTypeIdentifierBodyFatPercentage": return .percent()
+  default: return .gramUnit(with: .kilo)
+  }
 }

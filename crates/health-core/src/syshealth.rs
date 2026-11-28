@@ -299,6 +299,109 @@ pub fn sync_day(c: &crate::db::Db, d: &SyncDay, now_ms: i64) -> crate::error::Re
     })
 }
 
+/// A lab result to have in the phone's store (plan §二: body composition only, from lab, staff and room results).
+#[derive(Debug, Clone, PartialEq, serde::Serialize, schemars::JsonSchema)]
+pub struct Want {
+    /// Stable across devices and syncs: the result's id, the measure, the time
+    pub id: String,
+    /// The store's type: HealthKit's identifier without its prefix (`BodyMass`), or Health Connect's record (`Weight`)
+    pub kind: &'static str,
+    pub value: f64,
+    /// HealthKit's unit string (`kg`, `m`, `count`, `%` as a fraction) or Health Connect's (`kg`, `m`, `percent`)
+    pub unit: &'static str,
+    pub start_ms: i64,
+    pub tz_min: i64,
+    /// The winning correction's HLC time, else 0: the same on every device, only ever rising (a string: it exceeds 2^53)
+    pub version: String,
+}
+
+/// What each store takes: measure → (kind, unit, factor from the catalog's value). Health Connect has no BMI or
+/// waist type.
+fn written(store: &str, code: &str) -> Option<(&'static str, &'static str, f64)> {
+    match (store, code) {
+        ("healthkit", "loinc:29463-7") => Some(("BodyMass", "kg", 1.0)),
+        ("healthkit", "loinc:8302-2") => Some(("Height", "m", 1.0)),
+        ("healthkit", "loinc:39156-5") => Some(("BodyMassIndex", "count", 1.0)),
+        // HealthKit keeps a fraction
+        ("healthkit", "loinc:41982-0") => Some(("BodyFatPercentage", "%", 0.01)),
+        ("healthkit", "x:fat_free_mass") => Some(("LeanBodyMass", "kg", 1.0)),
+        ("healthkit", "x:waist_circumference") => Some(("WaistCircumference", "m", 1.0)),
+        ("health_connect", "loinc:29463-7") => Some(("Weight", "kg", 1.0)),
+        ("health_connect", "loinc:8302-2") => Some(("Height", "m", 1.0)),
+        // Health Connect keeps 0–100
+        ("health_connect", "loinc:41982-0") => Some(("BodyFat", "percent", 1.0)),
+        ("health_connect", "x:fat_free_mass") => Some(("LeanBodyMass", "kg", 1.0)),
+        _ => None,
+    }
+}
+
+/// Every lab result that should be in the store (`healthkit` or `health_connect`), as the data holds it now:
+/// erased results are gone, corrected values corrected.
+pub fn wanted(c: &crate::db::Db, store: &str) -> crate::error::Result<Vec<Want>> {
+    let mut st = c.prepare(
+        "SELECT i.uid, m.code, o.start_ms, o.tz_min, o.value, (SELECT max(k.at) FROM correction k
+                 WHERE k.metric_id = o.metric_id AND k.source_id = o.source_id AND k.start_ms = o.start_ms)
+           FROM v_observation o JOIN metric m ON m.id = o.metric_id JOIN source s ON s.id = o.source_id
+           JOIN import i ON i.id = o.import_id
+          WHERE s.connector IN ('lab', 'staff', 'room') AND typeof(o.value) IN ('integer', 'real')
+            AND m.code IN ('loinc:29463-7', 'loinc:8302-2', 'loinc:39156-5', 'loinc:41982-0', 'x:fat_free_mass', 'x:waist_circumference')
+          ORDER BY o.start_ms",
+    )?;
+    let rows = st.query_map([], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, i64>(2)?,
+            r.get::<_, i64>(3)?,
+            r.get::<_, f64>(4)?,
+            r.get::<_, Option<i64>>(5)?,
+        ))
+    })?;
+    let mut out = Vec::new();
+    for row in rows {
+        let (uid, code, start_ms, tz_min, value, at) = row?;
+        if let Some((kind, unit, factor)) = written(store, &code) {
+            out.push(Want {
+                id: format!("{uid}:{code}:{start_ms}"),
+                kind,
+                value: precision12(value * factor),
+                unit,
+                start_ms,
+                tz_min,
+                version: at.unwrap_or(0).to_string(),
+            });
+        }
+    }
+    Ok(out)
+}
+
+/// What this app has in the store now, as the store reports it (the plugin reads its own samples back).
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct Have {
+    pub id: String,
+    pub version: String,
+    pub value: f64,
+}
+
+/// What to delete and what to write so the store holds `want`: missing ones written; a changed version written
+/// over; a changed value at the same version deleted first (the store ignores an equal version); leftovers deleted.
+pub fn reconcile(want: &[Want], have: &[Have]) -> (Vec<String>, Vec<Want>) {
+    let mut delete: Vec<String> = have.iter().filter(|h| !want.iter().any(|w| w.id == h.id)).map(|h| h.id.clone()).collect();
+    let mut write = Vec::new();
+    for w in want {
+        match have.iter().find(|h| h.id == w.id) {
+            None => write.push(w.clone()),
+            Some(h) if h.version != w.version => write.push(w.clone()),
+            Some(h) if (h.value - w.value).abs() > 1e-9 * w.value.abs().max(1.0) => {
+                delete.push(h.id.clone());
+                write.push(w.clone());
+            }
+            Some(_) => {}
+        }
+    }
+    (delete, write)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -429,5 +532,48 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn lab_body_composition_is_wanted_and_reconciled() {
+        use crate::keys::MemoryStore;
+        use crate::profile::Profile;
+        use crate::write::{Begin, SourceSpec, begin, finish, write};
+        let dir = tempfile::tempdir().unwrap();
+        let p = Profile::init(dir.path(), "a", &MemoryStore::default()).unwrap();
+        let t = 1_790_000_000_000;
+        let row = |m: &str, v: f64| ObsRow {
+            metric: m.into(),
+            start_ms: t,
+            end_ms: None,
+            tz_min: 480,
+            value: Value::number(v),
+            unit: None,
+            detail: None,
+        };
+        for (connector, uid) in [("lab", "res-1"), ("whoop", "w-1")] {
+            let src = SourceSpec::new(connector, "dev-1");
+            let (id, _) =
+                begin(&p.db, Begin { source: &src, parser: "t", blob: None, uid: Some(uid.into()), candidates: None }, t).unwrap();
+            write(&p.db, id, &[row("loinc:29463-7", 77.5), row("loinc:41982-0", 21.8), row("loinc:39156-5", 24.0)]).unwrap();
+            finish(&p.db, id, t).unwrap();
+        }
+        let hk = wanted(&p.db, "healthkit").unwrap();
+        assert_eq!(hk.len(), 3, "the lab's three, not WHOOP's");
+        let fat = hk.iter().find(|w| w.kind == "BodyFatPercentage").unwrap();
+        assert_eq!((fat.value, fat.unit, fat.id.as_str(), fat.version.as_str()), (0.218, "%", "res-1:loinc:41982-0:1790000000000", "0"));
+        let hc = wanted(&p.db, "health_connect").unwrap();
+        assert_eq!(hc.len(), 2, "no BMI in Health Connect");
+        assert_eq!(hc.iter().find(|w| w.kind == "BodyFat").unwrap().value, 21.8);
+
+        let have = |id: &str, version: &str, value: f64| Have { id: id.into(), version: version.into(), value };
+        let w = &hk[0];
+        // already there: nothing to do; a new version: written; the same version, another value: deleted, written
+        assert_eq!(reconcile(std::slice::from_ref(w), &[have(&w.id, "0", w.value)]), (vec![], vec![]));
+        assert_eq!(reconcile(std::slice::from_ref(w), &[have(&w.id, "-1", w.value)]).1.len(), 1);
+        let (d, n) = reconcile(std::slice::from_ref(w), &[have(&w.id, "0", w.value + 1.0)]);
+        assert_eq!((d, n.len()), (vec![w.id.clone()], 1));
+        // gone from the data: deleted
+        assert_eq!(reconcile(&[], &[have("old", "0", 1.0)]).0, vec!["old".to_string()]);
     }
 }

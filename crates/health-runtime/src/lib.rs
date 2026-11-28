@@ -672,7 +672,24 @@ impl Runtime {
         let report = syshealth::sync(store, &mut st, &w, now);
         // progress is kept whatever happened (a locked phone stops HealthKit midway: the next sync goes on)
         self.syshealth_save(&st)?;
-        let report = report?;
+        let mut report = report?;
+        // then the lab's body composition, so the store holds what the data holds: compared with what the store
+        // has from this app (not a local list, which could be lost), missing ones written, changed ones rewritten,
+        // gone ones deleted. A refusal (access taken back) leaves it for the next sync.
+        let want = {
+            let p = self.lock_profile();
+            let profile = p.as_ref().ok_or_else(|| self.closed_error())?;
+            health_core::syshealth::wanted(&profile.db, store.kind())?
+        };
+        let have = store.own().map_err(|e| Error::other("system_health", e))?;
+        let (delete, write) = health_core::syshealth::reconcile(&want, &have);
+        if !delete.is_empty() {
+            store.delete(&delete).map_err(|e| Error::other("system_health", e))?;
+        }
+        if !write.is_empty() {
+            store.write(&write).map_err(|e| Error::other("system_health", e))?;
+        }
+        (report.wrote, report.removed) = (write.len() as u64, delete.len() as u64);
         if report.written > 0 {
             self.emit("changed", json!({ "op": "syshealth.sync" }));
         }
