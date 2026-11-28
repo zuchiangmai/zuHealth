@@ -43,7 +43,8 @@
         {
           "scheme": ["https"],
           "host": "zuchiangmai.com",
-          "pathPrefix": ["/health/s/", "/health/d/", "/health/whoop"],
+          "pathPrefix": ["/health/s/", "/health/d/"],
+          "path": ["/health/whoop/app"],
           "appLink": true
         },
         {

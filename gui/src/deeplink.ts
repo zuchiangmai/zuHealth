@@ -12,7 +12,7 @@ export type LinkTarget = { path: string } | { whoop: string } | { unknown: true 
 function whoopReturn(url: string): string | null {
   try {
     const u = new URL(url.trim());
-    const site = u.protocol === "https:" && u.hostname === "zuchiangmai.com" && /^\/health\/whoop\/?$/.test(u.pathname);
+    const site = u.protocol === "https:" && u.hostname === "zuchiangmai.com" && u.pathname === "/health/whoop/app";
     const scheme = u.protocol === "physimind:" && (u.hostname === "whoop" || u.pathname.replace(/^\/+/, "") === "whoop");
     return site || scheme ? u.search.replace(/^\?/, "") : null;
   } catch {

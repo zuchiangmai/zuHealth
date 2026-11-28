@@ -468,7 +468,7 @@ export { scanCode } from "./scanner";
 export { type CodeTarget, codeTarget, SITE_HOST } from "./codes";
 
 /** Where WHOOP's sign-in returns on a phone (health-api whoop::APP_REDIRECT), to register in the WHOOP developer app */
-export const WHOOP_APP_REDIRECT = "https://zuchiangmai.com/health/whoop";
+export const WHOOP_APP_REDIRECT = "https://zuchiangmai.com/health/whoop/app";
 
 /** A phone's WHOOP sign-in: the shell starts it and opens WHOOP's page; the link back (deeplink.ts) finishes it. */
 export async function whoopSignIn(clientId: string, clientSecret: string): Promise<{ redirect: string }> {

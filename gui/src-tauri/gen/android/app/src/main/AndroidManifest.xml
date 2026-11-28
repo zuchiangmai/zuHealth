@@ -51,7 +51,7 @@
                 
                 <data android:pathPrefix="/health/s/" />
                 <data android:pathPrefix="/health/d/" />
-                <data android:pathPrefix="/health/whoop" />
+                <data android:path="/health/whoop/app" />
                 
             </intent-filter>
             <intent-filter >

@@ -136,7 +136,8 @@ register / start / result and every ForceDecks step after the lookup (they act o
 capture and the share sheet; LAN sync after the move; OCR on a phone; Android network ops with the bundled roots.
 
 WHOOP on a phone (D14): the shell's `whoop_sign_in` opens WHOOP's page; the sign-in returns to
-`https://zuchiangmai.com/health/whoop` (register it in the WHOOP developer app), which opens the app as an App Link /
+`https://zuchiangmai.com/health/whoop/app` (register it in the WHOOP developer app; not `/health/whoop`, which is the
+web app's own callback and must not open the app), which opens the app as an App Link /
 Universal Link, or, until the site's association files are up, through its page handing the query on to
 `physimind://whoop` (the deep-link plugin's custom scheme); the UI finishes with `whoop.complete`.
 Scanning uses the scanner's windowed mode: the camera behind the web view and the app's own screen over it

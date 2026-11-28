@@ -19,8 +19,9 @@ pub fn redirect() -> String {
     format!("http://localhost:{REDIRECT_PORT}/whoop")
 }
 /// Where WHOOP's sign-in returns on a phone (a phone has no loopback page to catch it): the site's page, which opens
-/// the app (an App Link / Universal Link, or, until the site's association files are up, `physimind://whoop`)
-pub const APP_REDIRECT: &str = "https://zuchiangmai.com/health/whoop";
+/// the app (an App Link / Universal Link, or, until the site's association files are up, `physimind://whoop`). Not
+/// /health/whoop: that is the web app's own callback, which must stay the web's.
+pub const APP_REDIRECT: &str = "https://zuchiangmai.com/health/whoop/app";
 const DAY: i64 = 86_400_000;
 const FIRST_DAYS: i64 = 30;
 const AGAIN_DAYS: i64 = 7;
