@@ -2,24 +2,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- Declared ahead of use (owner, 2026-11-27); each is asked for when its feature first needs it. -->
+    <!-- Only what a shipped feature uses (owner, 2026-11-28: declare each when its feature ships; Play rejects the
+         rest): photos come through the system picker, which needs no permission; Bluetooth and notifications come
+         with their features. Health Connect's are the platform plugin's. -->
     <!-- the camera: lab report photos, device codes -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
-    <!-- photos: Android 13+ by type (14+ may grant a selection only), 12 by storage -->
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
-    <!-- Bluetooth health devices (scales, blood pressure monitors): finding and connecting, never for location -->
-    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
-    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-    <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
-    <!-- notifications, and push through Firebase Cloud Messaging (GCM's successor) -->
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="com.google.android.c2dm.permission.RECEIVE" />
-
-    <!-- AndroidTV support -->
-    <uses-feature android:name="android.software.leanback" android:required="false" />
 
     <!-- "Take a photo" (<input capture>): the web view looks for a camera app first, and since Android 11 an app
          sees only the apps it declares it looks for; without this it finds none and opens the file picker instead -->
@@ -49,7 +37,6 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
                 <!-- AndroidTV support -->
-                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
             <!-- DEEP LINK PLUGIN. AUTO-GENERATED. DO NOT REMOVE. -->
             <intent-filter android:autoVerify="true" >
@@ -67,22 +54,7 @@
                 
             </intent-filter>
             <!-- DEEP LINK PLUGIN. AUTO-GENERATED. DO NOT REMOVE. -->
-            <!-- Health Connect (Android 13 and older) shows why the app asks before its permission sheet -->
-            <intent-filter>
-                <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
-            </intent-filter>
         </activity>
-        <!-- The same from Android 14 on -->
-        <activity-alias
-            android:name="ViewPermissionUsageActivity"
-            android:exported="true"
-            android:targetActivity=".MainActivity"
-            android:permission="android.permission.START_VIEW_PERMISSION_USAGE">
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
-                <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
-            </intent-filter>
-        </activity-alias>
 
         <provider
           android:name="androidx.core.content.FileProvider"

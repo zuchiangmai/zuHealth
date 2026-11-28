@@ -546,6 +546,15 @@ pub(crate) fn set_language(app: AppHandle, lang: String) -> Result<(), String> {
 pub(crate) fn run(builder: tauri::Builder<tauri::Wry>) {
     let shell = Arc::new(Shell::default());
     let app = builder
+        // one app at a time: a second one would start its own core, which finds the profile held and is restarted
+        // forever; opening it again shows the window already open (first, as the plugin requires)
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_dialog::init())
         // size and place are remembered; visibility is not (a window hidden by ⌘W must come back on launch)
         .plugin(

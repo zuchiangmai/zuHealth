@@ -51,8 +51,6 @@ targets:
         NSPhotoLibraryUsageDescription: "Choose photos of lab reports for PhysiMind to read on this device."
         NSHealthShareUsageDescription: "PhysiMind reads your steps, heart rate, sleep, body measurements and more from Apple Health and keeps them with your other health data, on this device and your other devices."
         NSHealthUpdateUsageDescription: "PhysiMind adds the body composition measured in the lab (weight, height, BMI, body fat, lean body mass, waist) to Apple Health."
-        NSBluetoothAlwaysUsageDescription: "Connect to health devices such as scales and blood pressure monitors."
-        UIBackgroundModes: [remote-notification]
         UILaunchStoryboardName: LaunchScreen
         UIRequiredDeviceCapabilities: [arm64, metal]
         UISupportedInterfaceOrientations:
@@ -69,8 +67,6 @@ targets:
     entitlements:
       path: health-app_iOS/health-app_iOS.entitlements
       properties:
-        # push notifications (APNs); needs a paid team's signing with the Push Notifications capability
-        aps-environment: development
         # a lab device's address (zuchiangmai.com/health/s|d/...) opens the app; the site serves the
         # apple-app-site-association file. The deep-link plugin writes the same at build time; this keeps it
         # through `xcodegen generate`. Developer mode (?mode=developer) only by hand, never committed.

@@ -26,6 +26,28 @@
     <uses-permission android:name="android.permission.health.WRITE_BODY_FAT" />
     <uses-permission android:name="android.permission.health.WRITE_LEAN_BODY_MASS" />
     <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_HISTORY" />
+    <application>
+        <!-- Health Connect's "why this app asks": the privacy policy (Play requires it), not the app itself -->
+        <activity
+            android:name="com.zuchiangmai.health.platform.PrivacyPolicyActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
+            </intent-filter>
+        </activity>
+        <!-- the same from Android 14 on -->
+        <activity-alias
+            android:name="com.zuchiangmai.health.platform.ViewPermissionUsageActivity"
+            android:exported="true"
+            android:targetActivity="com.zuchiangmai.health.platform.PrivacyPolicyActivity"
+            android:permission="android.permission.START_VIEW_PERMISSION_USAGE">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
+                <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
+            </intent-filter>
+        </activity-alias>
+    </application>
     <!-- Android 12-13: Health Connect is an app of its own -->
     <queries>
         <package android:name="com.google.android.apps.healthdata" />

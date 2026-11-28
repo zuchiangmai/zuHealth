@@ -70,8 +70,8 @@ plugins/tauri-plugin-health-platform   native services for mobile (now: root key
   person's reads the phone's store into the data and writes the lab's body composition back; the platform plugin only
   reads and writes (`AppleHealth.swift`, `HealthConnect.kt`), the rules are the core's. The HealthKit entitlement and
   usage texts are in `project.yml`, `Info.ios.plist` and the iOS `InfoPlist.strings`; Health Connect's permissions in
-  the plugin's manifest, and its rationale entries (`SHOW_PERMISSIONS_RATIONALE`, `VIEW_PERMISSION_USAGE`) in the app's
-  `AndroidManifest.xml`: keep them after regenerating. Deletions in the store are mirrored only within the recent
+  the plugin's manifest, with its rationale entries (`SHOW_PERMISSIONS_RATIONALE`, `VIEW_PERMISSION_USAGE`), which open
+  the privacy policy (`PrivacyPolicyActivity`), as Play requires. Deletions in the store are mirrored only within the recent
   window (36 hours) and the days the store reports as changed; older ones need a full re-read.
 
 ## Locking (mobile)

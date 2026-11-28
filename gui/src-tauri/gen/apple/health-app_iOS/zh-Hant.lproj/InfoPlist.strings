@@ -1,6 +1,5 @@
 "NSCameraUsageDescription" = "掃描檢測設備的二維碼或其他設備的連接碼，以及拍攝化驗單。";
 "NSPhotoLibraryUsageDescription" = "選擇化驗單照片，由 PhysiMind 在這臺設備上識別。";
-"NSBluetoothAlwaysUsageDescription" = "連接體重秤、血壓計等健康設備。";
 "NSLocalNetworkUsageDescription" = "與同一網絡中你的其他設備直接同步健康數據。";
 "NSHealthShareUsageDescription" = "PhysiMind 從 Apple 健康讀取步數、心率、睡眠、身體測量等數據，與你的其他健康數據一起保存在這臺設備和你的其他設備上。";
 "NSHealthUpdateUsageDescription" = "PhysiMind 把在檢測室測得的身體成分（體重、身高、BMI、體脂率、去脂體重、腰圍）寫入 Apple 健康。";
