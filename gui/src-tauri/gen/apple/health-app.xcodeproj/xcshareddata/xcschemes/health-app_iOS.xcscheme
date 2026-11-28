@@ -16,7 +16,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "1DD010EF2A1D4B80511C8660"
-               BuildableName = "zu Health.app"
+               BuildableName = "PhysiMind.app"
                BlueprintName = "health-app_iOS"
                ReferencedContainer = "container:health-app.xcodeproj">
             </BuildableReference>
@@ -32,7 +32,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "1DD010EF2A1D4B80511C8660"
-            BuildableName = "zu Health.app"
+            BuildableName = "PhysiMind.app"
             BlueprintName = "health-app_iOS"
             ReferencedContainer = "container:health-app.xcodeproj">
          </BuildableReference>
@@ -67,7 +67,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "1DD010EF2A1D4B80511C8660"
-            BuildableName = "zu Health.app"
+            BuildableName = "PhysiMind.app"
             BlueprintName = "health-app_iOS"
             ReferencedContainer = "container:health-app.xcodeproj">
          </BuildableReference>
@@ -96,7 +96,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "1DD010EF2A1D4B80511C8660"
-            BuildableName = "zu Health.app"
+            BuildableName = "PhysiMind.app"
             BlueprintName = "health-app_iOS"
             ReferencedContainer = "container:health-app.xcodeproj">
          </BuildableReference>

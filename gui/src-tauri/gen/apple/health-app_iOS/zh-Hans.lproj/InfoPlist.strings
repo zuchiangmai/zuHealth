@@ -2,3 +2,5 @@
 "NSPhotoLibraryUsageDescription" = "选择化验单照片，由 PhysiMind 在这台设备上识别。";
 "NSBluetoothAlwaysUsageDescription" = "连接体重秤、血压计等健康设备。";
 "NSLocalNetworkUsageDescription" = "与同一网络中你的其他设备直接同步健康数据。";
+"NSHealthShareUsageDescription" = "PhysiMind 从 Apple 健康读取步数、心率、睡眠、身体测量等数据，与你的其他健康数据一起保存在这台设备和你的其他设备上。";
+"NSHealthUpdateUsageDescription" = "PhysiMind 把在检测室测得的身体成分（体重、身高、BMI、体脂率、去脂体重、腰围）写入 Apple 健康。";

@@ -114,6 +114,34 @@ pub(crate) fn share_file(app: AppHandle, path: String, mime: String) -> std::res
 /// `RootKeys` over the native plugin: Keychain on iOS, Keystore on Android.
 struct NativeKeys(AppHandle);
 
+/// The phone's health store through the platform plugin: HealthKit on iOS, Health Connect on Android (the same
+/// plugin calls on both). Only glue: the runtime decides what to read and the core what it means.
+struct NativeHealth(AppHandle);
+
+impl health_runtime::syshealth::SystemHealth for NativeHealth {
+    fn kind(&self) -> &'static str {
+        if cfg!(target_os = "ios") { "healthkit" } else { "health_connect" }
+    }
+    fn available(&self) -> bool {
+        self.0.health_platform().health_available()
+    }
+    fn authorize(&self) -> std::result::Result<(), String> {
+        self.0.health_platform().health_authorize()
+    }
+    fn read(&self, from_ms: i64, to_ms: i64) -> std::result::Result<Vec<health_runtime::syshealth::Sample>, String> {
+        let raw = self.0.health_platform().health_read(from_ms, to_ms)?;
+        // a sample the core can't take is skipped, not the whole read
+        Ok(raw.into_iter().filter_map(|v| serde_json::from_value(v).ok()).collect())
+    }
+    fn changed_days(&self, anchors: &mut Value, floor_ms: i64) -> std::result::Result<Vec<i64>, String> {
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
+        self.0.health_platform().health_changed(anchors, floor_ms, now)
+    }
+    fn earliest_ms(&self) -> i64 {
+        self.0.health_platform().health_earliest().unwrap_or(0)
+    }
+}
+
 impl KeyStore for NativeKeys {
     fn kind(&self) -> &'static str {
         if cfg!(target_os = "ios") { "keychain" } else { "keystore" }
@@ -182,8 +210,9 @@ pub(crate) fn run(builder: tauri::Builder<Wry>) {
                 let recognize = health_runtime::ocr::in_process(&data_dir, |page, pages| {
                     relay("ocr_progress", json!({ "stage": "read", "done": page, "total": pages }));
                 });
-                let mut platform = Platform::system(data_dir, Box::new(NativeKeys(handle)), Some(LOCK_AFTER_MS));
+                let mut platform = Platform::system(data_dir, Box::new(NativeKeys(handle.clone())), Some(LOCK_AFTER_MS));
                 platform.recognize = recognize;
+                platform.system_health = Some(Box::new(NativeHealth(handle)));
                 platform.device_name = device_name();
                 let _ = RUNTIME.set(Runtime::new(platform, relay));
             });

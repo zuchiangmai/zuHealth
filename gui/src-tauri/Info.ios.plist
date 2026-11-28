@@ -12,6 +12,10 @@
   <string>Scan a lab device's code or another device's link code, and photograph lab reports.</string>
   <key>NSPhotoLibraryUsageDescription</key>
   <string>Choose photos of lab reports for PhysiMind to read on this device.</string>
+  <key>NSHealthShareUsageDescription</key>
+  <string>PhysiMind reads your steps, heart rate, sleep, body measurements and more from Apple Health and keeps them with your other health data, on this device and your other devices.</string>
+  <key>NSHealthUpdateUsageDescription</key>
+  <string>PhysiMind adds the body composition measured in the lab (weight, height, BMI, body fat, lean body mass, waist) to Apple Health.</string>
   <key>NSBluetoothAlwaysUsageDescription</key>
   <string>Connect to health devices such as scales and blood pressure monitors.</string>
   <key>UIBackgroundModes</key>

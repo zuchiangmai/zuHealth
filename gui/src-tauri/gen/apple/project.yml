@@ -49,6 +49,8 @@ targets:
         NSLocalNetworkUsageDescription: "Sync health data directly with your other devices on the same network."
         NSCameraUsageDescription: "Scan a lab device's code or another device's link code, and photograph lab reports."
         NSPhotoLibraryUsageDescription: "Choose photos of lab reports for PhysiMind to read on this device."
+        NSHealthShareUsageDescription: "PhysiMind reads your steps, heart rate, sleep, body measurements and more from Apple Health and keeps them with your other health data, on this device and your other devices."
+        NSHealthUpdateUsageDescription: "PhysiMind adds the body composition measured in the lab (weight, height, BMI, body fat, lean body mass, waist) to Apple Health."
         NSBluetoothAlwaysUsageDescription: "Connect to health devices such as scales and blood pressure monitors."
         UIBackgroundModes: [remote-notification]
         UILaunchStoryboardName: LaunchScreen
@@ -73,6 +75,9 @@ targets:
         # apple-app-site-association file. The deep-link plugin writes the same at build time; this keeps it
         # through `xcodegen generate`. Developer mode (?mode=developer) only by hand, never committed.
         com.apple.developer.associated-domains: [applinks:zuchiangmai.com]
+        # Apple Health: read the types the export maps, write the lab's body composition
+        com.apple.developer.healthkit: true
+        com.apple.developer.healthkit.access: []
     scheme:
       environmentVariables:
         RUST_BACKTRACE: full

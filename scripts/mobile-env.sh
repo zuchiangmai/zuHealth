@@ -1,5 +1,8 @@
-# Environment for `tauri android ...` (source it: `. scripts/mobile-env.sh`). Defaults fit Android Studio's
-# install on macOS; set any of these yourself to override.
+# Environment for `tauri android ...` and command-line iOS builds (source it: `. scripts/mobile-env.sh`). Defaults fit
+# Android Studio's install on macOS; set any of these yourself to override.
+# Plugins' Swift is compiled by Tauri's build script with this minimum (else iOS 13, raised to 15 by Xcode 27), not
+# the app's: keep it the app's (gen/apple/project.yml, iOS 17), or iOS 16+ APIs such as HealthKit's newer types fail.
+export IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-17.0}"
 export ANDROID_HOME="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
 export NDK_HOME="${NDK_HOME:-$(ls -d "$ANDROID_HOME"/ndk/* 2>/dev/null | sort -V | tail -1)}"
 if [ -z "${JAVA_HOME:-}" ] && [ -d "/Applications/Android Studio.app/Contents/jbr/Contents/Home" ]; then

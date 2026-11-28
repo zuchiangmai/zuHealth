@@ -32,6 +32,10 @@
 	<string>Connect to health devices such as scales and blood pressure monitors.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Scan a lab device&apos;s code or another device&apos;s link code, and photograph lab reports.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>PhysiMind reads your steps, heart rate, sleep, body measurements and more from Apple Health and keeps them with your other health data, on this device and your other devices.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>PhysiMind adds the body composition measured in the lab (weight, height, BMI, body fat, lean body mass, waist) to Apple Health.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Sync health data directly with your other devices on the same network.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

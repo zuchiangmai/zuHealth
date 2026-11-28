@@ -56,6 +56,62 @@ impl<R: Runtime> NativePlatform<R> {
         self.0.run_mobile_plugin::<serde::de::IgnoredAny>("share", ShareArgs { path, mime }).map(|_| ()).map_err(|e| e.to_string())
     }
 
+    /// The phone's health store (HealthKit; Health Connect on Android): whether it is there.
+    pub fn health_available(&self) -> bool {
+        #[derive(Deserialize)]
+        struct A {
+            available: bool,
+        }
+        self.0.run_mobile_plugin::<A>("healthAvailable", ()).is_ok_and(|a| a.available)
+    }
+
+    /// The system's own sheet asking for access.
+    pub fn health_authorize(&self) -> Result<(), String> {
+        self.0.run_mobile_plugin::<serde::de::IgnoredAny>("healthAuthorize", ()).map(|_| ()).map_err(|e| e.to_string())
+    }
+
+    /// The oldest sample the store gives (UTC ms).
+    pub fn health_earliest(&self) -> Result<i64, String> {
+        #[derive(Deserialize)]
+        struct E {
+            ms: f64,
+        }
+        self.0.run_mobile_plugin::<E>("healthEarliest", ()).map(|e| e.ms as i64).map_err(|e| e.to_string())
+    }
+
+    /// Samples starting in [from, to) (JSON as `health_runtime::syshealth::Sample` reads it).
+    pub fn health_read(&self, from_ms: i64, to_ms: i64) -> Result<Vec<serde_json::Value>, String> {
+        #[derive(Serialize)]
+        struct R {
+            from_ms: i64,
+            to_ms: i64,
+        }
+        #[derive(Deserialize)]
+        struct S {
+            samples: Vec<serde_json::Value>,
+        }
+        self.0.run_mobile_plugin::<S>("healthRead", R { from_ms, to_ms }).map(|s| s.samples).map_err(|e| e.to_string())
+    }
+
+    /// UTC days holding samples added since `anchors` (replaced with the new ones).
+    pub fn health_changed(&self, anchors: &mut serde_json::Value, floor_ms: i64, now_ms: i64) -> Result<Vec<i64>, String> {
+        #[derive(Serialize)]
+        struct C<'a> {
+            anchors: &'a serde_json::Value,
+            floor_ms: i64,
+            now_ms: i64,
+        }
+        #[derive(Deserialize)]
+        struct D {
+            days: Vec<i64>,
+            anchors: serde_json::Value,
+        }
+        let anchors_in = if anchors.is_object() { anchors.clone() } else { serde_json::json!({}) };
+        let d: D = self.0.run_mobile_plugin("healthChanged", C { anchors: &anchors_in, floor_ms, now_ms }).map_err(|e| e.to_string())?;
+        *anchors = d.anchors;
+        Ok(d.days)
+    }
+
     fn run(&self, command: &str, args: KeyArgs) -> Result<(), String> {
         self.0.run_mobile_plugin::<serde::de::IgnoredAny>(command, args).map(|_| ()).map_err(|e| e.to_string())
     }

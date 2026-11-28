@@ -9,6 +9,7 @@ links = "tauri-plugin-health-platform"
 
 [dependencies]
 serde.workspace = true
+serde_json.workspace = true
 tauri = "2"
 
 [build-dependencies]
