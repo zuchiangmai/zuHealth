@@ -78,5 +78,7 @@
  "Waiting for the result: {{count}} min so far (10 at most)._one": "Waiting for the result: {{count}} min so far (10 at most).",
  "Waiting for the result: {{count}} min so far (10 at most)._other": "Waiting for the result: {{count}} min so far (10 at most).",
  "{{count}} people are waiting for results ahead of you: please measure in turn._one": "{{count}} person is waiting for results ahead of you: please measure in turn.",
- "{{count}} people are waiting for results ahead of you: please measure in turn._other": "{{count}} people are waiting for results ahead of you: please measure in turn."
+ "{{count}} people are waiting for results ahead of you: please measure in turn._other": "{{count}} people are waiting for results ahead of you: please measure in turn.",
+ "{{count}} new readings._one": "{{count}} new reading.",
+ "{{count}} new readings._other": "{{count}} new readings."
 }

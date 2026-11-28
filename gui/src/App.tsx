@@ -22,6 +22,7 @@ import { More } from "./screens/more";
 import { ProfilePage } from "./screens/profile";
 import { Review } from "./screens/review";
 import { ScanButton } from "./screens/scan";
+import { useSystemHealthSync } from "./screens/syshealth";
 import { Btn, Chevron, errText, GroupIcon, Icon, LangSelect, MAC, MOD, type Page, Problem, TitleContext, useAppearance, useOp, useTitles } from "./ui";
 
 /** Narrow screens (phones): the floating tab bar's pages; the other sections are reached from More. */
@@ -268,6 +269,8 @@ function Shell({ status }: { status?: Status }) {
   }, [page]);
   const setMetric = (code: string) => nav(`metric/${encodeURIComponent(code)}`, !!metric);
   useInbox();
+  // the phone's health store, when connected on this device
+  useSystemHealthSync();
   const syncLive = useSyncLive();
   const [latest, latestErr] = useOp(() => op<Point[]>("obs.latest"), []);
   const [cats, setCats] = useState(true);

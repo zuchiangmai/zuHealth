@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { type Batch, type BatchDetail, inBackground, isMobile, op, type Source } from "../api";
+import { type Batch, type BatchDetail, inBackground, isAndroid, isMobile, op, type Source } from "../api";
 import { ago, shortDate, shown, sourceKind, when } from "../format";
 import { t } from "../i18n";
 import { LabSelfService } from "../lab";
@@ -9,10 +9,11 @@ import { Btn, card, Chevron, Copy, errText, Group, GroupIcon, Heading, Icon, typ
 import { pollFast } from "./account";
 import { Enter } from "./add";
 import { Import } from "./import";
+import { ExportNote, SystemHealthCard } from "./syshealth";
 
 const WHOOP_DASHBOARD = "https://developer-dashboard.whoop.com/";
 
-const SOURCE_SHEETS = ["manage", "whoop", "apple", "report", "lab", "restore", "manual", "file"] as const;
+const SOURCE_SHEETS = ["manage", "whoop", "apple", "health", "report", "lab", "restore", "manual", "file"] as const;
 
 type SourceSheet = (typeof SOURCE_SHEETS)[number];
 
@@ -55,6 +56,7 @@ export function DataSources({
     manage: t("Manage data"),
     whoop: "WHOOP",
     apple: t("Apple Health"),
+    health: "Health Connect",
     report: t("Lab report"),
     lab: t("Lab self-service"),
     restore: t("Restore a backup"),
@@ -65,6 +67,21 @@ export function DataSources({
   if (sheet === "whoop") return <Screen title="WHOOP"><WhoopConnect /></Screen>;
   if (sheet === "lab") return <LabSelfService errText={errText} showResults={() => go("readings")} showIdentity={() => go("account")} pollFast={pollFast} path={path ?? []} />;
   if (sheet === "manual") return <Enter done={done} />;
+  // the phone's own store: Health Connect on Android; on an iPhone, Apple Health connected above its export's import
+  if (sheet === "health")
+    return (
+      <Screen title="Health Connect">
+        <SystemHealthCard />
+      </Screen>
+    );
+  if (sheet === "apple" && isMobile && !isAndroid)
+    return (
+      <Screen title={titles.apple}>
+        <SystemHealthCard />
+        <ExportNote />
+        <Import file={file} onFile={onFile} go={go} kind="apple" title={t("Import an export")} part />
+      </Screen>
+    );
   if (sheet) return <Import file={file} onFile={onFile} go={go} kind={sheet} title={titles[sheet]} />;
   return (
     <section className="mx-auto w-full max-w-3xl">
@@ -82,6 +99,7 @@ export function DataSources({
       <Group>
         <Row color="#e53935" icon={<GroupIcon k="cardio" />} label="WHOOP" sub={whoopValue ?? t("Syncs every hour while PhysiMind is open")} onClick={() => setSheet("whoop")} />
         <Row color="#f4511e" icon={<GroupIcon k="activity" />} label={t("Apple Health")} sub={lastOf("apple_health") ?? t("Export from your iPhone")} onClick={() => setSheet("apple")} />
+        {isAndroid && <Row color="#1e88e5" icon={<GroupIcon k="activity" />} label="Health Connect" sub={lastOf("health_connect") ?? t("This phone's health data")} onClick={() => setSheet("health")} />}
         <Row color="#00897b" icon={<GroupIcon k="lab" />} label={t("Lab report")} sub={lastOf("ocr") ?? t("A photo or a PDF")} onClick={() => setSheet("report")} />
         <Row color="#43a047" icon={<GroupIcon k="infectious" />} label={t("Lab self-service")} sub={t("A code for a lab device")} onClick={() => setSheet("lab")} />
         <Row color="#fb8c00" icon={<Icon k="backup" />} label={t("Restore a backup")} sub={t("A .zuhealth file")} onClick={() => setSheet("restore")} />
