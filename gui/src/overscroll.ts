@@ -10,6 +10,8 @@ export function rubberBand(el: HTMLElement): () => void {
   let from: number | null = null; // where the finger was when the pull past the edge began
   const shift = (transform: string, transition: string) => {
     for (const c of el.children) {
+      // the top bar stays where it is: moved with the content it would uncover the picture above it
+      if (c.classList.contains("k-navbar")) continue;
       (c as HTMLElement).style.transition = transition;
       (c as HTMLElement).style.transform = transform;
     }

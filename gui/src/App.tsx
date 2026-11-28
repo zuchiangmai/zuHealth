@@ -479,6 +479,7 @@ function Shell({ status }: { status?: Status }) {
             leads to the sections). A screen under a tab has the way back. */}
         <TopBar
           title={title}
+          photo={dash}
           className={route.length > 1 ? "" : "wide:hidden"}
           back={route.length > 1 || !isTab ? () => goBack(parentOf(route, pathOf(tab.current))) : undefined}
         />
@@ -575,14 +576,20 @@ function Totals({ status }: { status?: Status }) {
   );
 }
 
+// iOS over the dashboard's photo: the blur alone, fading out from the bar's middle (Konsta's own is a band of the
+// page's colour, which on the photo reads as a pale wash). Material's bar is clear at rest and takes its surface once
+// scrolled, as Material has it.
+const PHOTO_BAR_IOS = "backdrop-blur-xl mask-b-from-40% mask-b-to-100%";
+
 /** The top bar, Konsta's as each platform has it: over the screen's large heading only the way back; scrolled, the
  *  content under it blurs and fades (iOS) or the bar takes its surface (Material), and the screen's name shows in it.
  *  The name is the screen's own heading (the first `Heading` on it), so no screen has to say it twice. */
-function TopBar({ title, back, className = "" }: { title: string; back?: () => void; className?: string }) {
+function TopBar({ title, back, photo, className = "" }: { title: string; back?: () => void; photo?: boolean; className?: string }) {
   const { theme } = useAppearance();
   return (
     <Navbar
       transparent
+      colors={photo ? { bgIos: PHOTO_BAR_IOS } : undefined}
       title={title}
       className={`-mx-4 w-[calc(100%+2rem)]! wide:-mx-9 wide:-mt-6 wide:w-[calc(100%+4.5rem)]! ${className}`}
       innerClassName="wide:mx-auto wide:max-w-3xl wide:px-0!"
