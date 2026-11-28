@@ -8,6 +8,7 @@ import { go as nav } from "../router";
 import { Btn, C, Callout, DAY, fdBest, fdStart, figure, fixed, Flag, Group, GroupIcon, Heading, Icon, IconDot, MOD, type Page, Problem, Row, Screen, SearchPill, sourceLabel, TINT, toPts, useOp } from "../ui";
 import { FdReport, SecaReport } from "./reports";
 import { ScanButton } from "./scan";
+import { usePage } from "../page";
 
 /** The last 30 days of a measure, reaching back to its latest reading's day when that is older
  *  (one request per tile, refreshed after writes). */
@@ -225,27 +226,30 @@ export function Readings({
       found();
     }
   }, [find, latest, found]);
-  // which category is under the page's top edge: the sidebar marks it
+  // which category is under the page's top edge: the sidebar marks it (this page's own sections, scrolled in its
+  // own scroller; only while it is on top)
+  const page = usePage();
   useEffect(() => {
-    if (!latest?.length) return;
+    const root = page.scroller();
+    if (!latest?.length || !page.active || !root) return;
     const seen = new Map<string, boolean>();
     const io = new IntersectionObserver(
       (entries) => {
         for (const x of entries) seen.set(x.target.id.slice(2), x.isIntersecting);
         const first = HOME_GROUPS.find((g) => seen.get(g.key));
-        onSection(window.scrollY < 40 ? null : (first?.key ?? null));
+        onSection(root.scrollTop < 40 ? null : (first?.key ?? null));
       },
-      { rootMargin: "-80px 0px -60% 0px" },
+      { root, rootMargin: "-80px 0px -60% 0px" },
     );
-    for (const el of document.querySelectorAll("section[id^='g-']")) io.observe(el);
-    const top = () => window.scrollY < 40 && onSection(null);
-    window.addEventListener("scroll", top, { passive: true });
+    for (const el of root.querySelectorAll("section[id^='g-']")) io.observe(el);
+    const top = () => root.scrollTop < 40 && onSection(null);
+    root.addEventListener("scroll", top, { passive: true });
     return () => {
       io.disconnect();
-      window.removeEventListener("scroll", top);
+      root.removeEventListener("scroll", top);
       onSection(null);
     };
-  }, [latest, onSection]);
+  }, [latest, onSection, page]);
   if (err) return <Problem text={err} />;
   if (!latest) return <section aria-busy="true" aria-label={t("Loading your readings…")} />;
   // the lab devices' reports, each a screen of its own (#/report/seca, #/report/forcedecks)

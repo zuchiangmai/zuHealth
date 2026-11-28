@@ -6,10 +6,10 @@ import { App } from "./App";
 import { useAppearance } from "./ui";
 import "./app.css";
 
-// a phone: only the content scrolls (App's <main>); the page itself stays put, with no bounce of its own
+// only the pages scroll (each its own Konsta Page, App.tsx's stack); the document itself stays put, with no bounce
 const root = document.documentElement;
-root.classList.add("max-wide:h-full", "max-wide:overflow-hidden", "max-wide:overscroll-none");
-document.body.classList.add("max-wide:h-full", "max-wide:overflow-hidden", "max-wide:overscroll-none");
+root.classList.add("h-full", "overflow-hidden", "overscroll-none");
+document.body.classList.add("h-full", "overflow-hidden", "overscroll-none");
 
 /** Konsta's root, as Konsta has it: its App sets the look (iOS's or Material's, as More › Appearance has them,
  *  the platform's by default) and, with `safeAreas`, the safe areas its bars and sheets pad by (the notch, the

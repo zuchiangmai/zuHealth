@@ -5,6 +5,7 @@ import { ago, groupLabel, GROUPS, when } from "../format";
 import { locale as i18nLocale, t, tk } from "../i18n";
 import { backBy, go as nav } from "../router";
 import { Btn, card, Copy, DAY, errText, Group, GroupIcon, Heading, Item, Problem, SwitchRow, useOp, writeText } from "../ui";
+import { usePage } from "../page";
 
 /** A card's title, with one button that turns every switch in it on (or, when all are on, off). */
 function CardHead({ title, on, set }: { title: string; on: boolean; set: (on: boolean) => void }) {
@@ -386,12 +387,16 @@ export function Agents({ want, path }: { want?: string; path?: string[] }) {
   );
 }
 
-/** Agents' reads change no data, so no change event announces them: look again every few seconds. */
+/** Agents' reads change no data, so no change event announces them: look again every few seconds (while this page
+ *  is on top; back on top, at once). */
 function usePoll(reload: () => void, ms = 5000) {
+  const { active } = usePage();
   useEffect(() => {
+    if (!active) return;
+    inBackground(reload);
     const t = setInterval(() => inBackground(reload), ms);
     return () => clearInterval(t);
-  }, [reload, ms]);
+  }, [reload, ms, active]);
 }
 
 function AuditLog() {

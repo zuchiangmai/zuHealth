@@ -1,6 +1,6 @@
 // Every page has an address (#/backup/save, #/metric/loinc:29463-7): a browser shows the same page, and a page can be
 // named by its address. Going back is the history's: Android's back button, the UI's own, the browser's.
-import { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 
 /** The address's parts: "#/data/whoop" → ["data", "whoop"]. */
 export function parts(hash = location.hash): string[] {
@@ -15,95 +15,125 @@ const subs = new Set<() => void>();
 const changed = () => {
   for (const f of subs) f();
 };
-/** The address changed by going back or forward (not by opening a page): its page comes back where it was left */
-let popped = false;
+const subscribe = (f: () => void) => (subs.add(f), () => subs.delete(f));
+
+/** A history entry's state: its page (`key`), how many steps this app opened under it (`depth`), a layer's id, and
+ *  where its page was scrolled to when another opened over it. */
+type State = { key?: string; depth?: number; layer?: string; scroll?: number } | null;
+const state = () => history.state as State;
+
+/** How many steps of history this app opened under the current one: going back stays in the app while there are
+ *  some. Kept in the entry itself, so a reload or an address typed in by hand (none) reads it right. */
+const depth = (): number => state()?.depth ?? 0;
+
+/** A page in the stack: the pages opened one over another, each kept as it was left while another is on top (as a
+ *  native navigation stack keeps them). `scroll`: where to put it back, for a page made anew from history. */
+export type Entry = { key: string; path: string; depth: number; scroll?: number };
+/** How the stack last moved, for the way pages come and go */
+export type Move = "push" | "pop" | "replace" | "reset";
+export type Stack = { entries: readonly Entry[]; move: Move };
+
+/** At most this many pages are kept; going back past them makes the page anew (where it was scrolled to, still) */
+const KEPT = 10;
+const newKey = () => Math.random().toString(36).slice(2, 10);
+let stack: Stack = { entries: [], move: "reset" };
+const set = (entries: Entry[], move: Move) => {
+  stack = { entries: entries.slice(-KEPT), move };
+};
+
 if (typeof window !== "undefined") {
-  // the app keeps the places itself (a phone scrolls the content, not the window, which the browser wouldn't keep)
+  // the app keeps the places itself: each page is its own scroller, which the browser wouldn't keep
   history.scrollRestoration = "manual";
+  // the entry the app opened on: stamped once, here (not in a render or an effect, which StrictMode runs twice)
+  const s = state();
+  const key = s?.key ?? newKey();
+  if (!s?.key) history.replaceState({ ...s, key, depth: s?.depth ?? 0 }, "", location.href);
+  set([{ key, path: location.hash, depth: s?.depth ?? 0, scroll: s?.scroll }], "reset");
   window.addEventListener("hashchange", changed);
   window.addEventListener("popstate", () => {
-    popped = true;
+    const s = state();
+    const top = stack.entries.at(-1);
+    if (!s?.key) {
+      // an address typed in, or a plain link: a page over this one
+      const d = (top?.depth ?? 0) + 1;
+      const key = newKey();
+      history.replaceState({ ...s, key, depth: d }, "", location.href);
+      set([...stack.entries, { key, path: location.hash, depth: d }], "push");
+    } else {
+      const at = stack.entries.findIndex((e) => e.key === s.key);
+      if (at >= 0) {
+        // back (or onto a layer's entry over the same page): the page under comes back as it was
+        if (at < stack.entries.length - 1) set(stack.entries.slice(0, at + 1) as Entry[], "pop");
+      } else if ((s.depth ?? 0) > (top?.depth ?? 0)) set([...stack.entries, { key: s.key, path: location.hash, depth: s.depth ?? 0 }], "push");
+      // a page no longer kept (before a reload, or past the ones kept): made anew where it was scrolled to
+      else set([{ key: s.key, path: location.hash, depth: s.depth ?? 0, scroll: s.scroll }], "pop");
+    }
     changed();
   });
 }
 
-/** How many steps of history this app opened under the current one: going back stays in the app while there are
- *  some. Kept in the entry itself, so a reload or an address typed in by hand (none) reads it right. */
-const depth = (): number => (history.state as { depth?: number } | null)?.depth ?? 0;
-
-/** The address now, followed live. */
+/** The address's page now, followed live. */
 export function useRoute(): string[] {
-  const hash = useSyncExternalStore(
-    (f) => (subs.add(f), () => subs.delete(f)),
-    () => location.hash,
-  );
+  const hash = useSyncExternalStore(subscribe, () => location.hash);
   return parts(hash);
 }
 
-/** Opens a page. `replace`: in place of this one (switching tabs), so going back skips it. */
+/** The pages open, the one on top last. */
+export function useStack(): Stack {
+  return useSyncExternalStore(subscribe, () => stack);
+}
+
+/** The element of a page in the stack (its scroller) */
+export const scrollerOf = (key: string) => document.querySelector<HTMLElement>(`[data-page="${key}"] > .k-page`);
+
+/** Opens a page over this one. `replace`: in place of this one (switching tabs), so going back skips it. */
 export function go(path: string, replace = false) {
   const hash = `#/${path}`;
   if (location.hash === hash) return;
-  popped = false;
-  if (replace) history.replaceState(history.state, "", hash);
-  else {
-    // where this page was scrolled to, kept in its own entry for coming back to it
-    history.replaceState({ ...(history.state as object | null), scroll: place() }, "", location.href);
-    history.pushState({ depth: depth() + 1 }, "", hash);
+  const top = stack.entries.at(-1);
+  const key = newKey();
+  if (replace) {
+    // a fresh entry: not the layer or the place the one before had
+    history.replaceState({ key, depth: depth() }, "", hash);
+    set([...stack.entries.slice(0, -1), { key, path: hash, depth: depth() }], "replace");
+  } else {
+    // where this page is scrolled to, kept in its entry for when it's made anew (past the pages kept, a reload)
+    if (top) history.replaceState({ ...state(), scroll: scrollerOf(top.key)?.scrollTop ?? 0 }, "", location.href);
+    const d = depth() + 1;
+    history.pushState({ key, depth: d }, "", hash);
+    set([...stack.entries, { key, path: hash, depth: d }], "push");
   }
   changed();
 }
 
-type Place = { window: number; content: number };
-/** How far the page is scrolled: the window on a wide screen, the content (its own scroller) on a narrow one */
-const place = (): Place => ({ window: window.scrollY, content: document.getElementById("content")?.scrollTop ?? 0 });
-
-let stop: (() => void) | undefined;
-/** Scrolls back to `to`. The page comes back empty and fills in as its data loads, so this goes on, a frame at a
- *  time, until it can get there (or a second has passed, or the person scrolls themselves). */
-function scrollBack(to: Place) {
-  stop?.();
-  const content = document.getElementById("content");
+/** Scrolls a page made anew back to `top`. It comes back empty and fills in as its data loads, so this goes on, a
+ *  frame at a time, until it can get there (or a second has passed, or the person scrolls themselves). */
+export function scrollBack(el: HTMLElement, top: number) {
   let frame = 0;
   const end = performance.now() + 1000;
+  const events = ["wheel", "touchstart", "keydown", "pointerdown"] as const;
+  const stop = () => {
+    cancelAnimationFrame(frame);
+    for (const e of events) window.removeEventListener(e, stop, true);
+  };
   const step = () => {
-    window.scrollTo(0, to.window);
-    if (content) content.scrollTop = to.content;
-    const there = Math.abs(window.scrollY - to.window) < 2 && (!content || Math.abs(content.scrollTop - to.content) < 2);
-    if (there || performance.now() > end) return stop?.();
+    el.scrollTop = top;
+    if (Math.abs(el.scrollTop - top) < 2 || performance.now() > end) return stop();
     frame = requestAnimationFrame(step);
   };
-  const events = ["wheel", "touchstart", "keydown", "pointerdown"] as const;
-  const quit = () => stop?.();
-  stop = () => {
-    cancelAnimationFrame(frame);
-    for (const e of events) window.removeEventListener(e, quit, true);
-    stop = undefined;
-  };
-  for (const e of events) window.addEventListener(e, quit, { capture: true, passive: true });
+  for (const e of events) window.addEventListener(e, stop, { capture: true, passive: true });
   step();
-}
-
-/** A page opened anew starts at its top; one gone back (or forward) to, where it was left. Call where the pages
- *  are shown, with the address. */
-export function useScrollPlace(address: string) {
-  useLayoutEffect(() => {
-    const kept = popped ? (history.state as { scroll?: Place } | null)?.scroll : undefined;
-    popped = false;
-    if (kept) scrollBack(kept);
-    else {
-      stop?.();
-      window.scrollTo(0, 0);
-      document.getElementById("content")?.scrollTo(0, 0);
-    }
-  }, [address]);
+  return stop;
 }
 
 /** Closes this page: back through history when this session opened it, else up to `parent` (an address opened
  *  directly has nothing behind it). */
 export function back(parent: string) {
   if (depth() > 0) history.back();
-  else go(parent, true);
+  else {
+    go(parent, true);
+    stack = { ...stack, move: "pop" };
+  }
 }
 
 /** Ends a flow `steps` screens deep (a form under a list): back over all of them when this session opened them,
@@ -115,11 +145,10 @@ export function backBy(steps: number, parent: string) {
 
 /** The layers on screen now, by the id their history entry carries. */
 const layers = new Set<string>();
-type Entry = { depth?: number; layer?: string } | null;
 if (typeof window !== "undefined")
   // back or forward onto the entry of a layer that has closed meanwhile: step over it
   window.addEventListener("popstate", () => {
-    const id = (history.state as Entry)?.layer;
+    const id = state()?.layer;
     if (id && !layers.has(id)) history.back();
   });
 
@@ -140,9 +169,12 @@ export function useLayer(close: () => void, on = true): () => void {
     gone.current = false;
     layers.add(me);
     // once: StrictMode runs this twice in development
-    if ((history.state as Entry)?.layer !== me) history.pushState({ depth: depth() + 1, layer: me }, "", location.href);
+    // the page's own key (the layer sits over it), not its place
+    if (state()?.layer !== me) history.pushState({ key: state()?.key, depth: depth() + 1, layer: me }, "", location.href);
+    const mine = depth();
+    // closed when history goes back under it; a page opened over it (a deeper step) leaves it open below
     const pop = () => {
-      if ((history.state as Entry)?.layer === me) return;
+      if (state()?.layer === me || depth() >= mine) return;
       gone.current = true;
       closing.current();
     };
@@ -158,7 +190,7 @@ export function useLayer(close: () => void, on = true): () => void {
       setTimeout(() => {
         if (live.current) return;
         layers.delete(me);
-        if ((history.state as Entry)?.layer === me) history.back();
+        if (state()?.layer === me) history.back();
       }, 0);
     };
   }, [on]);

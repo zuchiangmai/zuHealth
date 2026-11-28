@@ -1,6 +1,6 @@
-import { Dialog, DialogButton, Navbar, NavbarBackLink, Tabbar, TabbarLink, ToolbarPane } from "konsta/react";
+import { Dialog, DialogButton, Page as KPage, Navbar, NavbarBackLink, Tabbar, TabbarLink, ToolbarPane } from "konsta/react";
 import { onLink, takeLink } from "./deeplink";
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { chooseImportFile, inBackground, initProfile, isAndroid, isDesktop, isMobile, menuOwnsKeys, onFileDrop, onMenu, onStatus, op, OpError, type Point, setBadge, setShellLanguage, type Status, unlock, unstageFile } from "./api";
 import meadowDark from "./backdrop/meadow-dark.webp";
@@ -8,7 +8,8 @@ import meadowLight from "./backdrop/meadow-light.webp";
 import { HOME_GROUPS } from "./format";
 import { t, tk } from "./i18n";
 import { rubberBand } from "./overscroll";
-import { back as goBack, go as nav, parts, useRoute, useScrollPlace } from "./router";
+import { PageContext, type PageInfo } from "./page";
+import { type Entry, back as goBack, go as nav, parts, scrollBack, useRoute, useStack } from "./router";
 import { About, ClearDataRow } from "./screens/about";
 import { HealthAccount, useInbox, useSyncLive } from "./screens/account";
 import { AddPage } from "./screens/add";
@@ -23,7 +24,7 @@ import { ProfilePage } from "./screens/profile";
 import { Review } from "./screens/review";
 import { ScanButton } from "./screens/scan";
 import { useSystemHealthSync } from "./screens/syshealth";
-import { Btn, Chevron, errText, GroupIcon, Icon, LangSelect, MAC, MOD, type Page, Problem, TitleContext, useAppearance, useOp, useTitles } from "./ui";
+import { Btn, Chevron, errText, GroupIcon, Icon, LangSelect, MAC, MOD, type Page, Problem, TitleContext, type Titles, useAppearance, useOp, useTitles } from "./ui";
 
 /** Narrow screens (phones): the floating tab bar's pages; the other sections are reached from More. */
 type Tab = "readings" | "add" | "more";
@@ -239,11 +240,9 @@ function Shell({ status }: { status?: Status }) {
   // redraw everything when the language changes; the menu bar follows
   const { i18n } = useTranslation();
   useEffect(() => setShellLanguage(i18n.language), [i18n.language]);
-  // the screen's name for the top bar, from its heading
-  const [title, titles] = useTitles();
-  // the page, the view inside it, the measure or report open on the dashboard: all from the address
+  // the page on top, the measure open on it: from the address (each page of the stack reads its own)
   const route = useRoute();
-  const { page, want, metric, rest } = fromRoute(route);
+  const { page, metric } = fromRoute(route);
   // no address yet (the app just opened): the dashboard, or on a computer the section opened last
   useEffect(() => {
     if (!route.length) nav(pathOf(isMobile ? "readings" : savedPage()), true);
@@ -274,15 +273,9 @@ function Shell({ status }: { status?: Status }) {
   const syncLive = useSyncLive();
   const [latest, latestErr] = useOp(() => op<Point[]>("obs.latest"), []);
   const [cats, setCats] = useState(true);
-  // a screen opens at its top; one gone back to comes back where it was left
-  useScrollPlace(route.join("/"));
-  // Android: the content's own rubber band (overscroll.ts); iOS bounces scrolling content natively
-  const band = useRef<(() => void) | undefined>(undefined);
+  // the pages open, one over another; the one on top is the address's
+  const stack = useStack();
   const { dark } = useAppearance();
-  const mainEl = useCallback((el: HTMLElement | null) => {
-    band.current?.();
-    band.current = el && isAndroid ? rubberBand(el) : undefined;
-  }, []);
   // narrow screens: the tab a section was opened from, where its back button returns
   // opened at an address under no tab (#/data/lab): More, where those sections are; a measure or report: Dashboard
   const tab = useRef<Tab>(TABS.some((x) => x.key === page) ? (page as Tab) : metric || route[0] === "report" || !route.length ? "readings" : "more");
@@ -291,16 +284,15 @@ function Shell({ status }: { status?: Status }) {
   }, [page]);
   // the category scrolled into view on Readings (null: its top)
   const [inView, setInView] = useState<string | null>(null);
-  // a file dropped or chosen from the menu, for the import screen it opened (#/data/file); any other address drops it,
-  // so coming back to Data sources neither jumps to it nor reads it again
-  const here = route.join("/");
+  // a file dropped or chosen from the menu, for the import screen it opened (#/data/file); gone once that screen is
+  // (closed, not merely under another), so coming back to Data sources neither jumps to it nor reads it again
   const [dropped, setDropped] = useState<{ path: string; at: string }>();
   useEffect(() => {
-    if (dropped && dropped.at !== here) {
+    if (dropped && !stack.entries.some((e) => parts(e.path).join("/") === dropped.at)) {
       unstageFile(dropped.path);
       setDropped(undefined);
     }
-  }, [here]);
+  }, [stack]);
   const importFile = (path: string) => {
     setDropped({ path, at: "data/file" });
     nav("data/file");
@@ -403,6 +395,71 @@ function Shell({ status }: { status?: Status }) {
     return `${t(PAGES[i]!.label)} (${MOD}${i + 1})`;
   };
   const dash = page === "readings";
+  /** A page of the stack: its top bar and what its address shows. Each renders from its own address, so the pages
+   *  under the top one keep showing what they showed. */
+  const screen = (e: Entry, active: boolean, titles: Titles, title: string) => {
+    const r = parts(e.path);
+    const { page, want, metric, rest } = fromRoute(r);
+    const here = r.join("/");
+    const isTab = TABS.some((x) => x.key === page);
+    return (
+      <>
+        <TopBar
+          title={title}
+          photo={page === "readings"}
+          // the dashboard's scanner (a phone's: a computer has no camera to scan with)
+          right={isMobile && page === "readings" && !metric && r[0] !== "report" ? <ScanButton /> : undefined}
+          className={r.length > 1 ? "" : "wide:hidden"}
+          back={r.length > 1 || !isTab ? () => goBack(parentOf(r, pathOf(tab.current))) : undefined}
+        />
+        <TitleContext.Provider value={titles}>
+        <div key={`${page}-${i18n.language}`}>
+          {metric && <Record key={metric} code={metric} pick={setMetric} />}
+          {page === "readings" && !metric && (
+            <Readings
+              latest={latest}
+              err={latestErr}
+              open={open}
+              go={(p) => setPage(p)}
+              want={want}
+              reviews={status?.reviews ?? 0}
+              find={find && active}
+              found={() => setFind(false)}
+              onSection={active ? setInView : noSection}
+              start={(p, w) => {
+                setPage(p, w);
+              }}
+            />
+          )}
+          {page === "add" && (
+            <AddPage
+              go={(p, w) => {
+                setPage(p, w);
+              }}
+              done={open}
+            />
+          )}
+          {page === "data" && <DataSources file={dropped?.at === here ? dropped.path : undefined} onFile={(p) => setDropped(p ? { path: p, at: here } : undefined)} go={(p) => setPage(p)} done={open} want={want} path={rest} />}
+          {page === "review" && <Review />}
+          {page === "agents" && <Agents want={want} path={rest} />}
+          {page === "backup" && <Backup want={want} go={(p) => setPage(p)} />}
+          {page === "profile" && <ProfilePage want={want} />}
+          {page === "account" && <HealthAccount go={(p) => setPage(p)} want={want} />}
+          {page === "about" && <About version={status?.version} want={want} />}
+          {page === "more" && (
+            <More
+              go={(p, w) => {
+                setPage(p, w);
+              }}
+              status={status}
+              syncAsking={syncAsking}
+            />
+          )}
+        </div>
+        </TitleContext.Provider>
+      </>
+    );
+  };
   return (
     <div className="relative min-h-dvh text-black wide:grid wide:grid-cols-[300px_minmax(0,1fr)] dark:text-white">
       {/* the dashboard's morning meadow (dusk when dark), pre-blurred; elsewhere the grouped background */}
@@ -445,7 +502,7 @@ function Shell({ status }: { status?: Status }) {
                         setPage("readings");
                         // marked at once: a short page can't scroll the section to the top
                         requestAnimationFrame(() => {
-                          document.getElementById(`g-${g.key}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+                          document.querySelector(`[data-page="${stack.entries.at(-1)?.key}"] #g-${g.key}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
                           setInView(g.key);
                         });
                       },
@@ -486,66 +543,14 @@ function Shell({ status }: { status?: Status }) {
           <LangSelect small />
         </div>
       </nav>
-      <main
-        id="content"
-        className={`h-dvh min-w-0 overflow-y-auto px-4 pb-[calc(var(--k-safe-area-bottom)+108px)] wide:h-auto wide:overflow-visible wide:px-9 wide:pt-6 wide:pb-16 ${MAC && isDesktop ? "wide:pt-[4.4rem]" : ""}`}
-        ref={mainEl}
-      >
-        {/* the top bar (Konsta's): a phone's every screen; a wide window's screens inside a section (its side panel
-            leads to the sections). A screen under a tab has the way back. */}
-        <TopBar
-          title={title}
-          photo={dash}
-          // the dashboard's scanner (a phone's: a computer has no camera to scan with)
-          right={isMobile && page === "readings" && !metric && route[0] !== "report" ? <ScanButton /> : undefined}
-          className={route.length > 1 ? "" : "wide:hidden"}
-          back={route.length > 1 || !isTab ? () => goBack(parentOf(route, pathOf(tab.current))) : undefined}
-        />
-        <TitleContext.Provider value={titles}>
-        <div key={`${page}-${i18n.language}`}>
-          {metric && <Record key={metric} code={metric} pick={setMetric} />}
-          {page === "readings" && !metric && (
-            <Readings
-              latest={latest}
-              err={latestErr}
-              open={open}
-              go={(p) => setPage(p)}
-              want={want}
-              reviews={status?.reviews ?? 0}
-              find={find}
-              found={() => setFind(false)}
-              onSection={setInView}
-              start={(p, w) => {
-                setPage(p, w);
-              }}
-            />
-          )}
-          {page === "add" && (
-            <AddPage
-              go={(p, w) => {
-                setPage(p, w);
-              }}
-              done={open}
-            />
-          )}
-          {page === "data" && <DataSources file={dropped?.at === here ? dropped.path : undefined} onFile={(p) => setDropped(p ? { path: p, at: here } : undefined)} go={(p) => setPage(p)} done={open} want={want} path={rest} />}
-          {page === "review" && <Review />}
-          {page === "agents" && <Agents want={want} path={rest} />}
-          {page === "backup" && <Backup want={want} go={(p) => setPage(p)} />}
-          {page === "profile" && <ProfilePage want={want} />}
-          {page === "account" && <HealthAccount go={(p) => setPage(p)} want={want} />}
-          {page === "about" && <About version={status?.version} want={want} />}
-          {page === "more" && (
-            <More
-              go={(p, w) => {
-                setPage(p, w);
-              }}
-              status={status}
-              syncAsking={syncAsking}
-            />
-          )}
-        </div>
-        </TitleContext.Provider>
+      {/* the pages, one over another as a native navigation stack has them: those under the top one stay as they
+          were left (scrolled, opened, typed into), out of sight and out of reach */}
+      <main className="relative h-dvh min-w-0 overflow-hidden">
+        {stack.entries.map((e, i) => (
+          <StackPage key={e.key} entry={e} active={i === stack.entries.length - 1} photo={fromRoute(parts(e.path)).page === "readings"}>
+            {(titles, title) => screen(e, i === stack.entries.length - 1, titles, title)}
+          </StackPage>
+        ))}
       </main>
       <Dialog
         opened={strangeLink}
@@ -592,6 +597,48 @@ function Totals({ status }: { status?: Status }) {
         count: status.sources,
       })}
     </p>
+  );
+}
+
+/** A page under another's notice of the category in view: none (the rail marks the top page's) */
+const noSection = () => {};
+
+/** One page of the stack: Konsta's Page (its own scroller, the top bar following its scrolling), its own name for
+ *  the top bar, its layers. Under the top one it stays mounted as it was left, but hidden and out of reach (not
+ *  `display: none`, which would lose where it was scrolled to). */
+function StackPage({ entry, active, photo, children }: { entry: Entry; active: boolean; photo: boolean; children: (titles: Titles, title: string) => ReactNode }) {
+  const [title, titles] = useTitles();
+  const scroller = useRef<HTMLDivElement | null>(null);
+  const layers = useRef<HTMLDivElement | null>(null);
+  const info: PageInfo = useMemo(() => ({ active, scroller: () => scroller.current, layers: () => layers.current }), [active]);
+  // Android: the page's own rubber band (overscroll.ts); iOS bounces scrolling content natively
+  useEffect(() => (isAndroid && scroller.current ? rubberBand(scroller.current) : undefined), []);
+  // made anew from history (past the pages kept, after a reload): back where it was scrolled to
+  useLayoutEffect(() => (entry.scroll && scroller.current ? scrollBack(scroller.current, entry.scroll) : undefined), []);
+  // the control that opened the page over this one has the focus again when this one is back on top
+  const focused = useRef<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    if (!active) {
+      const f = document.activeElement;
+      if (f instanceof HTMLElement && scroller.current?.contains(f)) focused.current = f;
+    } else if (focused.current?.isConnected) {
+      focused.current.focus({ preventScroll: true });
+      focused.current = null;
+    }
+  }, [active]);
+  return (
+    <div data-page={entry.key} className={`absolute inset-0 ${active ? "" : "invisible"}`} inert={!active}>
+      <KPage
+        ref={scroller}
+        // the background is the shell's (the dashboard's photo, else the grouped colour)
+        colors={{ bgIos: "", bgMaterial: "" }}
+        className={`px-4 pb-[calc(var(--k-safe-area-bottom)+108px)] wide:px-9 wide:pt-6 wide:pb-16 ${MAC && isDesktop ? "wide:pt-[4.4rem]" : ""}`}
+        data-photo={photo || undefined}
+      >
+        <PageContext.Provider value={info}>{children(titles, title)}</PageContext.Provider>
+      </KPage>
+      <div ref={layers} />
+    </div>
   );
 }
 

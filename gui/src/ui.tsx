@@ -9,6 +9,7 @@ import { dayValue, explain, sourceKind, unitLabel } from "./format";
 import { choice, choose, LANGS, locale as i18nLocale, t } from "./i18n";
 import { codesNamed, nameOf } from "./names";
 import { useLayer } from "./router";
+import { usePage } from "./page";
 
 const darkQuery = typeof matchMedia !== "undefined" ? matchMedia("(prefers-color-scheme: dark)") : null;
 /** The system's dark mode, followed live. */
@@ -526,11 +527,14 @@ export function Sheet({ label, close: done, children }: { label: string; close: 
   }, []);
   const closing = useRef(close);
   closing.current = close;
+  // its page's: hidden with it while another page is on top, and deaf to Escape meanwhile
+  const page = usePage();
   useEffect(() => {
+    if (!page.active) return;
     const key = (e: KeyboardEvent) => e.key === "Escape" && closing.current();
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  }, []);
+  }, [page.active]);
   const wide = useWide();
   const { theme } = useAppearance();
   const body = (
@@ -557,8 +561,8 @@ export function Sheet({ label, close: done, children }: { label: string; close: 
         {body}
       </div>
     ),
-    // inside Konsta's App, as its sheets are meant to be: its look and safe areas apply
-    document.querySelector(".k-app") ?? document.body,
+    // with its page (inside Konsta's App, as its sheets are meant to be: its look and safe areas apply)
+    page.layers() ?? document.querySelector(".k-app") ?? document.body,
   );
 }
 

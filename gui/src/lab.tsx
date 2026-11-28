@@ -12,6 +12,7 @@ import { t } from "./i18n";
 import { BirthWheels, isTouch } from "./pickers";
 import { go } from "./router";
 import { Btn, card, Heading } from "./ui";
+import { usePage } from "./page";
 
 type Kind = { kind: "seca" | "forcedecks" | "lab"; name: string; state?: string; since?: number };
 type Fail = (e: unknown) => string;
@@ -360,10 +361,12 @@ function SecaSelf({ device, errText, showResults }: { device: string; errText: F
     };
   }, [device, register, errText]);
 
-  // waiting: ask every 5 s, 10 minutes at most; leaving the page stops asking (the ticket stays for next time)
+  // waiting: ask every 5 s, 10 minutes at most; leaving the page, or another page over it, stops asking (the ticket
+  // stays for next time)
   const waiting = st.s === "waiting" ? st.since : null;
+  const { active } = usePage();
   useEffect(() => {
-    if (waiting === null) return;
+    if (waiting === null || !active) return;
     let stop = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const tick = async () => {
@@ -383,7 +386,7 @@ function SecaSelf({ device, errText, showResults }: { device: string; errText: F
       stop = true;
       clearTimeout(timer);
     };
-  }, [waiting]);
+  }, [waiting, active]);
 
   const go = () =>
     once(async () => {
@@ -564,10 +567,12 @@ function FdSelf({ device, kind, errText, showResults }: { device: string; kind: 
     };
   }, [device, register, errText]);
 
-  // the profile's and lease's state and new results: every 3 s while something moves, backing off after errors
+  // the profile's and lease's state and new results: every 3 s while something moves, backing off after errors;
+  // while this page is on top (back on top: at once)
   const following = st.s === "profile";
+  const { active } = usePage();
   useEffect(() => {
-    if (!following) return;
+    if (!following || !active) return;
     let stop = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let errors = 0;
@@ -613,17 +618,17 @@ function FdSelf({ device, kind, errText, showResults }: { device: string; kind: 
       clearTimeout(timer);
       document.removeEventListener("visibilitychange", visible);
     };
-  }, [following, device, errText, started]);
+  }, [following, device, errText, started, active]);
 
   // the device's own state while a test runs
   const leaseOpen = st.s === "profile" && (st.view?.lease?.state === "opening" || st.view?.lease?.state === "open");
   useEffect(() => {
-    if (!leaseOpen) return;
+    if (!leaseOpen || !active) return;
     const i = setInterval(() => {
       if (!document.hidden) op<Kind>("lab.device", { device }).then((k) => setDevState(k.state ?? null), () => {});
     }, FD_POLL_MS);
     return () => clearInterval(i);
-  }, [leaseOpen, device]);
+  }, [leaseOpen, device, active]);
 
   const start = () =>
     once(async () => {

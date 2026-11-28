@@ -2,6 +2,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { chooseImportFile, FILE_TYPES, installOcr, isDesktop, isMobile, ocrComponent, type OcrProgress, onOcrProgress, op, stageFile, unstageFile } from "../api";
 import { fileName, type ImportKind, importKind, KIND_LABEL } from "../format";
 import { t, tk } from "../i18n";
+import { usePage } from "../page";
 import { isTouch } from "../pickers";
 import { Btn, errText, Group, Heading, Icon, IconDot, Item, type Page, PasswordField, Problem, WebLink } from "../ui";
 
@@ -36,11 +37,16 @@ function FilePick({ path, onPath, kind }: { path?: string; onPath: (p: string) =
   const chosen = (p: string) => (setName(undefined), onPath(p));
   const latest = useRef(chosen);
   latest.current = chosen;
+  // only the page on top takes a dropped file (one under it keeps its own picker, deaf meanwhile)
+  const { active } = usePage();
   useEffect(() => {
-    if (isTouch) return;
-    dropInto = (p) => latest.current(p);
-    return () => void (dropInto = undefined);
-  }, []);
+    if (isTouch || !active) return;
+    const mine = (p: string) => latest.current(p);
+    dropInto = mine;
+    return () => {
+      if (dropInto === mine) dropInto = undefined;
+    };
+  }, [active]);
   // one row: the desktop's open dialog, or the system's picker behind a hidden input
   const row = (icon: string, color: string, title: string, accept: string | undefined, types: keyof typeof FILE_TYPES, capture?: boolean) =>
     isDesktop ? (

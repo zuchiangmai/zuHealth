@@ -10,6 +10,7 @@ import { pollFast } from "./account";
 import { Enter } from "./add";
 import { Import } from "./import";
 import { ExportNote, SystemHealthCard } from "./syshealth";
+import { usePage } from "../page";
 
 const WHOOP_DASHBOARD = "https://developer-dashboard.whoop.com/";
 
@@ -394,11 +395,13 @@ function WhoopConnect() {
   useEffect(() => {
     load();
   }, [load]);
+  // while this page is on top
+  const { active } = usePage();
   useEffect(() => {
-    if (st?.state !== "pending") return;
+    if (st?.state !== "pending" || !active) return;
     const t = setInterval(() => inBackground(load), 3000);
     return () => clearInterval(t);
-  }, [st, load]);
+  }, [st, load, active]);
   const run = async (f: () => Promise<void>) => {
     setErr(undefined);
     setNote(undefined);
