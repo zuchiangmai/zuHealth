@@ -249,7 +249,9 @@ pub fn confirm(c: &Db, import_id: i64, choices: &[LineChoice], now_ms: i64) -> R
         let m = metric_by_code(c, code)?.ok_or_else(|| Error::not_found("no_metric", code))?;
         let numeric = m.agg != "none" && m.agg != "interval";
         let units = allowed_units(&m.code, &m.unit);
-        let unit = if numeric && !units.is_empty() {
+        // a unit is asked for only where the measure has one (a count like wheelchair use has none, and the choice
+        // can't name it: it was refused as unit_required, so the line could only be skipped)
+        let unit = if numeric && units.iter().any(|u| !u.is_empty()) {
             let u = ch.unit.clone().filter(|u| units.contains(u)).ok_or_else(|| Error::invalid("unit_required", l.code.clone()))?;
             Some(u)
         } else {

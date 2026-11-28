@@ -703,6 +703,7 @@ impl Runtime {
             reader_name: &self.platform.device_name,
             connected_at_ms: st.connected_at_ms,
             now_ms: now,
+            held: Default::default(),
         };
         let result = syshealth::sync(store, &mut st, &w, now);
         // the state moves on only for what was read (sync() leaves it where it was otherwise); the error, kept
@@ -751,6 +752,8 @@ struct LockedWriter<'a> {
     reader_name: &'a str,
     connected_at_ms: i64,
     now_ms: i64,
+    /// the day imports, read once for the sync (syshealth::HeldDays)
+    held: std::cell::RefCell<Option<syshealth::HeldDays>>,
 }
 
 impl LockedWriter<'_> {
@@ -767,6 +770,7 @@ impl LockedWriter<'_> {
             reader_name: self.reader_name,
             connected_at_ms: self.connected_at_ms,
             now_ms: self.now_ms,
+            held: Some(&self.held),
         };
         // as an op: a panic rolls back and fails this sync, the app goes on
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&w))).unwrap_or_else(|_| {
@@ -777,8 +781,14 @@ impl LockedWriter<'_> {
 }
 
 impl syshealth::Writer for LockedWriter<'_> {
-    fn day(&self, key: &syshealth::SourceKey, day: i64, rows: &[health_core::write::ObsRow]) -> Result<(u64, bool, u64)> {
-        self.with(true, |w| w.day(key, day, rows))
+    fn day(
+        &self,
+        key: &syshealth::SourceKey,
+        day: i64,
+        rows: &[health_core::write::ObsRow],
+        left: &[health_core::write::ObsRow],
+    ) -> Result<(u64, bool, u64)> {
+        self.with(true, |w| w.day(key, day, rows, left))
     }
 
     fn held_days(&self, from_day: i64, to_day: i64) -> Result<Vec<(syshealth::SourceKey, i64)>> {

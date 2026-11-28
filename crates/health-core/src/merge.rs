@@ -498,6 +498,15 @@ fn merge_attached(c: &Db, now_ms: i64) -> Result<MergeReport> {
                     let m = (!m.is_empty()).then(|| serde_json::Value::Object(m).to_string());
                     c.execute("UPDATE source SET name = ?, priority = ?, meta = ? WHERE id = ?", rusqlite::params![name, priority, m, id])?;
                 }
+                // results derived from the phone's health data (zuHealth only: scope.rs) are marked one way, whatever
+                // the stamps: a mark made on another device after the source came here must hide them here too
+                if parse_meta(meta.clone()).get("system_health") == Some(&serde_json::Value::Bool(true)) {
+                    c.execute(
+                        "UPDATE source SET meta = json_set(CASE WHEN json_valid(meta) THEN meta ELSE '{}' END, '$.system_health', json('true'))
+                          WHERE id = ? AND (meta IS NULL OR NOT json_valid(meta) OR json_extract(meta, '$.system_health') IS NOT 1)",
+                        [id],
+                    )?;
+                }
                 id
             }
             None => {

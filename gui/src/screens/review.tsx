@@ -336,7 +336,7 @@ function ResultReview({ b, done, discard }: { b: BatchDetail; done: (text: strin
       choose(i, l.code).catch(() => {});
     });
   }, [b.import_id, c.lines, choose]);
-  const ready = lines.every((s) => s.skip || (s.metric && (!numericAgg(s.metric) || s.metric.units.length === 0 || s.unit))) && lines.some((s) => !s.skip);
+  const ready = lines.every((s) => s.skip || (s.metric && (!numericAgg(s.metric) || !s.metric.units.some((u) => u) || s.unit))) && lines.some((s) => !s.skip);
   const save = async () => {
     setErr(undefined);
     setBusy(true);

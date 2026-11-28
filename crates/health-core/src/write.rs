@@ -180,12 +180,19 @@ fn v7(uid: &str) -> Option<u128> {
 pub fn new_uid(c: &Db, now_ms: i64) -> Result<String> {
     let ts = uuid::Timestamp::from_unix(uuid::NoContext, (now_ms.max(0) / 1000) as u64, ((now_ms.max(0) % 1000) * 1_000_000) as u32);
     let mut u = uuid::Uuid::new_v7(ts).as_u128();
-    // above every UUIDv7 here, as 128-bit values: one uid that doesn't parse is skipped, not the floor
-    let floor = c
-        .prepare("SELECT uid FROM import WHERE length(uid) = 36 AND substr(uid, 15, 1) = '7'")?
-        .query_map([], |r| r.get::<_, String>(0))?
-        .filter_map(|r| r.ok().and_then(|uid| v7(&uid)))
-        .max();
+    // above every UUIDv7 here, as 128-bit values: one uid that doesn't parse is skipped, not the floor. Lowercase
+    // uids sort as their values, so the uid index read from the top finds it at once (a phone's first sync of its
+    // health store makes thousands of imports: a full read per import was quadratic); only a profile holding an
+    // uppercase uid (none is written here, but a foreign one could be) is read whole.
+    let mixed: bool = c.query_row("SELECT EXISTS (SELECT 1 FROM import WHERE uid GLOB '*[A-F]*')", [], |r| r.get(0))?;
+    let sql = if mixed {
+        "SELECT uid FROM import WHERE length(uid) = 36 AND substr(uid, 15, 1) = '7'"
+    } else {
+        "SELECT uid FROM import ORDER BY uid DESC"
+    };
+    let mut st = c.prepare(sql)?;
+    let uids = st.query_map([], |r| r.get::<_, String>(0))?.filter_map(|r| r.ok().and_then(|uid| v7(&uid)));
+    let floor = if mixed { uids.max() } else { uids.take(1).next() };
     if let Some(m) = floor
         && u <= m
     {

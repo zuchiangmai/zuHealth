@@ -37,6 +37,7 @@ fn source_label(connector: &str) -> &'static str {
         "whoop" => "WHOOP",
         "room" | "home_assistant" => "Sleep room",
         "apple_health" | "apple_export" | "healthkit" => "Apple Health",
+        "health_connect" => "Health Connect",
         "agent" => "Agent",
         "derived" => "Derived",
         "file" => "File",

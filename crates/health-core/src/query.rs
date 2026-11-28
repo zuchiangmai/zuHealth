@@ -441,8 +441,14 @@ pub fn withheld(c: &Db, scope: &Scope) -> Result<Withheld> {
     let mut st = c.prepare("SELECT id, code FROM metric WHERE EXISTS (SELECT 1 FROM v_observation o WHERE o.metric_id = metric.id)")?;
     let with_data: Vec<(i64, String)> = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<Result<_, _>>()?;
     let system_health = !scope.system_health
-        && one::<i64>(c, &format!("SELECT 1 FROM v_observation WHERE source_id IN ({}) LIMIT 1", crate::scope::SYSTEM_SOURCES), [])?
-            .is_some();
+        // by their imports (a few thousand rows), not their observations: with none, that read scanned all of them,
+        // and it runs on every agent call
+        && one::<i64>(
+            c,
+            &format!("SELECT 1 FROM import WHERE status = 'done' AND source_id IN ({}) LIMIT 1", crate::scope::SYSTEM_SOURCES),
+            [],
+        )?
+        .is_some();
     let mut w = Withheld { metrics: 0, earlier_data: false, system_health };
     for (id, code) in with_data {
         if !scope.allows(&code) {

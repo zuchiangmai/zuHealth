@@ -169,7 +169,8 @@ const CHUNK: i64 = 7 * DAY_MS;
 /// The profile side of a sync, under the profile lock each time it's called.
 pub trait Writer {
     /// Writes one day (sync_day) and returns its outcome counts: written, rebuilt, skipped
-    fn day(&self, key: &SourceKey, day: i64, rows: &[ObsRow]) -> Result<(u64, bool, u64)>;
+    /// `left`: rows the read has but leaves to an export (not written, not gone)
+    fn day(&self, key: &SourceKey, day: i64, rows: &[ObsRow], left: &[ObsRow]) -> Result<(u64, bool, u64)>;
     /// The (source, day)s a system sync of this store holds in [from_day, to_day)
     fn held_days(&self, from_day: i64, to_day: i64) -> Result<Vec<(SourceKey, i64)>>;
     /// Where an export of this source ends, per metric (rows before it are the export's)
@@ -225,7 +226,7 @@ pub fn sync(store: &dyn SystemHealth, st: &mut SystemHealthState, w: &dyn Writer
                 // a 15-minute sum from the slot holding the export's end (that slot may have been read part-way);
                 // anything else strictly after it
                 const SLOT: i64 = 15 * 60_000;
-                rows.retain(|r| {
+                let ours = |r: &ObsRow| {
                     ends.get(&r.metric).is_none_or(|&e| {
                         if r.end_ms == Some(r.start_ms + SLOT) && r.start_ms % SLOT == 0 {
                             r.start_ms >= e.div_euclid(SLOT) * SLOT
@@ -233,11 +234,14 @@ pub fn sync(store: &dyn SystemHealth, st: &mut SystemHealthState, w: &dyn Writer
                             r.start_ms > e
                         }
                     })
-                });
-                if rows.is_empty() {
+                };
+                // the export's: not written, but still in the system (so not taken for deleted there)
+                let left: Vec<ObsRow> = rows.iter().filter(|r| !ours(r)).cloned().collect();
+                rows.retain(ours);
+                if rows.is_empty() && left.is_empty() {
                     continue;
                 }
-                let (written, rebuilt, skipped) = w.day(&key, day, &rows)?;
+                let (written, rebuilt, skipped) = w.day(&key, day, &rows, &left)?;
                 report.days += 1;
                 report.written += written;
                 report.rebuilt += u64::from(rebuilt);
@@ -251,7 +255,7 @@ pub fn sync(store: &dyn SystemHealth, st: &mut SystemHealthState, w: &dyn Writer
                     // read whole: the chunk holds the day, or the day so far (the chunk ends now)
                     let whole = day * DAY_MS >= a && ((day + 1) * DAY_MS <= b || b >= now_ms);
                     if whole && !seen.contains(&(key.clone(), day)) {
-                        let (_, rebuilt, _) = w.day(&key, day, &[])?;
+                        let (_, rebuilt, _) = w.day(&key, day, &[], &[])?;
                         report.rebuilt += u64::from(rebuilt);
                     }
                 }
@@ -275,11 +279,41 @@ pub struct ProfileWriter<'a> {
     pub reader_name: &'a str,
     pub connected_at_ms: i64,
     pub now_ms: i64,
+    /// The day imports of this store, (connector, source, day) → (id, uid), read once per sync (a scan of every
+    /// import per day made a first sync of years quadratic); None: each day looks its own up
+    pub held: Option<&'a std::cell::RefCell<Option<HeldDays>>>,
+}
+
+/// (connector, external id, day) → the day's import (id, uid)
+pub type HeldDays = std::collections::HashMap<(String, String, i64), (i64, String)>;
+
+impl ProfileWriter<'_> {
+    fn held_map(&self) -> Result<Option<std::cell::RefMut<'_, Option<HeldDays>>>> {
+        let Some(cell) = self.held else { return Ok(None) };
+        let mut m = cell.borrow_mut();
+        if m.is_none() {
+            let mut st = self.db.prepare(
+                "SELECT s.connector, s.external_id, json_extract(i.meta, '$.day'), i.id, i.uid FROM import i
+                   JOIN source s ON s.id = i.source_id
+                  WHERE i.parser = ? AND i.status = 'done' AND json_valid(i.meta) AND json_extract(i.meta, '$.day') IS NOT NULL
+                  ORDER BY i.uid",
+            )?;
+            let mut map = HeldDays::new();
+            for r in st.query_map([self.parser], |r| Ok(((r.get(0)?, r.get(1)?, r.get(2)?), (r.get(3)?, r.get(4)?))))? {
+                let (k, v) = r?;
+                map.insert(k, v); // the newest uid last: it wins
+            }
+            *m = Some(map);
+        }
+        Ok(Some(m))
+    }
 }
 
 impl Writer for ProfileWriter<'_> {
-    fn day(&self, key: &SourceKey, day: i64, rows: &[ObsRow]) -> Result<(u64, bool, u64)> {
+    fn day(&self, key: &SourceKey, day: i64, rows: &[ObsRow], left: &[ObsRow]) -> Result<(u64, bool, u64)> {
         let spec = key.spec();
+        let k = (key.connector.to_string(), key.external_id.clone(), day);
+        let held = self.held_map()?.map(|m| m.as_ref().and_then(|m| m.get(&k).cloned()));
         let o = sync_day(
             self.db,
             &SyncDay {
@@ -290,9 +324,19 @@ impl Writer for ProfileWriter<'_> {
                 reader_name: self.reader_name,
                 connected_at_ms: self.connected_at_ms,
                 rows,
+                held,
+                left_to_export: left,
             },
             self.now_ms,
         )?;
+        if let Some(mut m) = self.held_map()?
+            && let Some(m) = m.as_mut()
+        {
+            match o.holds {
+                Some(h) => m.insert(k, h),
+                None => m.remove(&k),
+            };
+        }
         Ok((o.written, o.rebuilt, o.skipped))
     }
 
@@ -473,7 +517,17 @@ mod tests {
             earliest: day0 - 10 * DAY_MS,
             refuse: Default::default(),
         };
-        let w = ProfileWriter { db: &p.db, parser: "healthkit-1", reader: "d1", reader_name: "iPhone", connected_at_ms: 1, now_ms: now };
+        // the day imports read once and kept up to date across syncs, as the runtime does within one
+        let held = std::cell::RefCell::new(None);
+        let w = ProfileWriter {
+            db: &p.db,
+            parser: "healthkit-1",
+            reader: "d1",
+            reader_name: "iPhone",
+            connected_at_ms: 1,
+            now_ms: now,
+            held: Some(&held),
+        };
         let mut st = SystemHealthState { on: true, ..Default::default() };
         let r = sync(&store, &mut st, &w, now).unwrap();
         assert!(!r.more, "ten days of history fit one step");
@@ -548,11 +602,67 @@ mod tests {
             earliest: day0 - DAY_MS,
             refuse: Default::default(),
         };
-        let w = ProfileWriter { db: &p.db, parser: "healthkit-1", reader: "d1", reader_name: "iPhone", connected_at_ms: 1, now_ms: now };
+        let w = ProfileWriter {
+            db: &p.db,
+            parser: "healthkit-1",
+            reader: "d1",
+            reader_name: "iPhone",
+            connected_at_ms: 1,
+            now_ms: now,
+            held: None,
+        };
         let mut st = SystemHealthState { on: true, ..Default::default() };
         sync(&store, &mut st, &w, now + DAY_MS).unwrap();
         let v = |at: i64| -> i64 { p.db.query_row("SELECT value FROM v_observation WHERE start_ms = ?", [at], |r| r.get(0)).unwrap() };
         assert_eq!(v(day0 + 36_000_000), 60, "the export's reading stays the export's");
         assert_eq!(v(day0 + 40_000_000), 70, "after the export's end: read");
+    }
+
+    #[test]
+    fn a_reading_synced_before_an_export_stays_after_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = Profile::init(dir.path(), "a", &MemoryStore::default()).unwrap();
+        let now = 1_795_176_000_000_i64;
+        let day0 = now.div_euclid(DAY_MS) * DAY_MS;
+        // the store has a 9:00 reading the export (made earlier, ending at 10:00) doesn't
+        let store = Fake {
+            samples: Mutex::new(vec![hk("HeartRate", 64.0, "count/min", day0 + 32_400_000, "Watch")]),
+            earliest: day0 - DAY_MS,
+            refuse: Default::default(),
+        };
+        let w = ProfileWriter {
+            db: &p.db,
+            parser: "healthkit-1",
+            reader: "d1",
+            reader_name: "iPhone",
+            connected_at_ms: 1,
+            now_ms: now,
+            held: None,
+        };
+        let mut st = SystemHealthState { on: true, ..Default::default() };
+        sync(&store, &mut st, &w, now + 3_600_000).unwrap();
+        let src = SourceSpec::new("apple_health", "Watch");
+        let (zip, _) = health_core::write::begin(
+            &p.db,
+            health_core::write::Begin { source: &src, parser: "apple-export-1", blob: None, uid: None, candidates: None },
+            now,
+        )
+        .unwrap();
+        let row = ObsRow {
+            metric: "loinc:8867-4".into(),
+            start_ms: day0 + 36_000_000,
+            end_ms: None,
+            tz_min: 480,
+            value: health_core::Value::Int(60),
+            unit: None,
+            detail: None,
+        };
+        health_core::write::write(&p.db, zip, &[row]).unwrap();
+        health_core::write::finish(&p.db, zip, now).unwrap();
+        // the next sync leaves the 9:00 reading to the export's span, but it is still in the store: kept
+        let r = sync(&store, &mut st, &w, now + 7_200_000).unwrap();
+        assert_eq!(r.rebuilt, 0);
+        let n: i64 = p.db.query_row("SELECT count(*) FROM v_observation WHERE start_ms = ?", [day0 + 32_400_000], |r| r.get(0)).unwrap();
+        assert_eq!(n, 1, "the 9:00 reading stays");
     }
 }
