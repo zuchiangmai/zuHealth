@@ -1,6 +1,6 @@
 import { Dialog, DialogButton, Navbar, NavbarBackLink, Tabbar, TabbarLink, ToolbarPane } from "konsta/react";
 import { onLink, takeLink } from "./deeplink";
-import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { chooseImportFile, inBackground, initProfile, isAndroid, isDesktop, isMobile, menuOwnsKeys, onFileDrop, onMenu, onStatus, op, OpError, type Point, setBadge, setShellLanguage, type Status, unlock, unstageFile } from "./api";
 import meadowDark from "./backdrop/meadow-dark.webp";
@@ -8,7 +8,7 @@ import meadowLight from "./backdrop/meadow-light.webp";
 import { HOME_GROUPS } from "./format";
 import { t, tk } from "./i18n";
 import { rubberBand } from "./overscroll";
-import { back as goBack, go as nav, parts, useRoute } from "./router";
+import { back as goBack, go as nav, parts, useRoute, useScrollPlace } from "./router";
 import { About, ClearDataRow } from "./screens/about";
 import { HealthAccount, useInbox, useSyncLive } from "./screens/account";
 import { AddPage } from "./screens/add";
@@ -274,8 +274,8 @@ function Shell({ status }: { status?: Status }) {
   const syncLive = useSyncLive();
   const [latest, latestErr] = useOp(() => op<Point[]>("obs.latest"), []);
   const [cats, setCats] = useState(true);
-  // a screen opens at its top, wherever the last one was scrolled to
-  useLayoutEffect(() => toTop(), [route.join("/")]);
+  // a screen opens at its top; one gone back to comes back where it was left
+  useScrollPlace(route.join("/"));
   // Android: the content's own rubber band (overscroll.ts); iOS bounces scrolling content natively
   const band = useRef<(() => void) | undefined>(undefined);
   const { dark } = useAppearance();
@@ -579,12 +579,6 @@ function Shell({ status }: { status?: Status }) {
       </Tabbar>
     </div>
   );
-}
-
-/** Scrolls the page to its top: the window on a wide screen, the content (its own scroller) on a narrow one. */
-function toTop() {
-  window.scrollTo(0, 0);
-  document.getElementById("content")?.scrollTo(0, 0);
 }
 
 /** How much is here: the side panel's foot, More's on narrow screens. */

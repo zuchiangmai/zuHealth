@@ -1,6 +1,6 @@
 // Every page has an address (#/backup/save, #/metric/loinc:29463-7): a browser shows the same page, and a page can be
 // named by its address. Going back is the history's: Android's back button, the UI's own, the browser's.
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 
 /** The address's parts: "#/data/whoop" → ["data", "whoop"]. */
 export function parts(hash = location.hash): string[] {
@@ -15,9 +15,16 @@ const subs = new Set<() => void>();
 const changed = () => {
   for (const f of subs) f();
 };
+/** The address changed by going back or forward (not by opening a page): its page comes back where it was left */
+let popped = false;
 if (typeof window !== "undefined") {
+  // the app keeps the places itself (a phone scrolls the content, not the window, which the browser wouldn't keep)
+  history.scrollRestoration = "manual";
   window.addEventListener("hashchange", changed);
-  window.addEventListener("popstate", changed);
+  window.addEventListener("popstate", () => {
+    popped = true;
+    changed();
+  });
 }
 
 /** How many steps of history this app opened under the current one: going back stays in the app while there are
@@ -37,9 +44,59 @@ export function useRoute(): string[] {
 export function go(path: string, replace = false) {
   const hash = `#/${path}`;
   if (location.hash === hash) return;
+  popped = false;
   if (replace) history.replaceState(history.state, "", hash);
-  else history.pushState({ depth: depth() + 1 }, "", hash);
+  else {
+    // where this page was scrolled to, kept in its own entry for coming back to it
+    history.replaceState({ ...(history.state as object | null), scroll: place() }, "", location.href);
+    history.pushState({ depth: depth() + 1 }, "", hash);
+  }
   changed();
+}
+
+type Place = { window: number; content: number };
+/** How far the page is scrolled: the window on a wide screen, the content (its own scroller) on a narrow one */
+const place = (): Place => ({ window: window.scrollY, content: document.getElementById("content")?.scrollTop ?? 0 });
+
+let stop: (() => void) | undefined;
+/** Scrolls back to `to`. The page comes back empty and fills in as its data loads, so this goes on, a frame at a
+ *  time, until it can get there (or a second has passed, or the person scrolls themselves). */
+function scrollBack(to: Place) {
+  stop?.();
+  const content = document.getElementById("content");
+  let frame = 0;
+  const end = performance.now() + 1000;
+  const step = () => {
+    window.scrollTo(0, to.window);
+    if (content) content.scrollTop = to.content;
+    const there = Math.abs(window.scrollY - to.window) < 2 && (!content || Math.abs(content.scrollTop - to.content) < 2);
+    if (there || performance.now() > end) return stop?.();
+    frame = requestAnimationFrame(step);
+  };
+  const events = ["wheel", "touchstart", "keydown", "pointerdown"] as const;
+  const quit = () => stop?.();
+  stop = () => {
+    cancelAnimationFrame(frame);
+    for (const e of events) window.removeEventListener(e, quit, true);
+    stop = undefined;
+  };
+  for (const e of events) window.addEventListener(e, quit, { capture: true, passive: true });
+  step();
+}
+
+/** A page opened anew starts at its top; one gone back (or forward) to, where it was left. Call where the pages
+ *  are shown, with the address. */
+export function useScrollPlace(address: string) {
+  useLayoutEffect(() => {
+    const kept = popped ? (history.state as { scroll?: Place } | null)?.scroll : undefined;
+    popped = false;
+    if (kept) scrollBack(kept);
+    else {
+      stop?.();
+      window.scrollTo(0, 0);
+      document.getElementById("content")?.scrollTo(0, 0);
+    }
+  }, [address]);
 }
 
 /** Closes this page: back through history when this session opened it, else up to `parent` (an address opened
