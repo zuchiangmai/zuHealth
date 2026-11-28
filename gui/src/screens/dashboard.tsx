@@ -5,7 +5,7 @@ import { ago, asDuration, day, dayMs, GROUPS, HOME_GROUPS, num, shortDate, shown
 import { t } from "../i18n";
 import { KEY, nameOf } from "../names";
 import { go as nav } from "../router";
-import { Btn, C, Callout, DAY, fdBest, fdStart, figure, fixed, Flag, Group, GroupIcon, Heading, Icon, IconDot, legible, MOD, type Page, Problem, Row, Screen, SearchPill, sourceLabel, TINT, toPts, useOp } from "../ui";
+import { Btn, C, Callout, DAY, fdBest, fdStart, figure, fixed, Flag, Group, GroupIcon, Heading, Icon, IconDot, MOD, type Page, Problem, Row, Screen, SearchPill, sourceLabel, TINT, toPts, useOp } from "../ui";
 import { FdReport, SecaReport } from "./reports";
 
 /** The last 30 days of a measure, reaching back to its latest reading's day when that is older
@@ -109,37 +109,47 @@ function Section({
   // where these numbers come from, newest first
   const bySource = new Map<number, number>();
   for (const p of rows) bySource.set(p.source_id, Math.max(bySource.get(p.source_id) ?? 0, p.start_ms));
-  const from = [...bySource.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .map(([id]) => sourceLabel(sources.find((x) => x.id === id)));
+  // the newest from each named source (two sources can share a name: one tag, its newest date)
+  const newest = new Map<string, number>();
+  for (const [id, at] of [...bySource.entries()].sort((a, b) => b[1] - a[1])) {
+    const label = sourceLabel(sources.find((x) => x.id === id));
+    if (!newest.has(label)) newest.set(label, at);
+  }
+  const from = [...newest.entries()];
   return (
-    <section className="mb-2 scroll-mt-10 break-inside-avoid" id={`g-${g.key}`} aria-labelledby={`h-${g.key}`}>
-      <Group
-        title={
-          <span id={`h-${g.key}`} className={`flex items-center gap-2 text-[15px] font-semibold text-black dark:text-white ${legible}`}>
-            <IconDot color={TINT[g.key] ?? TINT.other} className="h-7! w-7!">
-              <GroupIcon k={g.key} />
-            </IconDot>
-            {t(g.label)}
-          </span>
-        }
-        after={
-          !all && rows.length > fold ? (
-            <Btn type="button" link aria-expanded={more} className={legible} onClick={() => setMore(!more)}>
-              {more ? t("Show fewer") : t("Show all {{n}}", { n: rows.length })}
-            </Btn>
-          ) : undefined
-        }
-      >
+    // one card per category, as the web app: its name, its rows and where they come from all sit on the card, never
+    // straight on the dashboard's photo
+    <section
+      className="mb-4 scroll-mt-10 break-inside-avoid overflow-hidden rounded-[26px] shadow-sm backdrop-blur-xl ios:bg-white/80 ios:dark:bg-[#1c1c1e]/80 material:bg-md-light-surface/85 material:dark:bg-md-dark-surface-2/85"
+      id={`g-${g.key}`}
+      aria-labelledby={`h-${g.key}`}
+    >
+      <h3 id={`h-${g.key}`} className="flex items-center gap-3 px-4 pt-4 pb-1 text-[17px] font-semibold">
+        <IconDot color={TINT[g.key] ?? TINT.other} className="h-8! w-8!">
+          <GroupIcon k={g.key} />
+        </IconDot>
+        {t(g.label)}
+      </h3>
+      <div className="flex flex-col divide-y divide-black/10 dark:divide-white/10">
         {shownRows.map((p) => (
           <AnyTile key={p.metric} p={p} open={open} lab={lab} />
         ))}
-      </Group>
+      </div>
+      {!all && rows.length > fold && (
+        <div className="flex justify-center pb-1">
+          <Btn type="button" link aria-expanded={more} onClick={() => setMore(!more)}>
+            {more ? t("Show fewer") : t("Show all {{n}}", { n: rows.length })}
+          </Btn>
+        </div>
+      )}
       {from.length > 0 && (
-        <p className={`-mt-3 mb-5 ms-4 text-[13px] text-black/55 dark:text-white/55 ${legible}`}>
-          {new Set(from).size > 3
-            ? t("From {{list}} and {{n}} more", { list: [...new Set(from)].slice(0, 3).join(t(", ")), n: new Set(from).size - 3 })
-            : t("From {{list}}", { list: [...new Set(from)].slice(0, 3).join(t(", ")) })}
+        <p className="mx-4 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-black/10 py-3 text-[13px] text-black/55 dark:border-white/10 dark:text-white/55">
+          {from.map(([label, at]) => (
+            <span key={label} className="inline-flex items-center gap-1.5">
+              <span className="rounded-md bg-black/5 px-1.5 py-0.5 text-[12px] font-medium text-black/70 dark:bg-white/10 dark:text-white/70">{label}</span>
+              {shortDate(at)}
+            </span>
+          ))}
         </p>
       )}
     </section>
@@ -153,7 +163,7 @@ function Start({ start }: { start: (p: Page, want: string) => void }) {
       <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
         <div>
           <Heading>{t("Dashboard")}</Heading>
-          <p className={`text-[13px] text-black/55 dark:text-white/55 ${legible}`}>{(isMobile ? t("Your data is stored encrypted on this device") : t("Your data is stored encrypted on this computer"))}</p>
+          <p className="text-[13px] text-black/55 dark:text-white/55">{(isMobile ? t("Your data is stored encrypted on this device") : t("Your data is stored encrypted on this computer"))}</p>
         </div>
       </div>
       <div className="max-w-[640px] overflow-hidden rounded-3xl bg-white/80 shadow-sm dark:bg-neutral-900/80">
@@ -170,7 +180,7 @@ function Start({ start }: { start: (p: Page, want: string) => void }) {
         </Group>
       </div>
       {/* dropping a file on the window is the desktop's */}
-      {isDesktop && <p className={`mt-3 text-[13px] text-black/55 dark:text-white/55 ${legible}`}>{t("You can also drop a file anywhere on this window.")}</p>}
+      {isDesktop && <p className="text-[13px] text-black/55 dark:text-white/55 mt-3 text-[13px]">{t("You can also drop a file anywhere on this window.")}</p>}
     </section>
   );
 }
@@ -259,7 +269,7 @@ export function Readings({
   return (
     <section className="mx-auto w-full max-w-5xl">
       <Heading space="mb-0.5">{t("Dashboard")}</Heading>
-      <p className={`mb-4 text-[13px] text-black/55 dark:text-white/55 ${legible}`}>{t("Updated {{when}}", { when: when(newest) })}</p>
+      <p className="mb-4 text-[13px] text-black/55 dark:text-white/55">{t("Updated {{when}}", { when: when(newest) })}</p>
       <SearchPill
         className="mb-5"
         ref={search}
@@ -284,7 +294,7 @@ export function Readings({
           {fdLatest && <FdCard session={fdLatest} open={() => nav("report/forcedecks")} />}
         </Group>
       )}
-      {!groups.length && <p className={`text-black/55 dark:text-white/55 ${legible}`}>{t("No measure matches “{{q}}”.", { q })}</p>}
+      {!groups.length && <p className="text-black/55 dark:text-white/55">{t("No measure matches “{{q}}”.", { q })}</p>}
       <div className="wide:columns-2 wide:gap-6">
         {groups.map(({ g, rows }) => (
           <Section key={g.key} g={g} rows={rows} sources={sources ?? []} open={open} all={!!needle} />

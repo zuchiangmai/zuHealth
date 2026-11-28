@@ -222,11 +222,6 @@ export const Callout = ({ icon, title, text, onClick }: { icon: ReactNode; title
 /** A card (a form, a code to show, a step): each theme's surface, rounded as its groups. */
 export const card = `mb-4 rounded-3xl p-4 ${rowBg}`;
 
-/** Text and icons straight on a photo (the dashboard's meadow): a frosted patch under them, whose edges fade out, as
- *  Apple sets captions on photos. The element sizes to its content (`w-fit`) so the patch hugs the words. */
-export const legible =
-  "relative isolate w-fit before:pointer-events-none before:absolute before:-inset-x-4 before:-inset-y-2 before:-z-10 before:rounded-full before:bg-white/60 before:backdrop-blur-md before:[mask-image:radial-gradient(farthest-side,#000_45%,transparent)] dark:before:bg-black/45";
-
 export type Page = "readings" | "add" | "data" | "backup" | "profile" | "account" | "agents" | "about" | "review" | "more";
 
 export const MAC = typeof navigator !== "undefined" && /Mac/.test(navigator.userAgent);
