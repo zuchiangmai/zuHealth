@@ -2874,6 +2874,7 @@ dependencies = [
  "health-proto",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

@@ -8,6 +8,7 @@
 pub mod backend;
 pub mod lan;
 pub mod ocr;
+pub mod syshealth;
 
 pub use health_core::keys::{Key, KeyStore};
 pub use health_core::{Error, Kind, Result};
@@ -47,6 +48,8 @@ pub struct Platform {
     pub device_name: String,
     /// How lab reports are read for `import.ocr`.
     pub recognize: ocr::Recognize,
+    /// The phone's health store (HealthKit / Health Connect); None on a computer
+    pub system_health: Option<Box<dyn syshealth::SystemHealth>>,
 }
 
 impl Platform {
@@ -65,6 +68,7 @@ impl Platform {
             lock_after_ms,
             offline: false,
             device_name: lan::me_name(),
+            system_health: None,
         }
     }
 }
@@ -226,6 +230,10 @@ impl Runtime {
             }
             "runtime.init" => self.init()?,
             "runtime.wipe" => self.wipe(req)?,
+            "syshealth.status" => self.syshealth_status()?,
+            "syshealth.connect" => self.syshealth_connect(req["take_over"].as_bool() == Some(true))?,
+            "syshealth.sync" => self.syshealth_sync()?,
+            "syshealth.disconnect" => self.syshealth_disconnect()?,
             "sync.live" => {
                 let live = self.lan.get().map(|l| l.live.lock().unwrap_or_else(|e| e.into_inner()).clone()).unwrap_or_default();
                 serde_json::to_value(live)?
@@ -555,5 +563,163 @@ impl lan::Host for Runtime {
     }
     fn device_name(&self) -> String {
         self.platform.device_name.clone()
+    }
+}
+
+/// Reading the phone's health store (plan §二): the store's side runs outside the profile lock, each day's write
+/// under it.
+impl Runtime {
+    fn store(&self) -> Result<&dyn syshealth::SystemHealth> {
+        self.platform.system_health.as_deref().ok_or_else(|| Error::new(Kind::Usage, "no_system_health", "this device has no health store"))
+    }
+
+    fn syshealth_state(&self) -> Result<(health_core::syncstate::SystemHealthState, String)> {
+        let p = self.lock_profile();
+        let profile = p.as_ref().ok_or_else(|| self.closed_error())?;
+        let st = profile.sync.load_or_reset()?.system_health.unwrap_or_default();
+        Ok((st, profile.vault.device_id()?))
+    }
+
+    fn syshealth_save(&self, st: &health_core::syncstate::SystemHealthState) -> Result<()> {
+        let p = self.lock_profile();
+        let profile = p.as_ref().ok_or_else(|| self.closed_error())?;
+        profile.sync.update(|s| {
+            s.system_health = Some(st.clone());
+            Ok(())
+        })
+    }
+
+    fn syshealth_status(&self) -> Result<Value> {
+        let Some(store) = self.platform.system_health.as_deref() else { return Ok(json!({ "kind": null })) };
+        let (st, me) = self.syshealth_state()?;
+        let other = {
+            let p = self.lock_profile();
+            let profile = p.as_ref().ok_or_else(|| self.closed_error())?;
+            syshealth::other_reader(&profile.db, &me)?
+        };
+        Ok(json!({
+            "kind": store.kind(),
+            "available": store.available(),
+            "on": st.on,
+            "last_sync_ms": (st.last_sync_ms > 0).then_some(st.last_sync_ms),
+            "history_left": st.backfill_to_ms.is_some(),
+            "other_reader": other.map(|(id, name, at)| json!({ "id": id, "name": name, "at": at })),
+        }))
+    }
+
+    /// Connects this device. Another device that read in the last 14 days is named first; `take_over` goes on.
+    fn syshealth_connect(&self, take_over: bool) -> Result<Value> {
+        let store = self.store()?;
+        if !store.available() {
+            return Err(Error::new(Kind::Usage, "system_health_missing", store.kind()));
+        }
+        let (mut st, me) = self.syshealth_state()?;
+        let now = (self.platform.now_ms)();
+        if !take_over {
+            let p = self.lock_profile();
+            let profile = p.as_ref().ok_or_else(|| self.closed_error())?;
+            if let Some((_, name, at)) = syshealth::other_reader(&profile.db, &me)?
+                && at > now - 14 * syshealth_day()
+            {
+                return Ok(json!({ "other_reader": name }));
+            }
+        }
+        store.authorize().map_err(|e| Error::other("system_health", e))?;
+        st.on = true;
+        // a device taking over goes on from what was read (the imports' spans hold it): its own window reads the
+        // last 36 hours again; history before its first sync is the other reader's
+        if take_over && st.synced_to_ms == 0 {
+            st.synced_to_ms = now;
+            st.backfill_to_ms = None;
+        }
+        self.syshealth_save(&st)?;
+        self.syshealth_sync()
+    }
+
+    fn syshealth_disconnect(&self) -> Result<Value> {
+        let (mut st, _) = self.syshealth_state()?;
+        st.on = false;
+        self.syshealth_save(&st)?;
+        Ok(json!({}))
+    }
+
+    /// One sync, if this device reads: the recent days, the days the store says changed, a step of history.
+    fn syshealth_sync(&self) -> Result<Value> {
+        static ONE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let Ok(_one) = ONE.try_lock() else { return Ok(json!({ "busy": true })) };
+        let store = self.store()?;
+        let (mut st, me) = self.syshealth_state()?;
+        if !st.on {
+            return Err(Error::new(Kind::Usage, "not_connected", store.kind()));
+        }
+        let now = (self.platform.now_ms)();
+        // another device took over since this one last read: stop here
+        {
+            let p = self.lock_profile();
+            let profile = p.as_ref().ok_or_else(|| self.closed_error())?;
+            if let Some((_, name, at)) = syshealth::other_reader(&profile.db, &me)?
+                && st.last_sync_ms > 0
+                && at > st.last_sync_ms
+            {
+                drop(p);
+                st.on = false;
+                self.syshealth_save(&st)?;
+                return Ok(serde_json::to_value(syshealth::Report { moved_to: Some(name), ..Default::default() })?);
+            }
+        }
+        let parser = if store.kind() == "healthkit" { "healthkit-1" } else { "health-connect-1" };
+        let w = LockedWriter { rt: self, parser, reader: &me, reader_name: &self.platform.device_name, now_ms: now };
+        let report = syshealth::sync(store, &mut st, &w, now);
+        // progress is kept whatever happened (a locked phone stops HealthKit midway: the next sync goes on)
+        self.syshealth_save(&st)?;
+        let report = report?;
+        if report.written > 0 {
+            self.emit("changed", json!({ "op": "syshealth.sync" }));
+        }
+        Ok(serde_json::to_value(report)?)
+    }
+}
+
+const fn syshealth_day() -> i64 {
+    health_core::syshealth::DAY_MS
+}
+
+/// Writes each day under the profile lock, taken per day so the app stays usable during a long first read.
+struct LockedWriter<'a> {
+    rt: &'a Runtime,
+    parser: &'a str,
+    reader: &'a str,
+    reader_name: &'a str,
+    now_ms: i64,
+}
+
+impl syshealth::Writer for LockedWriter<'_> {
+    fn day(&self, key: &syshealth::SourceKey, day: i64, rows: &[health_core::write::ObsRow]) -> Result<(u64, bool)> {
+        let p = self.rt.lock_profile();
+        let profile = p.as_ref().ok_or_else(|| self.rt.closed_error())?;
+        if !profile.is_writer() {
+            return Err(Error::other("not_writer", "write op on a read-only profile"));
+        }
+        syshealth::ProfileWriter {
+            db: &profile.db,
+            parser: self.parser,
+            reader: self.reader,
+            reader_name: self.reader_name,
+            now_ms: self.now_ms,
+        }
+        .day(key, day, rows)
+    }
+
+    fn export_ends(&self, key: &syshealth::SourceKey) -> Result<std::collections::BTreeMap<String, i64>> {
+        let p = self.rt.lock_profile();
+        let profile = p.as_ref().ok_or_else(|| self.rt.closed_error())?;
+        syshealth::ProfileWriter {
+            db: &profile.db,
+            parser: self.parser,
+            reader: self.reader,
+            reader_name: self.reader_name,
+            now_ms: self.now_ms,
+        }
+        .export_ends(key)
     }
 }

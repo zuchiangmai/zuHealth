@@ -36,11 +36,44 @@ pub struct SyncState {
     /// Split imports received in part: uid → where the next part starts (§6.5)
     #[serde(default)]
     pub resume: BTreeMap<String, Cursor>,
+    /// Reading the phone's health store (HealthKit / Health Connect): this device's own progress, never synced
+    #[serde(default)]
+    pub system_health: Option<SystemHealthState>,
+}
+
+/// Where this device is in reading the phone's health store.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct SystemHealthState {
+    /// Connected here (the person chose it); off: no reading or writing
+    pub on: bool,
+    /// The store's change markers, as the plugin keeps them (HealthKit anchors, Health Connect's token)
+    #[serde(default)]
+    pub anchors: serde_json::Value,
+    /// Everything up to here has been read (UTC ms); 0: not yet
+    #[serde(default)]
+    pub synced_to_ms: i64,
+    /// History still to read lies before this (UTC ms, a day boundary); None: all of it read
+    #[serde(default)]
+    pub backfill_to_ms: Option<i64>,
+    /// The oldest history to read (an export's end, else the store's earliest)
+    #[serde(default)]
+    pub backfill_from_ms: i64,
+    /// When the last sync ended
+    #[serde(default)]
+    pub last_sync_ms: i64,
 }
 
 impl Default for SyncState {
     fn default() -> Self {
-        SyncState { enabled: true, joined: false, paused: false, peers: BTreeMap::new(), skip: vec![], resume: BTreeMap::new() }
+        SyncState {
+            enabled: true,
+            joined: false,
+            paused: false,
+            peers: BTreeMap::new(),
+            skip: vec![],
+            resume: BTreeMap::new(),
+            system_health: None,
+        }
     }
 }
 
