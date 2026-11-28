@@ -7,6 +7,9 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import androidx.core.content.FileProvider
+import androidx.activity.result.ActivityResult
+import androidx.health.connect.client.PermissionController
+import app.tauri.annotation.ActivityCallback
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
@@ -19,6 +22,11 @@ import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import org.json.JSONArray
 import org.json.JSONObject
 
 @InvokeArg
@@ -46,6 +54,85 @@ class StoreArgs {
 @TauriPlugin
 class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     private val prefs get() = activity.getSharedPreferences("health-keys", Context.MODE_PRIVATE)
+    private val health by lazy { HealthConnect(activity.applicationContext) }
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /** Runs a Health Connect call off the main thread; its error is the store's own words */
+    private fun store(invoke: Invoke, f: suspend () -> JSObject?) {
+        scope.launch {
+            try {
+                val r = f()
+                if (r == null) invoke.resolve() else invoke.resolve(r)
+            } catch (e: Exception) {
+                invoke.reject(e.message ?: e.toString())
+            }
+        }
+    }
+
+    // Health Connect, with the plugin calls iOS answers from HealthKit (health-runtime/src/syshealth.rs)
+    @Command
+    fun healthAvailable(invoke: Invoke) {
+        invoke.resolve(JSObject().put("available", health.available))
+    }
+
+    @Command
+    fun healthAuthorize(invoke: Invoke) {
+        if (!health.available) return invoke.reject("Health Connect is not installed")
+        val intent = PermissionController.createRequestPermissionResultContract().createIntent(activity, health.permissions())
+        startActivityForResult(invoke, intent, "healthAuthorized")
+    }
+
+    @ActivityCallback
+    fun healthAuthorized(invoke: Invoke, result: ActivityResult) {
+        store(invoke) {
+            val granted = androidx.health.connect.client.HealthConnectClient.getOrCreate(activity).permissionController.getGrantedPermissions()
+            if (granted.isEmpty()) throw IllegalStateException("Health Connect access was not given")
+            null
+        }
+    }
+
+    @Command
+    fun healthEarliest(invoke: Invoke) {
+        store(invoke) { JSObject().put("ms", health.earliestMs()) }
+    }
+
+    @Command
+    fun healthRead(invoke: Invoke) {
+        val a = invoke.getArgs()
+        store(invoke) { JSObject().put("samples", health.read(a.getLong("from_ms"), a.getLong("to_ms"))) }
+    }
+
+    @Command
+    fun healthChanged(invoke: Invoke) {
+        val anchors = invoke.getArgs().optJSONObject("anchors")
+        store(invoke) {
+            val (days, token) = health.changed(anchors?.optString("token")?.takeIf { it.isNotEmpty() })
+            JSObject().put("days", JSONArray(days)).put("anchors", JSONObject().put("token", token))
+        }
+    }
+
+    @Command
+    fun healthOwn(invoke: Invoke) {
+        store(invoke) { JSObject().put("samples", health.own()) }
+    }
+
+    @Command
+    fun healthWrite(invoke: Invoke) {
+        val samples = invoke.getArgs().getJSONArray("samples")
+        store(invoke) {
+            health.write(samples)
+            null
+        }
+    }
+
+    @Command
+    fun healthDelete(invoke: Invoke) {
+        val ids = invoke.getArgs().getJSONArray("ids")
+        store(invoke) {
+            health.delete((0 until ids.length()).map { ids.getString(it) })
+            null
+        }
+    }
 
     @Command
     fun keyLoad(invoke: Invoke) {

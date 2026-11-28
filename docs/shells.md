@@ -66,6 +66,12 @@ plugins/tauri-plugin-health-platform   native services for mobile (now: root key
   side panel. Safe areas for the notch and the home indicator; 16 px fields. Agent access (desktop agent apps) is
   hidden on phones.
 - The camera permission text is in `Info.ios.plist` (merged by Tauri) and `gen/apple/project.yml`.
+- Apple Health / Health Connect (plan in the owner's notes; `health-runtime/src/syshealth.rs`): one device of the
+  person's reads the phone's store into the data and writes the lab's body composition back; the platform plugin only
+  reads and writes (`AppleHealth.swift`, `HealthConnect.kt`), the rules are the core's. The HealthKit entitlement and
+  usage texts are in `project.yml`, `Info.ios.plist` and the iOS `InfoPlist.strings`; Health Connect's permissions in
+  the plugin's manifest, and its rationale entries (`SHOW_PERMISSIONS_RATIONALE`, `VIEW_PERMISSION_USAGE`) in the app's
+  `AndroidManifest.xml`: keep them after regenerating.
 
 ## Locking (mobile)
 
