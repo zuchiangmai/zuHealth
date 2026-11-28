@@ -167,7 +167,7 @@ export function HealthAccount({ go, want }: { go: (p: Page) => void; want?: stri
             <Row
               icon={<Icon k="inbox" />}
               label={t("Lab results")}
-              sub={t("Checked when Health opens and every few minutes")}
+              sub={t("Checked when PhysiMind opens and every few minutes")}
               value={waiting ? t("Waiting for you") : acc.drops > 0 ? t("{{count}} discarded", { count: acc.drops }) : undefined}
               onClick={() => setSheet("results")}
             />
@@ -205,7 +205,7 @@ export function HealthAccount({ go, want }: { go: (p: Page) => void; want?: stri
           {sheet === "results" && acc && (
             <div className="flex flex-col gap-3">
               <h3 className="mb-2 text-[17px] font-semibold">{t("Lab results")}</h3>
-              <p className="text-[13px] text-black/55 dark:text-white/55">{t("Health checks for new results when it opens and every few minutes while it's open.")}</p>
+              <p className="text-[13px] text-black/55 dark:text-white/55">{t("PhysiMind checks for new results when it opens and every few minutes while it's open.")}</p>
               {acc.drops > 0 && <p className="text-[13px] text-black/55 dark:text-white/55">{t("{{count}} results were discarded because they failed a check.", { count: acc.drops })}</p>}
               <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
                 <Btn type="button" primary disabled={busy || !acc.registered} onClick={check}>
@@ -550,16 +550,19 @@ export function useSyncLive(): SyncLive | undefined {
   return live;
 }
 
-/** A device as people know it: the name another Health sends ("Health for Mac", "Health web · Chrome"). */
+/** A device as people know it: the name another Health sends ("PhysiMind for Mac", "Health web · Chrome"). */
 function deviceName(n: string): string {
   if (!n) return t("Another device");
   const web = /^Health web · (.+)$/.exec(n);
   if (web) return t("Web · {{browser}}", { browser: web[1] });
   if (n === "Health web") return t("Web");
-  const os = /^Health for (Mac|Windows|Linux)$/.exec(n) ?? /^Health [\d.]+ · (macos|windows|linux)$/i.exec(n);
+  // what devices send stays "Health for …" (older versions and the web read it); shown under the app's name
+  const os = /^Health for (Mac|Windows|Linux|iPhone|Android)$/.exec(n) ?? /^Health [\d.]+ · (macos|windows|linux)$/i.exec(n);
   if (os) {
     const k = os[1]!.toLowerCase();
-    return k.startsWith("mac") ? t("Health for Mac") : k === "windows" ? t("Health for Windows") : t("Health for Linux");
+    if (k === "iphone") return t("PhysiMind for iPhone");
+    if (k === "android") return t("PhysiMind for Android");
+    return k.startsWith("mac") ? t("PhysiMind for Mac") : k === "windows" ? t("PhysiMind for Windows") : t("PhysiMind for Linux");
   }
   return n;
 }
@@ -570,11 +573,11 @@ function endedText(code?: string): string {
     case "paused":
       return t("Sync paused");
     case "declined":
-      return t("You chose Not now. Health asks again next time.");
+      return t("You chose Not now. PhysiMind asks again next time.");
     case "off":
       return t("Sync is off on that device");
     case "sync_changed":
-      return t("That device changed during the sync. Health syncs again shortly.");
+      return t("That device changed during the sync. PhysiMind syncs again shortly.");
     case "sync_proto":
       return t("That device needs an update to sync with this one.");
     case "stall":
@@ -582,9 +585,9 @@ function endedText(code?: string): string {
     case "closed":
     case "disconnected":
     case "webrtc":
-      return t("The connection dropped. Health tries again shortly.");
+      return t("The connection dropped. PhysiMind tries again shortly.");
     default:
-      return t("Sync stopped. Health tries again shortly.");
+      return t("Sync stopped. PhysiMind tries again shortly.");
   }
 }
 
@@ -649,19 +652,19 @@ function SyncPage() {
           <SwitchRow
             icon={<Icon k="wifi" />}
             label={t("Sync on this network")}
-            sub={t("Devices you've connected sync automatically when Health is open on the same local network.")}
+            sub={t("Devices you've connected sync automatically when PhysiMind is open on the same local network.")}
             on={st.enabled}
             set={(on) => run(() => op("sync.set", { enabled: on }))}
           />
         </Group>
       )}
-      {st?.enabled && live?.idle === "offline" && <p className="text-[13px] text-black/55 dark:text-white/55">{t("Health is offline, so it doesn't sync.")}</p>}
+      {st?.enabled && live?.idle === "offline" && <p className="text-[13px] text-black/55 dark:text-white/55">{t("PhysiMind is offline, so it doesn't sync.")}</p>}
       {st?.enabled && (
         <>
           <h3 className="mt-6 mb-2 px-4 text-[13px] font-semibold text-black/55 dark:text-white/55">{t("Devices")}</h3>
           <Group aria-label={t("Devices on this network")}>
             {livePeers.length === 0 && known.length === 0 && (
-              <li className="flex items-center gap-3 px-4 py-3 text-[13px] text-black/55 dark:text-white/55">{t("No other device seen yet. Open Health on your other device on this network.")}</li>
+              <li className="flex items-center gap-3 px-4 py-3 text-[13px] text-black/55 dark:text-white/55">{t("No other device seen yet. Open PhysiMind on your other device on this network.")}</li>
             )}
             {livePeers.map((p) => (
               <li key={p.device} className="flex items-center gap-3 px-4 py-3 [&_progress]:mt-1.5 [&_progress]:h-1 [&_progress]:w-full [&_progress]:accent-primary">
@@ -677,7 +680,7 @@ function SyncPage() {
                   ) : null}
                   {p.state === "partly" && (
                     <span className="text-[13px] text-black/55 dark:text-white/55">
-                      {t("{{count}} items can't be merged, for example a measure whose unit differs between the two devices. Health tries again every day.", { count: p.skipped ?? 0 })}
+                      {t("{{count}} items can't be merged, for example a measure whose unit differs between the two devices. PhysiMind tries again every day.", { count: p.skipped ?? 0 })}
                     </span>
                   )}
                   {p.state === "asking" && (

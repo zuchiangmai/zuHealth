@@ -1,9 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- Merged into the bundle's Info.plist by Tauri: the languages Health speaks, so macOS's own panels (open, save,
+<!-- Merged into the bundle's Info.plist by Tauri: the languages PhysiMind speaks, so macOS's own panels (open, save,
      About) follow the system language; the name under the icon comes from <lang>.lproj/InfoPlist.strings. -->
 <plist version="1.0">
 <dict>
+  <!-- the name shown (menu bar, About, Dock); other languages' come from InfoPlist.strings. The bundle's file name
+       and paths still follow productName, which existing agent configs point into -->
+  <key>CFBundleDisplayName</key>
+  <string>PhysiMind</string>
+  <key>CFBundleName</key>
+  <string>PhysiMind</string>
   <key>CFBundleDevelopmentRegion</key>
   <string>en</string>
   <key>CFBundleLocalizations</key>

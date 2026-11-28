@@ -112,8 +112,8 @@ export let justRead: number | undefined;
 const IMPORT_LEDE: Record<string, string> = {
   apple: tk("On your iPhone, open Health, tap your picture, then Export All Health Data; choose the .zip here."),
   report: tk("A photo (JPEG, PNG) or a PDF."),
-  restore: tk("A Health backup (.zuhealth) from this app or the web version."),
-  file: tk("A photo or PDF of a lab report, an Apple Health export, a Health backup (.zuhealth) or WHOOP data. Importing the same file again updates it; nothing is doubled."),
+  restore: tk("A PhysiMind backup (.zuhealth) from this app or the web version."),
+  file: tk("A photo or PDF of a lab report, an Apple Health export, a PhysiMind backup (.zuhealth) or WHOOP data. Importing the same file again updates it; nothing is doubled."),
 };
 
 export function Import({
@@ -255,13 +255,13 @@ export function Import({
       )}
       <FilePick path={file} onPath={onFile} kind={hint === "report" || hint === "apple" || hint === "restore" ? hint : "file"} />
       {file && !kind && (
-        <Problem text={t("Health can't read this kind of file. Choose a lab report photo or PDF, a .zip from Apple Health, a .zuhealth backup, or a WHOOP .json file.")} />
+        <Problem text={t("PhysiMind can't read this kind of file. Choose a lab report photo or PDF, a .zip from Apple Health, a .zuhealth backup, or a WHOOP .json file.")} />
       )}
       {file && kind === "report" && (
         <div aria-busy={step === "download" || step === "read"}>
           {step === "ask" ? (
             <div className="mb-4 rounded-2xl bg-amber-500/15 px-4 py-3 text-[15px]">
-              <p>{t("The first time, Health needs the text-recognition models (about {{mb}} MB), once. Reports are read here; nothing is uploaded.", { mb: askMb })}</p>
+              <p>{t("The first time, PhysiMind needs the text-recognition models (about {{mb}} MB), once. Reports are read here; nothing is uploaded.", { mb: askMb })}</p>
               <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
                 <Btn type="button" primary onClick={() => void readReport(true)}>
                   {t("Download and read")}
@@ -320,7 +320,7 @@ export function Import({
           </Btn>
           {busy && (
             <p className="text-[13px] text-black/55 dark:text-white/55">
-              {t("Large exports can take a few minutes. Health answers again when the import is done; keep this page open to see the result.")}
+              {t("Large exports can take a few minutes. PhysiMind answers again when the import is done; keep this page open to see the result.")}
             </p>
           )}
         </form>

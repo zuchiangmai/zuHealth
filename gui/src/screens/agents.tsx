@@ -39,7 +39,7 @@ function ConnectSteps({ client, token, bin, found, done }: { client: Client; tok
         <>
           <p>
             {found ? t("{{name}} is on this computer.", { name: client.name }) : t("{{name}}'s settings folder wasn't found; it is created if you go ahead.", { name: client.name })}{" "}
-            {t("Health can add itself to its settings for you. Other servers there are kept, and the original file is saved next to it (.health-bak).")}
+            {t("PhysiMind can add itself to its settings for you. Other servers there are kept, and the original file is saved next to it (.health-bak).")}
           </p>
           <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
             <Btn
@@ -78,7 +78,7 @@ function ConnectSteps({ client, token, bin, found, done }: { client: Client; tok
         ))}
       </ol>
       <p className="text-[13px] text-black/55 dark:text-white/55">
-        {t("The token is shown only this once. The app works with your data even when Health is closed (with a passphrase lock, keep Health open and unlocked). If you move the Health app, or the access expires, connect again. Apps that run in a web browser (such as ChatGPT or claude.ai) can't reach Health: it only answers on this computer.")}
+        {t("The token is shown only this once. The app works with your data even when PhysiMind is closed (with a passphrase lock, keep PhysiMind open and unlocked). If you move the PhysiMind app, or the access expires, connect again. Apps that run in a web browser (such as ChatGPT or claude.ai) can't reach PhysiMind: it only answers on this computer.")}
       </p>
       <Btn type="button" link onClick={done}>
         {t("Done")}

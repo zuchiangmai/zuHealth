@@ -127,7 +127,7 @@ function BackupSave() {
     try {
       let bytes = 0;
       // the save dialog already asked before replacing a file; elsewhere it's the app's own folder
-      const path = await saveExport(`health-${stamp}.zuhealth`, "application/octet-stream", { name: t("Health backup"), ext: "zuhealth" }, async (path) => {
+      const path = await saveExport(`health-${stamp}.zuhealth`, "application/octet-stream", { name: t("PhysiMind backup"), ext: "zuhealth" }, async (path) => {
         const r = await op<{ bytes: number; path: string }>("backup.export", { path, password: pw, replace: true });
         bytes = r.bytes;
         return r.path;

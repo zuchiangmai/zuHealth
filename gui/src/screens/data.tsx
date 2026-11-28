@@ -80,7 +80,7 @@ export function DataSources({
         />
       </Group>
       <Group>
-        <Row color="#e53935" icon={<GroupIcon k="cardio" />} label="WHOOP" sub={whoopValue ?? t("Syncs every hour while Health is open")} onClick={() => setSheet("whoop")} />
+        <Row color="#e53935" icon={<GroupIcon k="cardio" />} label="WHOOP" sub={whoopValue ?? t("Syncs every hour while PhysiMind is open")} onClick={() => setSheet("whoop")} />
         <Row color="#f4511e" icon={<GroupIcon k="activity" />} label={t("Apple Health")} sub={lastOf("apple_health") ?? t("Export from your iPhone")} onClick={() => setSheet("apple")} />
         <Row color="#00897b" icon={<GroupIcon k="lab" />} label={t("Lab report")} sub={lastOf("ocr") ?? t("A photo or a PDF")} onClick={() => setSheet("report")} />
         <Row color="#43a047" icon={<GroupIcon k="infectious" />} label={t("Lab self-service")} sub={t("A code for a lab device")} onClick={() => setSheet("lab")} />
@@ -399,7 +399,7 @@ function WhoopConnect() {
       const b = await op<{ url: string; redirect: string }>("whoop.begin", { client_id: id, client_secret: secret, open: true });
       setRedirect(b.redirect);
       setSecret("");
-      setNote(t("WHOOP's sign-in page opened in your browser. Health finishes when you come back."));
+      setNote(t("WHOOP's sign-in page opened in your browser. PhysiMind finishes when you come back."));
     });
   const sync = () =>
     run(async () => {
@@ -413,8 +413,8 @@ function WhoopConnect() {
         <>
           <p className="text-[13px] text-black/55 dark:text-white/55">
             {st.last_sync
-              ? t("Connected. Health fetches new WHOOP data every hour while it's open; last time {{when}}.", { when: when(st.last_sync) })
-              : t("Connected. Health fetches new WHOOP data every hour while it's open.")}
+              ? t("Connected. PhysiMind fetches new WHOOP data every hour while it's open; last time {{when}}.", { when: when(st.last_sync) })
+              : t("Connected. PhysiMind fetches new WHOOP data every hour while it's open.")}
           </p>
           <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
             <Btn type="button" disabled={busy} onClick={sync}>
@@ -427,7 +427,7 @@ function WhoopConnect() {
         </>
       ) : isMobile ? (
         // nothing on a phone opens WHOOP's sign-in or catches its redirect yet (plan D14)
-        <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55">{t("WHOOP can't be connected on a phone yet. Connect it in Health on your computer; its data reaches this phone when your devices sync.")}</p>
+        <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55">{t("WHOOP can't be connected on a phone yet. Connect it in PhysiMind on your computer; its data reaches this phone when your devices sync.")}</p>
       ) : st.state === "pending" ? (
         <p className="text-[13px] text-black/55 dark:text-white/55">{t("Waiting for the WHOOP sign-in in your browser…")}</p>
       ) : (

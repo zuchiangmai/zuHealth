@@ -100,7 +100,7 @@ function Licenses() {
   );
   return (
     <>
-      <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55">{t("Health is open-source software under the MIT License. It uses these open-source components and data, with thanks to their authors.")}</p>
+      <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55">{t("PhysiMind is open-source software under the MIT License. It uses these open-source components and data, with thanks to their authors.")}</p>
       <Group aria-label={t("Components")}>
         {MAIN_COMPONENTS.map((c) => (
           <li key={c.name} className="flex items-center gap-3 px-4 py-3">
@@ -152,7 +152,7 @@ export function About({ version, want }: { version?: string; want?: string }) {
   return (
     <section className="mx-auto w-full max-w-3xl">
       <Heading>{t("About")}</Heading>
-      <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55">{version ? t("Health {{version}}", { version }) : "Health"}</p>
+      <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55">{version ? t("PhysiMind {{version}}", { version }) : "PhysiMind"}</p>
       <Group>
         <Row icon={<Icon k="shield" />} label={t("Privacy")} onClick={() => setView("privacy")} />
         <Row icon={<Icon k="scale" />} label={t("Open-source licenses")} onClick={() => setView("licenses")} />

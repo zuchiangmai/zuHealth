@@ -340,7 +340,7 @@ fn supervise(app: AppHandle, shell: Arc<Shell>) {
                 std::thread::spawn(move || relay_events(&a, &c));
             } else {
                 *shell.last_error.lock().unwrap() = Some(if mismatch {
-                    "the bundled core speaks another API version; reinstall Health".into()
+                    "the bundled core speaks another API version; reinstall PhysiMind".into()
                 } else {
                     "cannot reach the health core; retrying".into()
                 });
@@ -402,13 +402,14 @@ fn native_toolbar(w: &tauri::WebviewWindow) {
 fn words(lang: &str) -> impl Fn(&str) -> String + '_ {
     move |en: &str| {
         let (hans, hant) = match en {
-            "Health" => ("健康", "健康"),
-            "About Health" => ("关于健康", "關於健康"),
+            // the app's name isn't translated
+            "PhysiMind" => ("PhysiMind", "PhysiMind"),
+            "About PhysiMind" => ("关于 PhysiMind", "關於 PhysiMind"),
             "Services" => ("服务", "服務"),
-            "Hide Health" => ("隐藏健康", "隱藏健康"),
+            "Hide PhysiMind" => ("隐藏 PhysiMind", "隱藏 PhysiMind"),
             "Hide Others" => ("隐藏其他", "隱藏其他"),
             "Show All" => ("全部显示", "全部顯示"),
-            "Quit Health" => ("退出健康", "結束健康"),
+            "Quit PhysiMind" => ("退出 PhysiMind", "結束 PhysiMind"),
             "Edit" => ("编辑", "編輯"),
             "Undo" => ("撤销", "還原"),
             "Redo" => ("重做", "重做"),
@@ -450,18 +451,18 @@ fn menu(app: &AppHandle, lang: &str) -> tauri::Result<tauri::menu::Menu<tauri::W
     let item = |id: &str, label: &str, key: &str| MenuItem::with_id(app, format!("ui:{id}"), w(label), true, Some(key));
     let health = Submenu::with_items(
         app,
-        w("Health"),
+        w("PhysiMind"),
         true,
         &[
-            &P::about(app, Some(&w("About Health")), Some(AboutMetadata::default()))?,
+            &P::about(app, Some(&w("About PhysiMind")), Some(AboutMetadata { name: Some("PhysiMind".into()), ..Default::default() }))?,
             &P::separator(app)?,
             &P::services(app, Some(&w("Services")))?,
             &P::separator(app)?,
-            &P::hide(app, Some(&w("Hide Health")))?,
+            &P::hide(app, Some(&w("Hide PhysiMind")))?,
             &P::hide_others(app, Some(&w("Hide Others")))?,
             &P::show_all(app, Some(&w("Show All")))?,
             &P::separator(app)?,
-            &P::quit(app, Some(&w("Quit Health")))?,
+            &P::quit(app, Some(&w("Quit PhysiMind")))?,
         ],
     )?;
     let edit = Submenu::with_items(
@@ -533,7 +534,7 @@ pub(crate) fn set_language(app: AppHandle, lang: String) -> Result<(), String> {
         _ => "en".to_string(),
     };
     if let Some(w) = app.get_webview_window("main") {
-        let _ = w.set_title(&words(&lang)("Health"));
+        let _ = w.set_title(&words(&lang)("PhysiMind"));
     }
     #[cfg(target_os = "macos")]
     app.set_menu(menu(&app, &lang).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;

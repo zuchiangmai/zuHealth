@@ -44,10 +44,11 @@ targets:
     info:
       path: health-app_iOS/Info.plist
       properties:
+        CFBundleDisplayName: PhysiMind
         LSRequiresIPhoneOS: true
         NSLocalNetworkUsageDescription: "Sync health data directly with your other devices on the same network."
         NSCameraUsageDescription: "Scan a lab device's code or another device's link code, and photograph lab reports."
-        NSPhotoLibraryUsageDescription: "Choose photos of lab reports for Health to read on this device."
+        NSPhotoLibraryUsageDescription: "Choose photos of lab reports for PhysiMind to read on this device."
         NSBluetoothAlwaysUsageDescription: "Connect to health devices such as scales and blood pressure monitors."
         UIBackgroundModes: [remote-notification]
         UILaunchStoryboardName: LaunchScreen

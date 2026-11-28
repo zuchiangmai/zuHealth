@@ -109,8 +109,8 @@ function Hold({ title, body, err, retry }: { title: string; body: string; err?: 
 
 const decrypting = () =>
   isMobile
-    ? t("Your health data is stored encrypted on this device and is decrypted here each time you open Health. Just a moment.")
-    : t("Your health data is stored encrypted on this computer and is decrypted here each time you open Health. Just a moment.");
+    ? t("Your health data is stored encrypted on this device and is decrypted here each time you open PhysiMind. Just a moment.")
+    : t("Your health data is stored encrypted on this computer and is decrypted here each time you open PhysiMind. Just a moment.");
 
 /** Runs `fn` once per mount and again on `retry` (StrictMode's second mount reuses the call in flight). */
 function useOnce(fn: () => Promise<void>): [string | undefined, () => void] {
@@ -132,7 +132,7 @@ function FirstRun({ done }: { done: () => void }) {
   });
   return (
     <Hold
-      title={t("Getting Health ready")}
+      title={t("Getting PhysiMind ready")}
       body={isMobile ? t("Your data will be kept encrypted on this device. Nothing is sent anywhere.") : t("Your data will be kept encrypted on this computer. Nothing is sent anywhere.")}
       err={err}
       retry={retry}
@@ -158,7 +158,7 @@ function Unlock({ done }: { done: () => void }) {
           }
         }}
       >
-        <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Health is locked")}</h2>
+        <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("PhysiMind is locked")}</h2>
         <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55">{t("Your data is encrypted with your passphrase. It locks again after a while without use.")}</p>
         <label className="flex flex-col gap-1.5 text-[13px] text-black/60 dark:text-white/60">
           {t("Passphrase")}
@@ -399,7 +399,7 @@ function Shell({ status }: { status?: Status }) {
       {hovering && (
         <div className="fixed inset-0 z-50 grid place-content-center gap-1 bg-primary/15 text-center backdrop-blur-sm" aria-hidden="true">
           <p className="text-[17px] font-semibold">{t("Drop to import")}</p>
-          <p className="text-[13px] text-black/55 dark:text-white/55">{t("Apple Health export, Health backup, WHOOP data")}</p>
+          <p className="text-[13px] text-black/55 dark:text-white/55">{t("Apple Health export, PhysiMind backup, WHOOP data")}</p>
         </div>
       )}
       <nav

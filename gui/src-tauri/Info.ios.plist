@@ -4,12 +4,14 @@
      push notifications in the background. Keep gen/apple/project.yml and its Info.plist the same. -->
 <plist version="1.0">
 <dict>
+  <key>CFBundleDisplayName</key>
+  <string>PhysiMind</string>
   <key>NSLocalNetworkUsageDescription</key>
   <string>Sync health data directly with your other devices on the same network.</string>
   <key>NSCameraUsageDescription</key>
   <string>Scan a lab device's code or another device's link code, and photograph lab reports.</string>
   <key>NSPhotoLibraryUsageDescription</key>
-  <string>Choose photos of lab reports for Health to read on this device.</string>
+  <string>Choose photos of lab reports for PhysiMind to read on this device.</string>
   <key>NSBluetoothAlwaysUsageDescription</key>
   <string>Connect to health devices such as scales and blood pressure monitors.</string>
   <key>UIBackgroundModes</key>
