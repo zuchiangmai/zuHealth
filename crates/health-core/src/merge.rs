@@ -301,7 +301,7 @@ fn gt(a: &str, b: &str) -> String {
 
 /// For two rows of the same import (equal uid): whether `e` (incoming) beats `o` (local), by typeof, then value,
 /// end_ms, tz_min, detail (merge-fixes R1). typeof names order blob < integer < null < real < text.
-fn newer_row(e: &str, o: &str) -> String {
+pub(crate) fn newer_row(e: &str, o: &str) -> String {
     let mut out = gt(&format!("{e}.detail"), &format!("{o}.detail"));
     for col in ["tz_min", "end_ms", "value"] {
         out = format!("({} OR ({e}.{col} IS {o}.{col} AND {out}))", gt(&format!("{e}.{col}"), &format!("{o}.{col}")));
