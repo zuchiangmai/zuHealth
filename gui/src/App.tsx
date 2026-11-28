@@ -24,7 +24,7 @@ import { ProfilePage } from "./screens/profile";
 import { Review } from "./screens/review";
 import { ScanButton } from "./screens/scan";
 import { useSystemHealthSync } from "./screens/syshealth";
-import { Btn, Chevron, errText, GroupIcon, Icon, LangSelect, MAC, MOD, type Page, Problem, TitleContext, type Titles, useAppearance, useOp, useTitles } from "./ui";
+import { Btn, Chevron, errText, GroupIcon, Icon, LangSelect, MAC, MOD, type Page, Problem, TitleContext, type Titles, useAppearance, useOp, useTitles, useWide } from "./ui";
 
 /** Narrow screens (phones): the floating tab bar's pages; the other sections are reached from More. */
 type Tab = "readings" | "add" | "more";
@@ -690,8 +690,12 @@ const PHOTO_BAR_IOS = "backdrop-blur-xl mask-b-from-40% mask-b-to-100%";
  *  The name is the screen's own heading (the first `Heading` on it), so no screen has to say it twice. */
 function TopBar({ title, back, right, photo, className = "" }: { title: string; back?: () => void; right?: ReactNode; photo?: boolean; className?: string }) {
   const { theme } = useAppearance();
+  // narrow: the page's name is the bar's large title, Konsta's (its size and spacing as each platform has them),
+  // shrinking into the bar as the page scrolls; a wide window's pages show their own heading
+  const wide = useWide();
   return (
     <Navbar
+      large={!wide}
       transparent
       colors={photo ? { bgIos: PHOTO_BAR_IOS } : undefined}
       title={title}

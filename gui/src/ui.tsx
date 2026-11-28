@@ -471,7 +471,7 @@ export function WebLink({ url, label }: { url: string; label?: string }) {
 
 /** Where a screen's heading tells the top bar its name: the headings on the page, in the order they appeared (the
  *  first is the name). Null inside a sheet, whose headings aren't the page's. */
-export type Titles = { set: (key: object, text: string | null) => void };
+export type Titles = { set: (key: object, text: string | null) => void; isTitle: (key: object) => boolean };
 export const TitleContext = createContext<Titles | null>(null);
 
 /** The page's titles, for the shell: the first heading's text, and the context its headings report to. */
@@ -485,12 +485,15 @@ export function useTitles(): [string, Titles] {
         else all.set(key, text);
         setTitle(all.values().next().value ?? "");
       },
+      isTitle: (key: object) => all.keys().next().value === key,
     };
   }, []);
   return [title, titles];
 }
 
-/** A screen's large heading (`space`: the margin under it). Its text is the screen's name in the top bar. */
+/** A screen's large heading (`space`: the margin under it). Its text is the screen's name in the top bar. On a
+ *  narrow screen the page's name is the top bar's large title (Konsta's, as iOS and Material have it), so the
+ *  heading naming the page is there for screen readers only; a wide window shows it. */
 export function Heading({ space = "mb-1", children }: { space?: string; children: ReactNode }) {
   const titles = useContext(TitleContext);
   const el = useRef<HTMLHeadingElement>(null);
@@ -498,7 +501,7 @@ export function Heading({ space = "mb-1", children }: { space?: string; children
   useLayoutEffect(() => titles?.set(key, el.current?.textContent ?? ""));
   useLayoutEffect(() => () => titles?.set(key, null), [titles, key]);
   return (
-    <h2 ref={el} className={`${space} text-[28px] leading-tight font-bold tracking-tight`}>
+    <h2 ref={el} className={`${space} text-[28px] leading-tight font-bold tracking-tight ${titles?.isTitle(key) ? "max-wide:sr-only" : ""}`}>
       {children}
     </h2>
   );
