@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "zu Health",
+  "productName": "PhysiMind",
   "version": "0.1.0",
   "identifier": "com.zuchiangmai.health",
   "build": {

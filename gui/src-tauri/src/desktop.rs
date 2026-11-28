@@ -572,6 +572,15 @@ pub(crate) fn run(builder: tauri::Builder<tauri::Wry>) {
             }
             let (handle, s) = (app.handle().clone(), app.state::<Arc<Shell>>().inner().clone());
             std::thread::spawn(move || supervise(handle, s));
+            // agents connected before the app was renamed or moved find its program again (a release build only:
+            // a development build must not point real configs at itself)
+            if !cfg!(debug_assertions) {
+                std::thread::spawn(|| {
+                    if let Some(r) = clients::Roots::os() {
+                        clients::repoint(&r, &core_bin().to_string_lossy());
+                    }
+                });
+            }
             Ok(())
         })
         .build(tauri::generate_context!())

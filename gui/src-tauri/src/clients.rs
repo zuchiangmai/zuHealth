@@ -91,14 +91,42 @@ pub fn connect(r: &Roots, id: &str, bin: &str, token: &str) -> Result<PathBuf, S
     if old.is_some() && !bak.exists() {
         std::fs::copy(&file, &bak).map_err(|e| format!("can't keep a copy: {e}"))?;
     }
+    replace(&file, &doc)?;
+    Ok(file)
+}
+
+/// Writes `doc` in place of `file`, atomically and owner-only.
+fn replace(file: &Path, doc: &Value) -> Result<(), String> {
+    let dir = file.parent().ok_or("no folder")?;
+    let name = file.file_name().ok_or("no file name")?.to_string_lossy().into_owned();
     let tmp = dir.join(format!(".{name}.health-tmp"));
-    let text = serde_json::to_string_pretty(&doc).map_err(|e| e.to_string())? + "\n";
+    let text = serde_json::to_string_pretty(doc).map_err(|e| e.to_string())? + "\n";
     write_private(&tmp, &text).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, &file).map_err(|e| {
+    std::fs::rename(&tmp, file).map_err(|e| {
         let _ = std::fs::remove_file(&tmp);
         e.to_string()
-    })?;
-    Ok(file)
+    })
+}
+
+/// Our `health` entries whose program is gone (the app was renamed or moved) point at `bin` again; nothing else in
+/// the file changes, and an entry whose program still exists is left as the person set it. Returns the files fixed.
+pub fn repoint(r: &Roots, bin: &str) -> Vec<PathBuf> {
+    let mut fixed = Vec::new();
+    for c in CLIENTS {
+        let file = path(r, c);
+        let file = std::fs::canonicalize(&file).unwrap_or(file);
+        let Ok(Ok(mut doc)) = std::fs::read_to_string(&file).map(|s| serde_json::from_str::<Value>(&s)) else { continue };
+        let Some(cmd) = doc.pointer_mut("/mcpServers/health/command") else { continue };
+        let gone =
+            cmd.as_str().is_some_and(|p| p != bin && Path::new(p).file_stem().is_some_and(|s| s == "health") && !Path::new(p).exists());
+        if gone {
+            *cmd = json!(bin);
+            if replace(&file, &doc).is_ok() {
+                fixed.push(file);
+            }
+        }
+    }
+    fixed
 }
 
 /// Writes `text` to a file created owner-only (the token is in it), also when it replaces a file others could read.
@@ -179,6 +207,26 @@ mod tests {
         std::fs::set_permissions(&f, std::fs::Permissions::from_mode(0o644)).unwrap();
         connect(&r, "cursor", "/b", "hk").unwrap();
         assert_eq!(std::fs::metadata(&f).unwrap().permissions().mode() & 0o777, 0o600);
+    }
+
+    #[test]
+    fn an_entry_for_a_program_that_moved_points_at_it_again() {
+        let r = roots("moved");
+        let f = connect(&r, "claude-desktop", "/gone/zu Health.app/Contents/MacOS/health", "hk").unwrap();
+        // another server, and one of ours whose program still exists, stay as they are
+        let mut doc: Value = serde_json::from_str(&std::fs::read_to_string(&f).unwrap()).unwrap();
+        doc["mcpServers"]["other"] = json!({ "command": "/gone/other" });
+        std::fs::write(&f, doc.to_string()).unwrap();
+        assert_eq!(repoint(&r, "/Applications/PhysiMind.app/Contents/MacOS/health"), vec![std::fs::canonicalize(&f).unwrap()]);
+        let v: Value = serde_json::from_str(&std::fs::read_to_string(&f).unwrap()).unwrap();
+        assert_eq!(v["mcpServers"]["health"]["command"], "/Applications/PhysiMind.app/Contents/MacOS/health");
+        assert_eq!(v["mcpServers"]["health"]["env"]["HEALTH_TOKEN"], "hk");
+        assert_eq!(v["mcpServers"]["other"]["command"], "/gone/other");
+        let here = r.home.join("bin/health");
+        std::fs::create_dir_all(here.parent().unwrap()).unwrap();
+        std::fs::write(&here, "").unwrap();
+        connect(&r, "claude-desktop", &here.to_string_lossy(), "hk").unwrap();
+        assert!(repoint(&r, "/elsewhere/health").is_empty(), "a program that exists is kept");
     }
 
     #[test]

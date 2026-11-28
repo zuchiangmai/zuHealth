@@ -10,7 +10,7 @@ configs:
 settingGroups:
   app:
     base:
-      PRODUCT_NAME: zu Health
+      PRODUCT_NAME: PhysiMind
       PRODUCT_BUNDLE_IDENTIFIER: com.zuchiangmai.health
 targetTemplates:
   app:

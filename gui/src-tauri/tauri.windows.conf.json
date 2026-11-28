@@ -8,7 +8,12 @@
     "externalBin": [
       "binaries/health"
     ],
-    "shortDescription": "Your health data, on your computer"
+    "shortDescription": "Your health data, on your computer",
+    "windows": {
+      "wix": {
+        "upgradeCode": "7eecda03-7b9b-55fe-a558-7ee3fd172265"
+      }
+    }
   },
   "app": {
     "windows": [
