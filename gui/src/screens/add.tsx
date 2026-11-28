@@ -4,7 +4,7 @@ import { unitLabel } from "../format";
 import { t, tk } from "../i18n";
 import { nameOf } from "../names";
 import { isTouch } from "../pickers";
-import { Btn, errText, Group, GroupIcon, MetricPicker, type Page, parseNumber, Problem, Row } from "../ui";
+import { Btn, errText, Group, GroupIcon, Heading, MetricPicker, type Page, parseNumber, Problem, Row } from "../ui";
 import { Import } from "./import";
 
 /** Add (a tab on a phone), as the web's 记录: a lab report from the camera or a file, or a reading entered by hand
@@ -13,7 +13,7 @@ export function AddPage({ go, done }: { go: (p: Page, want?: string) => void; do
   const [file, setFile] = useState<string>();
   return (
     <section className="mx-auto w-full max-w-3xl">
-      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Add")}</h2>
+      <Heading>{t("Add")}</Heading>
       <Import file={file} onFile={setFile} go={go} kind="report" title={t("Lab report")} part />
       {!file && (
         <>
@@ -87,7 +87,7 @@ export function Enter({ done, part }: { done: (code: string) => void; part?: boo
   };
   return (
     <section className="[&_h3]:mt-6">
-      {part ? <h3 className="mt-6 mb-1.5 text-[17px] font-semibold">{t("Or enter by hand")}</h3> : <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Enter by hand")}</h2>}
+      {part ? <h3 className="mt-6 mb-1.5 text-[17px] font-semibold">{t("Or enter by hand")}</h3> : <Heading>{t("Enter by hand")}</Heading>}
       {!m ? (
         <>
           <MetricPicker placeholder={t("What did you measure?")} onPick={pick} manual />

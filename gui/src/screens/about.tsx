@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { clearData, isMobile, OpError } from "../api";
 import { t } from "../i18n";
 import { go as nav } from "../router";
-import { Btn, Group, Icon, Problem, Row, Screen, Sheet, WebLink } from "../ui";
+import { Btn, Group, Heading, Icon, Problem, Row, Screen, Sheet, WebLink } from "../ui";
 
 /** Every sentence matches what the desktop does (checked 2026-11-24): data in the encrypted profile (SQLCipher, key in
  *  the keychain or from the passphrase); OCR on this computer, models downloaded once from Hugging Face and GitHub
@@ -151,7 +151,7 @@ export function About({ version, want }: { version?: string; want?: string }) {
   if (view) return <Screen title={view === "privacy" ? t("Privacy") : t("Open-source licenses")}>{view === "privacy" ? <Privacy /> : <Licenses />}</Screen>;
   return (
     <section className="mx-auto w-full max-w-3xl">
-      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("About")}</h2>
+      <Heading>{t("About")}</Heading>
       <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55">{version ? t("Health {{version}}", { version }) : "Health"}</p>
       <Group>
         <Row icon={<Icon k="shield" />} label={t("Privacy")} onClick={() => setView("privacy")} />
@@ -215,7 +215,7 @@ function ClearData({ cancel }: { cancel: () => void }) {
   };
   return (
     <section className="[&_h3]:mt-6">
-      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Clear data")}</h2>
+      <Heading>{t("Clear data")}</Heading>
       <form
         className="flex flex-col gap-3"
         aria-busy={busy}

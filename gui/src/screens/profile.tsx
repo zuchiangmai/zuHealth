@@ -3,7 +3,7 @@ import { op, type Point } from "../api";
 import { locale as i18nLocale, t } from "../i18n";
 import { BirthWheels, isTouch } from "../pickers";
 import { back as goBack, go as nav } from "../router";
-import { birthLabel, Btn, errText, Failed, Group, Item, parseNumber, type Personal, Problem, sexLabel, useOp } from "../ui";
+import { birthLabel, Btn, errText, Failed, Group, Heading, Item, parseNumber, type Personal, Problem, sexLabel, useOp } from "../ui";
 
 const HEIGHT = "loinc:8302-2";
 
@@ -47,7 +47,7 @@ export function ProfilePage({ want }: { want?: string }) {
   ];
   return (
     <section className="mx-auto w-full max-w-3xl">
-      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Profile")}</h2>
+      <Heading>{t("Profile")}</Heading>
       <Group>
         {rows.map((x) => (
           <Item key={x.k} title={x.label} after={x.value} onClick={() => setEdit(x.k)} />
@@ -84,7 +84,7 @@ function ProfileEdit({ field, me, done }: { field: ProfileField; me: Personal; d
   const title = { sex: t("Sex"), birth: t("Birth month"), height: t("Height"), weight: t("Weight") }[field];
   return (
     <section className="[&_h3]:mt-6">
-      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{title}</h2>
+      <Heading>{title}</Heading>
       {field === "sex" && (
         <>
           <Group role="radiogroup" aria-label={t("Sex")}>

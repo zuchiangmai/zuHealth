@@ -3,14 +3,14 @@
 // it, a computer types the id beside it. The core asks the backend what the device is (lab.device) and runs each
 // flow (seca.*, fd.*, self.code); this file is the pages. Results land like any lab result.
 import { useCallback, useEffect, useRef, useState } from "react";
+import { deviceFromCode, isMobile, op, OpError, scanCode } from "./api";
 import forcedecksPhoto from "./devices/forcedecks.webp";
 import secaPhoto from "./devices/seca-mbca.webp";
-import { OpError, deviceFromCode, isMobile, op, scanCode } from "./api";
 import { when } from "./format";
+import { t } from "./i18n";
 import { BirthWheels, isTouch } from "./pickers";
 import { go } from "./router";
-import { t } from "./i18n";
-import { Btn, card } from "./ui";
+import { Btn, card, Heading } from "./ui";
 
 type Kind = { kind: "seca" | "forcedecks" | "lab"; name: string; state?: string; since?: number };
 type Fail = (e: unknown) => string;
@@ -126,7 +126,7 @@ export function LabSelfService({
   if (device) return <ShortCode device={device.id} errText={errText} pollFast={pollFast} />;
   return (
     <section className="[&_h3]:mt-6">
-      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Lab self-service")}</h2>
+      <Heading>{t("Lab self-service")}</Heading>
       <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55">
         {isMobile
           ? t("Scan the code on the lab device. Your results are stored here, on this device.")
@@ -190,7 +190,7 @@ function ShortCode({ device, errText, pollFast }: { device: string; errText: Fai
   }, [device]);
   return (
     <section className="[&_h3]:mt-6">
-      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Lab self-service")}</h2>
+      <Heading>{t("Lab self-service")}</Heading>
       {code ? (
         <div className={`${card} flex flex-col gap-3`}>
           <p className="text-[34px] font-semibold tracking-[0.1em] tabular-nums" aria-label={t("Code {{code}}", { code: code.code })}>
@@ -390,7 +390,7 @@ function SecaSelf({ device, errText, showResults }: { device: string; errText: F
   const mins = st.s === "waiting" ? Math.max(0, Math.floor((now - st.since) / 60_000)) : 0;
   return (
     <section className="[&_h3]:mt-6">
-      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Body composition")}</h2>
+      <Heading>{t("Body composition")}</Heading>
       <p className="text-[13px] text-black/55 dark:text-white/55">seca mBCA Pro</p>
       <DevicePhoto kind="seca" />
       {st.s === "loading" && <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55">{t("Opening…")}</p>}
@@ -615,7 +615,7 @@ function FdSelf({ device, kind, errText, showResults }: { device: string; kind: 
   const ready = /^\d{4}$/.test(year) && /^\d{2}$/.test(month) && !!gender;
   return (
     <section className="[&_h3]:mt-6">
-      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("VALD ForceDecks self-service")}</h2>
+      <Heading>{t("VALD ForceDecks self-service")}</Heading>
       <DevicePhoto kind="forcedecks" />
       {devState === "unavailable" && <p className="text-[15px] text-brand-red">{t("The device is offline for now: please ask the staff for help.")}</p>}
       {st.s === "loading" && <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55">{t("Opening…")}</p>}

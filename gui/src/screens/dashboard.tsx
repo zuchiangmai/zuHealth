@@ -5,7 +5,7 @@ import { ago, asDuration, day, dayMs, GROUPS, HOME_GROUPS, num, shortDate, shown
 import { t } from "../i18n";
 import { KEY, nameOf } from "../names";
 import { go as nav } from "../router";
-import { Btn, C, Callout, DAY, fdBest, fdStart, figure, fixed, Flag, Group, GroupIcon, Icon, IconDot, MOD, type Page, Problem, Row, Screen, SearchPill, sourceLabel, TINT, toPts, useOp } from "../ui";
+import { Btn, C, Callout, DAY, fdBest, fdStart, figure, fixed, Flag, Group, GroupIcon, Heading, Icon, IconDot, MOD, type Page, Problem, Row, Screen, SearchPill, sourceLabel, TINT, toPts, useOp } from "../ui";
 import { FdReport, SecaReport } from "./reports";
 
 /** The last 30 days of a measure, reaching back to its latest reading's day when that is older
@@ -152,7 +152,7 @@ function Start({ start }: { start: (p: Page, want: string) => void }) {
     <section className="mx-auto w-full max-w-5xl">
       <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Dashboard")}</h2>
+          <Heading>{t("Dashboard")}</Heading>
           <p className="text-[13px] text-black/55 dark:text-white/55">{(isMobile ? t("Your data is stored encrypted on this device") : t("Your data is stored encrypted on this computer"))}</p>
         </div>
       </div>
@@ -258,7 +258,7 @@ export function Readings({
   const labs = !needle && (!!scans?.[0] || !!fdLatest);
   return (
     <section className="mx-auto w-full max-w-5xl">
-      <h2 className="mb-0.5 text-[28px] leading-tight font-bold tracking-tight">{t("Dashboard")}</h2>
+      <Heading space="mb-0.5">{t("Dashboard")}</Heading>
       <p className="mb-4 text-[13px] text-black/55 dark:text-white/55">{t("Updated {{when}}", { when: when(newest) })}</p>
       <SearchPill
         className="mb-5"

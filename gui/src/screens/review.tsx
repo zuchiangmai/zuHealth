@@ -3,7 +3,7 @@ import { type BatchDetail, type Grant, type MetricInfo, type OcrItem, op } from 
 import { day, resultText, unitLabel, when } from "../format";
 import { t } from "../i18n";
 import { nameOf } from "../names";
-import { Btn, card, Chevron, errText, Group, Item, MetricPicker, Problem, useOp } from "../ui";
+import { Btn, card, Chevron, errText, Group, Heading, Item, MetricPicker, Problem, useOp } from "../ui";
 import { justRead } from "./import";
 
 type OcrPick = { code?: string; new?: boolean; skip?: boolean; unit?: string };
@@ -229,7 +229,7 @@ export function Review() {
   if (err) return <Problem text={err} />;
   return (
     <section className="mx-auto w-full max-w-3xl">
-      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Waiting for you")}</h2>
+      <Heading>{t("Waiting for you")}</Heading>
       <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55">{t("Nothing here is visible in your readings until you confirm it.")}</p>
       {msg &&
         (msg.ok ? (

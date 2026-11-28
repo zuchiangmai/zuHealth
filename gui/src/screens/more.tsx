@@ -2,7 +2,7 @@ import { type ReactNode } from "react";
 import { type Batch, isMobile, op, type Status } from "../api";
 import { ago, shortDate } from "../format";
 import { t } from "../i18n";
-import { birthLabel, Callout, Choice, Group, GroupIcon, Icon, Item, LangSelect, type Look, type Page, type Personal, Row, setLook, sexLabel, type SyncShown, useLook, useOp, type WhoopStatus } from "../ui";
+import { birthLabel, Callout, Choice, Group, GroupIcon, Heading, Icon, Item, LangSelect, type Look, type Page, type Personal, Row, setLook, sexLabel, type SyncShown, useLook, useOp, type WhoopStatus } from "../ui";
 
 /** How the app looks: the platform's own (and the system's dark mode), or either look, light or dark, chosen to
  *  review it on this device. */
@@ -48,7 +48,7 @@ export function More({ go, status, syncAsking }: { go: (p: Page, want?: string) 
   );
   return (
     <section className="mx-auto w-full max-w-3xl">
-      <h2 className="mb-4 text-[28px] leading-tight font-bold tracking-tight">{t("More")}</h2>
+      <Heading space="mb-4">{t("More")}</Heading>
       {reviews > 0 && (
         <Callout icon={<Icon k="review" />} title={t("{{count}} imports are waiting for you to check.", { count: reviews })} text={t("Nothing counts until you confirm it.")} onClick={() => go("review")} />
       )}

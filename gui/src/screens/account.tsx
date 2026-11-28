@@ -3,7 +3,7 @@ import { isMobile, onSync, op, scanCode } from "../api";
 import { when } from "../format";
 import { t } from "../i18n";
 import { back as goBack, go as nav } from "../router";
-import { Btn, card, errText, Failed, Group, Icon, type Page, Problem, Row, Sheet, SwitchRow, type SyncShown, useOp } from "../ui";
+import { Btn, card, errText, Failed, Group, Heading, Icon, type Page, Problem, Row, Sheet, SwitchRow, type SyncShown, useOp } from "../ui";
 
 type AccountInfo = { id: string; registered: boolean; identity?: string; drops: number };
 
@@ -122,7 +122,7 @@ export function HealthAccount({ go, want }: { go: (p: Page) => void; want?: stri
     }
   };
   if (acc === undefined && err) return <Failed text={err} retry={() => (setErr(undefined), load())} />;
-  if (acc === undefined) return <section className="mx-auto w-full max-w-3xl" aria-busy="true"><h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Health account")}</h2></section>;
+  if (acc === undefined) return <section className="mx-auto w-full max-w-3xl" aria-busy="true"><Heading>{t("Health account")}</Heading></section>;
   if (view === "connect") return <ConnectDevice hasAccount={!!acc} join={() => setView("join")} give={() => setView("give")} />;
   // joined: on to sync, the reason most people connect a device
   // a match goes on to sync in place of this step; otherwise back to where it began, without a second copy of it
@@ -132,7 +132,7 @@ export function HealthAccount({ go, want }: { go: (p: Page) => void; want?: stri
   const entries = history?.state === "ok" ? history.entries.length : undefined;
   return (
     <section className="mx-auto w-full max-w-3xl">
-      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Health account")}</h2>
+      <Heading>{t("Health account")}</Heading>
       <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55">
         {t("Labs and service desks send results to your health account, sealed so only your devices can open them. Your account key stays on your devices, and your readings only travel between your own devices.")}
       </p>
@@ -254,7 +254,7 @@ function SyncValue({ st, live }: { st?: SyncShown; live?: SyncLive }) {
 function ConnectDevice({ hasAccount, join, give }: { hasAccount: boolean; join: () => void; give: () => void }) {
   return (
     <section className="mx-auto w-full max-w-3xl">
-      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Connect another device")}</h2>
+      <Heading>{t("Connect another device")}</Heading>
       <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55">{t("Your devices can sync data with each other on the same local network.")}</p>
       <div className={`${card} flex flex-col gap-2.5 [&_h3]:m-0`}>
         <h3 className="mb-2 text-[17px] font-semibold">{t("This is a new device")}</h3>
@@ -343,7 +343,7 @@ function LinkThis({ done }: { done: (joined: boolean) => void }) {
   };
   return (
     <section className="mx-auto w-full max-w-3xl">
-      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Show connection code")}</h2>
+      <Heading>{t("Show connection code")}</Heading>
       {st.state === "waiting" && code && (
         <div className={`${card} flex items-center gap-5`}>
           <Qr text={code} label={t("Connection code")} />
@@ -419,7 +419,7 @@ function GiveAccount({ done }: { done: () => void }) {
   };
   return (
     <section className="mx-auto w-full max-w-3xl">
-      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Enter connection code")}</h2>
+      <Heading>{t("Enter connection code")}</Heading>
       <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55">{t("Connect a new device. Once connected, data moves between them on the same network with Local network sync, or with Backup.")}</p>
       {check ? (
         <div className={`${card} flex flex-col gap-3`}>
@@ -633,7 +633,7 @@ function SyncPage() {
   const answer = (device: string, allow: boolean) => run(() => op("sync.answer", { device, allow }));
   return (
     <section className="mx-auto w-full max-w-3xl">
-      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Local network sync")}</h2>
+      <Heading>{t("Local network sync")}</Heading>
       <Problem text={failed ?? err} />
       {st?.paused && (
         <div className="mb-4 rounded-2xl bg-amber-500/15 px-4 py-3 text-[15px] flex items-center justify-between gap-4">

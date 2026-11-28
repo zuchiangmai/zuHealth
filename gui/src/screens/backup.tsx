@@ -4,7 +4,7 @@ import { op, saveExport, unstageFile } from "../api";
 import { day, fileName, GROUPS } from "../format";
 import { t } from "../i18n";
 import { go as nav } from "../router";
-import { Btn, errText, Group, GroupIcon, Icon, type Page, PasswordField, Problem, Row, SwitchRow } from "../ui";
+import { Btn, errText, Group, GroupIcon, Heading, Icon, type Page, PasswordField, Problem, Row, SwitchRow } from "../ui";
 import { ClearDataRow } from "./about";
 import { Import } from "./import";
 
@@ -26,7 +26,7 @@ export function Backup({ want, go }: { want?: string; go: (p: Page) => void }) {
   if (want === "csv") return <CsvExport />;
   return (
     <section className="mx-auto w-full max-w-3xl">
-      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Backup")}</h2>
+      <Heading>{t("Backup")}</Heading>
       <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55">{t("Save or restore a backup file to move your data to another device.")}</p>
       <Group>
         <Row icon={<Icon k="backup" />} label={titles.save} sub={t("Encrypted with a password you choose")} onClick={() => setSheet("save")} />
@@ -65,7 +65,7 @@ function CsvExport() {
   };
   return (
     <section className="[&_h3]:mt-6">
-      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Export a table (CSV)")}</h2>
+      <Heading>{t("Export a table (CSV)")}</Heading>
       <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55">{t("Export unencrypted data for use in other software.")}</p>
       <form
         className="flex flex-col gap-3"
@@ -144,7 +144,7 @@ function BackupSave() {
   };
   return (
     <section className="[&_h3]:mt-6">
-      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Save a backup")}</h2>
+      <Heading>{t("Save a backup")}</Heading>
       <form
         className="flex flex-col gap-3"
         aria-busy={busy}

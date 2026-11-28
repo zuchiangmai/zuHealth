@@ -5,7 +5,7 @@ import { DailyChart } from "../charts";
 import { asDuration, dateIn, dayMs, dayUnit, isLabGroup, num, PER_MS_UNITS, shown, when } from "../format";
 import { t, tk } from "../i18n";
 import { nameOf } from "../names";
-import { Btn, DAY, Flag, MetricPicker, sourceLabel, toPts, useOp } from "../ui";
+import { Btn, DAY, Flag, Heading, MetricPicker, sourceLabel, toPts, useOp } from "../ui";
 
 const RANGES = [
   { label: tk("30 days"), days: 30 },
@@ -41,7 +41,7 @@ export function Record({ code, pick }: { code?: string; pick: (c: string) => voi
   if (!code)
     return (
       <section className="mx-auto w-full max-w-3xl">
-        <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("History")}</h2>
+        <Heading>{t("History")}</Heading>
         <MetricPicker placeholder={t("Search measures, e.g. weight")} onPick={(m) => pick(m.code)} />
       </section>
     );
@@ -70,7 +70,7 @@ export function Record({ code, pick }: { code?: string; pick: (c: string) => voi
   };
   return (
     <section className="[&_h3]:mt-6">
-      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{info ? nameOf(info.code, info.name) : code}</h2>
+      <Heading>{info ? nameOf(info.code, info.name) : code}</Heading>
       <p className="text-[13px] text-black/55 dark:text-white/55" title={code}>
         {info && nameOf(info.code, info.name) !== info.name ? info.name : code}
       </p>

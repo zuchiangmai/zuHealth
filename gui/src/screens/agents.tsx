@@ -4,7 +4,7 @@ import { agentClients, type Audit, connectAgent, corePath, type Grant, inBackgro
 import { ago, groupLabel, GROUPS, when } from "../format";
 import { locale as i18nLocale, t, tk } from "../i18n";
 import { backBy, go as nav } from "../router";
-import { Btn, card, Copy, DAY, errText, Group, GroupIcon, Item, Problem, SwitchRow, useOp, writeText } from "../ui";
+import { Btn, card, Copy, DAY, errText, Group, GroupIcon, Heading, Item, Problem, SwitchRow, useOp, writeText } from "../ui";
 
 /** A card's title, with one button that turns every switch in it on (or, when all are on, off). */
 function CardHead({ title, on, set }: { title: string; on: boolean; set: (on: boolean) => void }) {
@@ -196,7 +196,7 @@ export function Agents({ want, path }: { want?: string; path?: string[] }) {
       <section className="mx-auto w-full max-w-3xl">
         {!client ? (
           <>
-            <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Connect an app")}</h2>
+            <Heading>{t("Connect an app")}</Heading>
             <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55">{t("Choose the AI app that should use your health data.")}</p>
             <Group aria-label={t("Agent apps")}>
               {ordered.map((c) => (
@@ -211,7 +211,7 @@ export function Agents({ want, path }: { want?: string; path?: string[] }) {
               create();
             }}
           >
-            <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{client.id === "other" ? t("What the app may use") : t("What {{name}} may use", { name: client.name })}</h2>
+            <Heading>{client.id === "other" ? t("What the app may use") : t("What {{name}} may use", { name: client.name })}</Heading>
             <p className="text-[13px] text-black/55 dark:text-white/55">{t("It sees only what you turn on here. It can never delete anything or open your backups.")}</p>
 
             <CardHead title={t("Health data")} on={everyday.every((k) => groups.includes(k))} set={(on) => setAll(everyday, on)} />
@@ -316,7 +316,7 @@ export function Agents({ want, path }: { want?: string; path?: string[] }) {
   return (
     <section className="mx-auto w-full max-w-3xl">
       <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
-        <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Agent access")}</h2>
+        <Heading>{t("Agent access")}</Heading>
         <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
           <Btn type="button" primary onClick={() => (setMade(undefined), nav("agents/connect"))}>
             {t("Connect an app…")}

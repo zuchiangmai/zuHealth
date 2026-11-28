@@ -5,7 +5,7 @@ import { t } from "../i18n";
 import { LabSelfService } from "../lab";
 import { nameOf } from "../names";
 import { back as goBack, go as nav } from "../router";
-import { Btn, card, Chevron, Copy, errText, Group, GroupIcon, Icon, type Page, PasswordField, Problem, Row, rowBg, Screen, useOp, WebLink, type WhoopStatus } from "../ui";
+import { Btn, card, Chevron, Copy, errText, Group, GroupIcon, Heading, Icon, type Page, PasswordField, Problem, Row, rowBg, Screen, useOp, WebLink, type WhoopStatus } from "../ui";
 import { pollFast } from "./account";
 import { Enter } from "./add";
 import { Import } from "./import";
@@ -68,7 +68,7 @@ export function DataSources({
   if (sheet) return <Import file={file} onFile={onFile} go={go} kind={sheet} title={titles[sheet]} />;
   return (
     <section className="mx-auto w-full max-w-3xl">
-      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Data sources")}</h2>
+      <Heading>{t("Data sources")}</Heading>
       <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55">{(isMobile ? t("Your data on this device.") : t("Your data on this computer. Drop a file anywhere on the window to import it."))}</p>
       <Group>
         <Row
@@ -190,7 +190,7 @@ function Sources({ go, path: [kind, id] }: { go: (p: Page) => void; path: string
     const name = sourceKind(kind);
     return (
       <div>
-        <h2 className="mb-4 text-[28px] leading-tight font-bold tracking-tight">{name}</h2>
+        <Heading space="mb-4">{name}</Heading>
         {status}
         {list.length ? (
           <Group aria-label={name}>
@@ -245,7 +245,7 @@ function Sources({ go, path: [kind, id] }: { go: (p: Page) => void; path: string
   }
   return (
     <div>
-      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Manage data")}</h2>
+      <Heading>{t("Manage data")}</Heading>
       {status}
       <Problem text={err} />
       {batches && !batches.length && <p className="text-black/55 dark:text-white/55">{t("No imports yet.")}</p>}
@@ -313,7 +313,7 @@ function ImportView({ b, kind, device, go, erased }: { b: Batch; kind: string; d
   };
   return (
     <div>
-      <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{b.at ? when(b.at) : name}</h2>
+      <Heading>{b.at ? when(b.at) : name}</Heading>
       {NAMED.has(kind) && device && <p className="text-[13px] text-black/55 dark:text-white/55">{device}</p>}
       <Problem text={err ?? problem} />
       {b.status === "review" ? (

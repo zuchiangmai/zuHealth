@@ -20,7 +20,7 @@ import { Record } from "./screens/metric";
 import { More } from "./screens/more";
 import { ProfilePage } from "./screens/profile";
 import { Review } from "./screens/review";
-import { Btn, Chevron, errText, GroupIcon, Icon, LangSelect, MAC, MOD, type Page, Problem, useAppearance, useOp } from "./ui";
+import { Btn, Chevron, errText, GroupIcon, Icon, LangSelect, MAC, MOD, type Page, Problem, TitleContext, useAppearance, useOp, useTitles } from "./ui";
 
 /** Narrow screens (phones): the floating tab bar's pages; the other sections are reached from More. */
 type Tab = "readings" | "add" | "more";
@@ -228,14 +228,16 @@ export function App() {
         )}
       </>
     );
-  return <Shell />;
+  return <Shell status={status} />;
 }
 
-/** The app, once its data is open. */
-function Shell() {
+/** The app, once its data is open. `status` is the gate's, kept fresh there: one request, not one each. */
+function Shell({ status }: { status?: Status }) {
   // redraw everything when the language changes; the menu bar follows
   const { i18n } = useTranslation();
   useEffect(() => setShellLanguage(i18n.language), [i18n.language]);
+  // the screen's name for the top bar, from its heading
+  const [title, titles] = useTitles();
   // the page, the view inside it, the measure or report open on the dashboard: all from the address
   const route = useRoute();
   const { page, want, metric, rest } = fromRoute(route);
@@ -253,7 +255,6 @@ function Shell() {
   }, [page]);
   const setMetric = (code: string) => nav(`metric/${encodeURIComponent(code)}`, !!metric);
   useInbox();
-  const [status] = useOp(() => op<Status>("status"), []);
   const syncLive = useSyncLive();
   const [latest, latestErr] = useOp(() => op<Point[]>("obs.latest"), []);
   const [cats, setCats] = useState(true);
@@ -477,9 +478,11 @@ function Shell() {
         {/* the top bar (Konsta's): a phone's every screen; a wide window's screens inside a section (its side panel
             leads to the sections). A screen under a tab has the way back. */}
         <TopBar
+          title={title}
           className={route.length > 1 ? "" : "wide:hidden"}
           back={route.length > 1 || !isTab ? () => goBack(parentOf(route, pathOf(tab.current))) : undefined}
         />
+        <TitleContext.Provider value={titles}>
         <div key={`${page}-${i18n.language}`}>
           {metric && <Record key={metric} code={metric} pick={setMetric} />}
           {page === "readings" && !metric && (
@@ -523,6 +526,7 @@ function Shell() {
             />
           )}
         </div>
+        </TitleContext.Provider>
       </main>
       {/* iOS 26's tab bar sits 13 pt into the home indicator's area (21 pt from the edge on a Face ID iPhone; Files,
           2026-11-27), not 16 pt above it as Konsta's default (pb-safe-4); Material's already sits on the edge */}
@@ -573,23 +577,11 @@ function Totals({ status }: { status?: Status }) {
 
 /** The top bar, Konsta's as each platform has it: over the screen's large heading only the way back; scrolled, the
  *  content under it blurs and fades (iOS) or the bar takes its surface (Material), and the screen's name shows in it.
- *  The name is the screen's own heading (its first h2), so no screen has to say it twice. */
-function TopBar({ back, className = "" }: { back?: () => void; className?: string }) {
+ *  The name is the screen's own heading (the first `Heading` on it), so no screen has to say it twice. */
+function TopBar({ title, back, className = "" }: { title: string; back?: () => void; className?: string }) {
   const { theme } = useAppearance();
-  const [title, setTitle] = useState("");
-  const ref = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    const main = ref.current?.parentElement;
-    if (!main) return;
-    const read = () => setTitle(main.querySelector("h2")?.textContent ?? "");
-    read();
-    const watch = new MutationObserver(read);
-    watch.observe(main, { childList: true, subtree: true, characterData: true });
-    return () => watch.disconnect();
-  }, []);
   return (
     <Navbar
-      ref={ref}
       transparent
       title={title}
       className={`-mx-4 w-[calc(100%+2rem)]! wide:-mx-9 wide:-mt-6 wide:w-[calc(100%+4.5rem)]! ${className}`}

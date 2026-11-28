@@ -3,7 +3,7 @@ import { chooseImportFile, FILE_TYPES, installOcr, isDesktop, isMobile, ocrCompo
 import { fileName, type ImportKind, importKind, KIND_LABEL } from "../format";
 import { t, tk } from "../i18n";
 import { isTouch } from "../pickers";
-import { Btn, errText, Group, Icon, IconDot, Item, type Page, PasswordField, Problem, WebLink } from "../ui";
+import { Btn, errText, Group, Heading, Icon, IconDot, Item, type Page, PasswordField, Problem, WebLink } from "../ui";
 
 const WEB_VERSION = "https://zuchiangmai.com/health";
 
@@ -246,7 +246,7 @@ export function Import({
   }, [file]);
   return (
     <section className="[&_h3]:mt-6">
-      {part ? <h3 className="mt-6 mb-1.5 text-[17px] font-semibold">{title}</h3> : <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{title ?? t("Import a file")}</h2>}
+      {part ? <h3 className="mt-6 mb-1.5 text-[17px] font-semibold">{title}</h3> : <Heading>{title ?? t("Import a file")}</Heading>}
       <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55">{t(IMPORT_LEDE[hint] ?? IMPORT_LEDE.file!)}</p>
       {hint === "restore" && (
         <p className="text-[13px] text-black/55 dark:text-white/55">

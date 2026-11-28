@@ -1,7 +1,7 @@
 // The UI's building blocks on Konsta UI (owner, 2026-11-27: Konsta only, no custom CSS for now): the look chosen,
 // buttons, grouped lists and cards, so every screen draws them the same way.
 import { Button, Navbar, NavbarBackLink, Page as KPage, Popup, Toggle } from "konsta/react";
-import { type ComponentProps, type ReactNode, useCallback, useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
+import { type ComponentProps, createContext, type ReactNode, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { type Day, type FdSession, inBackground, inBackgroundNow, isAndroid, type Measurement, type Metric, onChange, op, openLink, OpError, type Point, type Source } from "./api";
 import { type Pt } from "./charts";
@@ -398,7 +398,7 @@ export function Choice<K extends string>({
       )}
       {open && (
         <Sheet label={label} close={() => setOpen(false)}>
-          <h2 className="mb-4 text-[28px] leading-tight font-bold tracking-tight">{label}</h2>
+          <Heading space="mb-4">{label}</Heading>
           <Group role="radiogroup" aria-label={label}>
             {options.map((o) => (
               <Item
@@ -467,11 +467,46 @@ export function WebLink({ url, label }: { url: string; label?: string }) {
   );
 }
 
+/** Where a screen's heading tells the top bar its name: the headings on the page, in the order they appeared (the
+ *  first is the name). Null inside a sheet, whose headings aren't the page's. */
+export type Titles = { set: (key: object, text: string | null) => void };
+export const TitleContext = createContext<Titles | null>(null);
+
+/** The page's titles, for the shell: the first heading's text, and the context its headings report to. */
+export function useTitles(): [string, Titles] {
+  const [title, setTitle] = useState("");
+  const titles = useMemo(() => {
+    const all = new Map<object, string>();
+    return {
+      set: (key: object, text: string | null) => {
+        if (text === null) all.delete(key);
+        else all.set(key, text);
+        setTitle(all.values().next().value ?? "");
+      },
+    };
+  }, []);
+  return [title, titles];
+}
+
+/** A screen's large heading (`space`: the margin under it). Its text is the screen's name in the top bar. */
+export function Heading({ space = "mb-1", children }: { space?: string; children: ReactNode }) {
+  const titles = useContext(TitleContext);
+  const el = useRef<HTMLHeadingElement>(null);
+  const key = useRef({}).current;
+  useLayoutEffect(() => titles?.set(key, el.current?.textContent ?? ""));
+  useLayoutEffect(() => () => titles?.set(key, null), [titles, key]);
+  return (
+    <h2 ref={el} className={`${space} text-[28px] leading-tight font-bold tracking-tight`}>
+      {children}
+    </h2>
+  );
+}
+
 /** A screen's heading, and the screen under it. */
 export function Screen({ title, children }: { title: ReactNode; children: ReactNode }) {
   return (
     <section className="mx-auto w-full max-w-3xl">
-      <h2 className="mb-4 text-[28px] leading-tight font-bold tracking-tight">{title}</h2>
+      <Heading space="mb-4">{title}</Heading>
       {children}
     </section>
   );
@@ -500,7 +535,9 @@ export function Sheet({ label, close: done, children }: { label: string; close: 
   const body = (
     <KPage>
       <Navbar transparent title={label} left={<NavbarBackLink text={t("Back")} showText={theme === "ios"} onClick={close} />} />
-      <div className="px-4 pt-2 pb-[calc(var(--k-safe-area-bottom)+32px)] md:px-6">{children}</div>
+      <div className="px-4 pt-2 pb-[calc(var(--k-safe-area-bottom)+32px)] md:px-6">
+        <TitleContext.Provider value={null}>{children}</TitleContext.Provider>
+      </div>
     </KPage>
   );
   // a wide window: a large window over the page; a phone: a page of its own, pushed in from the side
