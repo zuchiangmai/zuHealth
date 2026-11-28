@@ -809,5 +809,7 @@
  "OK": "好",
  "Can't open this link": "無法打開這個鏈接",
  "PhysiMind opens the codes on lab devices. This address isn't one.": "PhysiMind 能打開的是檢測室設備上的碼，這個地址不是。",
- "Open the lab device {{device}}?": "打開檢測室設備 {{device}}？"
+ "Open the lab device {{device}}?": "打開檢測室設備 {{device}}？",
+ "Apple Health and Health Connect": "Apple 健康和 Health Connect",
+ "Data from your phone's health app, such as steps, heart rate and sleep, and results worked out from it. Turn on only if you want this app to have it.": "手機健康 App 裡的數據（例如步數、心率、睡眠），以及由這些數據算出的結果。只有想讓這個應用拿到這些數據時纔打開。"
 }

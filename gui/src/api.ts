@@ -229,6 +229,9 @@ export interface Grant {
   detail: boolean;
   window: "all" | { last_days: number } | { range: { from_ms: number; to_ms: number } };
   reports: boolean;
+  profile?: boolean;
+  /** Data from Apple Health and Health Connect */
+  system_health?: boolean;
   write: "none" | "propose" | "derived";
   expires_ms: number;
   created_ms: number;

@@ -298,6 +298,9 @@ enum GrantCmd {
         /// Allow age (whole years) and sex from your profile (never the birth month)
         #[arg(long)]
         age_sex: bool,
+        /// Include data from Apple Health and Health Connect (off unless chosen)
+        #[arg(long)]
+        system_health: bool,
     },
     List,
     Revoke {
@@ -540,10 +543,10 @@ fn request(cmd: &Cmd, now: i64) -> Result<(String, Value)> {
         | Cmd::OcrWorker => {
             unreachable!("handled before")
         }
-        Cmd::Grant(GrantCmd::Create { name, groups, detail, reports, days, write, expires_days, age_sex }) => (
+        Cmd::Grant(GrantCmd::Create { name, groups, detail, reports, days, write, expires_days, age_sex, system_health }) => (
             "grant.create".into(),
             json!({
-                "name": name, "groups": groups, "detail": detail, "reports": reports, "profile": age_sex,
+                "name": name, "groups": groups, "detail": detail, "reports": reports, "profile": age_sex, "system_health": system_health,
                 "window": days.map_or(json!("all"), |d| json!({ "last_days": d })),
                 "write": write,
                 "expires_ms": expires_days.checked_mul(86_400_000).and_then(|d| now.checked_add(d)).ok_or_else(|| usage("bad_expiry", "too far ahead"))?,

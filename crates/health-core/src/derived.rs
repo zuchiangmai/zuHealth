@@ -114,17 +114,24 @@ pub fn write_derived(c: &Db, scope: &Scope, writer: &str, d: &Derive, now_ms: i6
             }
         }
         let mut uids: Vec<String> = Vec::new();
+        let mut from_system = false;
         for i in &d.inputs {
             if !scope.allows(&i.metric) {
                 return Err(Error::new(crate::Kind::Denied, "out_of_scope", format!("{} is not in this grant", i.metric)));
             }
-            let mut st = c.prepare(
-                "SELECT DISTINCT im.uid FROM v_observation o JOIN import im ON im.id = o.import_id
-                  WHERE o.metric_id = (SELECT id FROM metric WHERE code = ?) AND o.start_ms BETWEEN ? AND ? LIMIT 1000",
-            )?;
+            // only the data this grant may read; whether any of it is the system's health data
+            let mut st = c.prepare(&format!(
+                "SELECT DISTINCT im.uid, o.source_id IN ({}) FROM v_observation o JOIN import im ON im.id = o.import_id
+                  WHERE o.metric_id = (SELECT id FROM metric WHERE code = ?1) AND o.start_ms BETWEEN ?2 AND ?3
+                    AND (?4 IS NULL OR o.source_id NOT IN (SELECT value FROM json_each(?4))) LIMIT 1000",
+                crate::scope::SYSTEM_SOURCES
+            ))?;
             let (a, b) = (i.from_ms.max(scope.from_ms), i.to_ms.min(scope.to_ms));
-            for u in st.query_map(rusqlite::params![i.metric, a, b], |r| r.get::<_, String>(0))? {
-                let u = u?;
+            for r in st.query_map(rusqlite::params![i.metric, a, b, scope.hidden_sources(c)?], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, bool>(1)?))
+            })? {
+                let (u, system) = r?;
+                from_system |= system;
                 if !uids.contains(&u) {
                     uids.push(u);
                 }
@@ -159,6 +166,14 @@ pub fn write_derived(c: &Db, scope: &Scope, writer: &str, d: &Derive, now_ms: i6
             "UPDATE import SET meta = ? WHERE id = ?",
             rusqlite::params![json!({ "inputs": uids, "by": writer }).to_string(), import_id],
         )?;
+        // results derived from Apple Health or Health Connect count as that data: hidden from grants without it
+        if from_system {
+            c.execute(
+                "UPDATE source SET meta = json_set(CASE WHEN json_valid(meta) THEN meta ELSE '{}' END, '$.system_health', json('true'))
+                  WHERE id = (SELECT source_id FROM import WHERE id = ?)",
+                [import_id],
+            )?;
+        }
         let rows: Vec<ObsRow> = d.rows.iter().map(|r| ObsRow { metric: code.clone(), ..r.clone() }).collect();
         let res = write(c, import_id, &rows)?;
         if !res.rejected.is_empty() {

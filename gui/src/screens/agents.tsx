@@ -140,6 +140,7 @@ export function Agents({ want, path }: { want?: string; path?: string[] }) {
   const [write, setWrite] = useState<Grant["write"]>("none");
   const [reports, setReports] = useState(false);
   const [profile, setProfile] = useState(false);
+  const [systemHealth, setSystemHealth] = useState(false);
   const [made, setMade] = useState<{ client: Client; token: string }>();
   const [msg, setMsg] = useState<string>();
   const [bin, setBin] = useState("health");
@@ -158,6 +159,7 @@ export function Agents({ want, path }: { want?: string; path?: string[] }) {
     setWrite("none");
     setReports(false);
     setProfile(false);
+    setSystemHealth(false);
     setMsg(undefined);
     setMade(undefined);
     nav(`agents/connect/${c.id}`);
@@ -173,6 +175,7 @@ export function Agents({ want, path }: { want?: string; path?: string[] }) {
         detail,
         reports,
         profile,
+        system_health: systemHealth,
         window: days ? { last_days: days } : "all",
         write,
         expires_ms: Date.now() + expiry * DAY,
@@ -234,6 +237,16 @@ export function Agents({ want, path }: { want?: string; path?: string[] }) {
               <SwitchRow label={t("Individual entries")} sub={t("Otherwise one summary per day")} on={detail} set={setDetail} />
               <SwitchRow label={t("Full lab report text")} sub={t("Every item on the report, including categories that are off")} on={reports} set={setReports} />
               <SwitchRow label={t("Age and sex")} sub={t("From your profile; never your birth month")} on={profile} set={setProfile} />
+            </Group>
+
+            {/* chosen on its own, never by a "turn all on": Apple's and Google's rules for this data ask for that */}
+            <Group>
+              <SwitchRow
+                label={t("Apple Health and Health Connect")}
+                sub={t("Data from your phone's health app, such as steps, heart rate and sleep, and results worked out from it. Turn on only if you want this app to have it.")}
+                on={systemHealth}
+                set={setSystemHealth}
+              />
             </Group>
 
             <h4 className="mt-6 mb-2 px-4 text-[13px] font-semibold text-black/55 dark:text-white/55">{t("What it may do")}</h4>

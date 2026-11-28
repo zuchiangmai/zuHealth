@@ -344,9 +344,14 @@ fn source_list(ctx: &mut Ctx, _: Empty) -> Result<Vec<Source>> {
             .collect::<std::result::Result<_, _>>()?,
         None => all.iter().map(|s| s.id).collect(),
     };
+    // nor sources this grant may not read (Apple Health, Health Connect, unless chosen)
+    let hidden: Vec<i64> = match ctx.scope().hidden_sources(ctx.db())? {
+        Some(json) => serde_json::from_str(&json)?,
+        None => vec![],
+    };
     Ok(all
         .into_iter()
-        .filter(|s| ids.contains(&s.id))
+        .filter(|s| ids.contains(&s.id) && !hidden.contains(&s.id))
         .map(|s| Source { name: s.connector.clone(), external_id: String::new(), ..s })
         .collect())
 }

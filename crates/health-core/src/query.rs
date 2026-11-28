@@ -172,8 +172,9 @@ pub fn metric_show(c: &Db, scope: &Scope, code: &str) -> Result<MetricInfo> {
     let units = if numeric { crate::units::allowed_units(&metric.code, &metric.unit) } else { vec![] };
     let points = if scope.allows(code) {
         c.query_row(
-            "SELECT count(*) FROM v_observation WHERE metric_id = (SELECT id FROM metric WHERE code = ?) AND start_ms BETWEEN ? AND ?",
-            rusqlite::params![code, scope.from_ms, scope.to_ms],
+            "SELECT count(*) FROM v_observation WHERE metric_id = (SELECT id FROM metric WHERE code = ?1) AND start_ms BETWEEN ?2 AND ?3
+               AND (?4 IS NULL OR source_id NOT IN (SELECT value FROM json_each(?4)))",
+            rusqlite::params![code, scope.from_ms, scope.to_ms, scope.hidden_sources(c)?],
             |r| r.get(0),
         )?
     } else {
@@ -263,9 +264,10 @@ pub fn obs_query_ordered(
     let mut st = c.prepare(&format!(
         "SELECT {POINT_COLS} FROM v_observation o JOIN metric m ON m.id = o.metric_id
           WHERE o.metric_id = ?1 AND o.start_ms >= ?2 AND o.start_ms < ?3 AND (?4 IS NULL OR o.source_id = ?4)
+            AND (?6 IS NULL OR o.source_id NOT IN (SELECT value FROM json_each(?6)))
           ORDER BY o.start_ms {order}, o.source_id LIMIT ?5"
     ))?;
-    let rows = st.query_map(rusqlite::params![id, from, to, source, limit], point)?;
+    let rows = st.query_map(rusqlite::params![id, from, to, source, limit, scope.hidden_sources(c)?], point)?;
     Ok(rows.map(|p| p.map(|p| safe(scope, p))).collect::<Result<_, _>>()?)
 }
 
@@ -289,13 +291,15 @@ pub fn latest(c: &Db, scope: &Scope, code: Option<&str>) -> Result<Vec<Point>> {
         "SELECT {POINT_COLS} FROM v_observation o JOIN metric m ON m.id = o.metric_id
           JOIN (SELECT metric_id, max(start_ms) AS t FROM v_observation
                  WHERE (?1 IS NULL OR metric_id = ?1) AND (?2 IS NULL OR metric_id IN (SELECT value FROM json_each(?2)))
-                   AND start_ms BETWEEN ?3 AND ?4
+                   AND start_ms BETWEEN ?3 AND ?4 AND (?5 IS NULL OR source_id NOT IN (SELECT value FROM json_each(?5)))
                  GROUP BY metric_id) l
             ON l.metric_id = o.metric_id AND l.t = o.start_ms
+         WHERE ?5 IS NULL OR o.source_id NOT IN (SELECT value FROM json_each(?5))
           ORDER BY m.code, o.source_id"
     ))?;
-    let rows: Vec<Point> =
-        st.query_map(rusqlite::params![filter, scope.ids(c)?, scope.from_ms, scope.to_ms], point)?.collect::<Result<_, _>>()?;
+    let rows: Vec<Point> = st
+        .query_map(rusqlite::params![filter, scope.ids(c)?, scope.from_ms, scope.to_ms, scope.hidden_sources(c)?], point)?
+        .collect::<Result<_, _>>()?;
     // One per metric: the first source in (priority, id) order.
     let pri: std::collections::HashMap<i64, i64> =
         c.prepare("SELECT id, priority FROM source")?.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<Result<_, _>>()?;
@@ -322,11 +326,21 @@ pub fn daily(c: &Db, scope: &Scope, code: &str, from: Option<&str>, to: Option<&
     let (lo, hi) = scope.days();
     let from = from.unwrap_or("").max(lo.as_str());
     let to = to.unwrap_or("9999").min(hi.as_str());
-    let mut st = c.prepare(
+    // A scope that may not read some sources elects among the others, as v_daily does among all (priority, then id):
+    // electing first and then hiding would drop whole days where a hidden source won.
+    let hidden = scope.hidden_sources(c)?;
+    let mut st = c.prepare(if hidden.is_none() {
         "SELECT day, source_id, n, sum, min, max, seconds FROM v_daily
-          WHERE metric_id = ? AND day >= ? AND day <= ? ORDER BY day",
-    )?;
-    let rows = st.query_map(rusqlite::params![id, from, to], |r| {
+          WHERE metric_id = ?1 AND day >= ?2 AND day <= ?3 AND ?4 IS NULL ORDER BY day"
+    } else {
+        "SELECT day, source_id, n, sum, min, max, seconds
+           FROM (SELECT d.*, row_number() OVER (PARTITION BY d.day ORDER BY s.priority, d.source_id) AS rk
+                   FROM daily d JOIN source s ON s.id = d.source_id
+                  WHERE d.metric_id = ?1 AND d.day >= ?2 AND d.day <= ?3
+                    AND d.source_id NOT IN (SELECT value FROM json_each(?4)))
+          WHERE rk = 1 ORDER BY day"
+    })?;
+    let rows = st.query_map(rusqlite::params![id, from, to, hidden], |r| {
         let (n, sum, seconds): (i64, Option<f64>, Option<i64>) = (r.get(2)?, r.get(3)?, r.get(6)?);
         let mean = match agg.as_str() {
             "instant" if n > 0 => sum.map(|s| s / n as f64),
@@ -418,12 +432,18 @@ pub struct Withheld {
     pub metrics: i64,
     /// Granted metrics have data before the window
     pub earlier_data: bool,
+    /// Data from Apple Health or Health Connect, not in this grant
+    #[serde(default)]
+    pub system_health: bool,
 }
 
 pub fn withheld(c: &Db, scope: &Scope) -> Result<Withheld> {
     let mut st = c.prepare("SELECT id, code FROM metric WHERE EXISTS (SELECT 1 FROM v_observation o WHERE o.metric_id = metric.id)")?;
     let with_data: Vec<(i64, String)> = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<Result<_, _>>()?;
-    let mut w = Withheld { metrics: 0, earlier_data: false };
+    let system_health = !scope.system_health
+        && one::<i64>(c, &format!("SELECT 1 FROM v_observation WHERE source_id IN ({}) LIMIT 1", crate::scope::SYSTEM_SOURCES), [])?
+            .is_some();
+    let mut w = Withheld { metrics: 0, earlier_data: false, system_health };
     for (id, code) in with_data {
         if !scope.allows(&code) {
             w.metrics += 1;
@@ -464,5 +484,87 @@ mod tests {
         assert!(codes(&Scope::of(&spec, 0), "hcv load").is_empty());
         // the catalog by its own name stays public
         assert!(codes(&Scope::of(&spec, 0), "Hepatitis C virus RNA").contains(&"loinc:11011-4".to_string()));
+    }
+
+    /// Apple Health and Health Connect data stay out of a grant unless it chose them: points, the newest point, the
+    /// daily election (another source fills the day, not a gap), what is reported withheld; results an agent derived
+    /// from them are hidden the same way.
+    #[test]
+    fn system_health_data_only_for_grants_that_chose_it() {
+        use crate::value::Value;
+        use crate::write::{Begin, ObsRow, SourceSpec, begin, finish, write};
+        let dir = tempfile::tempdir().unwrap();
+        let p = Profile::init(dir.path(), "a", &MemoryStore::default()).unwrap();
+        let t = 1_790_000_000_000;
+        // the Apple source first: it wins the daily election on equal priority
+        for (connector, v, at) in [("apple_health", 70, t + 60_000), ("whoop", 60, t)] {
+            let src = SourceSpec::new(connector, "x");
+            let (id, _) = begin(&p.db, Begin { source: &src, parser: "test", blob: None, uid: None, candidates: None }, t).unwrap();
+            let row = ObsRow {
+                metric: "loinc:8867-4".into(),
+                start_ms: at,
+                end_ms: None,
+                tz_min: 0,
+                value: Value::Int(v),
+                unit: None,
+                detail: None,
+            };
+            write(&p.db, id, &[row]).unwrap();
+            finish(&p.db, id, t).unwrap();
+        }
+        let spec = |system_health: bool| -> GrantSpec {
+            serde_json::from_value(serde_json::json!({
+                "name": "t", "groups": ["cardio"], "detail": true, "window": "all", "reports": false, "write": "none",
+                "expires_ms": i64::MAX, "system_health": system_health
+            }))
+            .unwrap()
+        };
+        let (closed, open) = (Scope::of(&spec(false), t), Scope::of(&spec(true), t));
+        let values = |s: &Scope| -> Vec<Value> {
+            obs_query(&p.db, s, "loinc:8867-4", None, None, None, 10).unwrap().into_iter().map(|p| p.value).collect()
+        };
+        assert_eq!(values(&closed), [Value::Int(60)]);
+        assert_eq!(values(&open).len(), 2);
+        assert_eq!(latest(&p.db, &closed, None).unwrap()[0].value, Value::Int(60), "the newest the grant may read");
+        assert_eq!(latest(&p.db, &open, None).unwrap()[0].value, Value::Int(70));
+        let day = |s: &Scope| daily(&p.db, s, "loinc:8867-4", None, None).unwrap();
+        let apple: i64 = p.db.query_row("SELECT id FROM source WHERE connector = 'apple_health'", [], |r| r.get(0)).unwrap();
+        assert_eq!(day(&open)[0].source_id, apple, "Apple wins the day for the owner and an open grant");
+        assert_ne!(day(&closed)[0].source_id, apple, "a closed grant sees the next source's day, not a gap");
+        assert_eq!(day(&closed).len(), 1);
+        assert!(withheld(&p.db, &closed).unwrap().system_health);
+        assert!(!withheld(&p.db, &open).unwrap().system_health);
+        // a derived source marked as built from system data is hidden too
+        let whoop: i64 = p.db.query_row("SELECT id FROM source WHERE connector = 'whoop'", [], |r| r.get(0)).unwrap();
+        p.db.execute("UPDATE source SET meta = '{\"system_health\":true}' WHERE id = ?", [whoop]).unwrap();
+        assert!(values(&closed).is_empty());
+        assert!(Scope::all().hidden_sources(&p.db).unwrap().is_none(), "the owner reads everything");
+        p.db.execute("UPDATE source SET meta = NULL WHERE id = ?", [whoop]).unwrap();
+
+        // an open grant derives from Apple data: its result is hidden from a closed grant; derived from WHOOP alone, not
+        let derive = |s: &Scope, algo: &str| {
+            let d: crate::derived::Derive = serde_json::from_value(serde_json::json!({
+                "algo": algo, "version": "1", "metric": { "name": "hr", "unit": "/min", "agg": "instant" },
+                "inputs": [{ "metric": "loinc:8867-4", "from_ms": t - 1, "to_ms": t + 120_000 }],
+                "rows": [{ "metric": "x", "start_ms": t, "tz_min": 0, "value": 65 }]
+            }))
+            .unwrap();
+            crate::derived::write_derived(&p.db, s, "g1", &d, t).unwrap();
+        };
+        let all_groups = |system_health: bool| -> Scope {
+            Scope::of(
+                &serde_json::from_value(serde_json::json!({
+                    "name": "t", "groups": ["cardio", "derived"], "detail": true, "window": "all", "reports": false,
+                    "write": "derived", "expires_ms": i64::MAX, "system_health": system_health
+                }))
+                .unwrap(),
+                t,
+            )
+        };
+        derive(&all_groups(true), "from-apple");
+        derive(&all_groups(false), "from-whoop");
+        let seen = |code: &str| obs_query(&p.db, &all_groups(false), code, None, None, None, 10).unwrap().len();
+        assert_eq!(seen("x:derived/from-apple/hr"), 0, "derived from Apple data: hidden");
+        assert_eq!(seen("x:derived/from-whoop/hr"), 1, "derived from WHOOP only: visible");
     }
 }

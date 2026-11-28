@@ -64,6 +64,10 @@ pub struct GrantSpec {
     /// its own, off unless chosen)
     #[serde(default)]
     pub profile: bool,
+    /// Data from Apple Health and Health Connect (and results derived from it): off unless chosen, as Apple's and
+    /// Google's rules for that data ask (owner, 2026-11-28)
+    #[serde(default)]
+    pub system_health: bool,
 }
 
 #[derive(Debug, Clone, Serialize, schemars::JsonSchema)]

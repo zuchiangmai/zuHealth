@@ -11,11 +11,18 @@ pub struct Scope {
     groups: Option<Vec<String>>,
     pub from_ms: i64,
     pub to_ms: i64,
+    /// Sources holding the system's health data may be read (`GrantSpec::system_health`)
+    pub system_health: bool,
 }
+
+/// Sources of the system's health data: Apple Health (its export or HealthKit: one source, so the two merge) and
+/// Health Connect, and results an agent derived from them (marked when written, `derived.rs`).
+pub const SYSTEM_SOURCES: &str = "SELECT id FROM source WHERE connector IN ('apple_health', 'health_connect')
+     OR (json_valid(meta) AND json_extract(meta, '$.system_health') IS 1)";
 
 impl Scope {
     pub fn all() -> Scope {
-        Scope { groups: None, from_ms: i64::MIN, to_ms: i64::MAX }
+        Scope { groups: None, from_ms: i64::MIN, to_ms: i64::MAX, system_health: true }
     }
 
     pub fn of(g: &GrantSpec, now_ms: i64) -> Scope {
@@ -24,11 +31,20 @@ impl Scope {
             Window::LastDays(n) => (now_ms - n.max(0) * 86_400_000, i64::MAX),
             Window::Range { from_ms, to_ms } => (from_ms, to_ms),
         };
-        Scope { groups: Some(g.groups.clone()), from_ms, to_ms }
+        Scope { groups: Some(g.groups.clone()), from_ms, to_ms, system_health: g.system_health }
     }
 
     pub fn is_all(&self) -> bool {
-        self.groups.is_none() && self.from_ms == i64::MIN && self.to_ms == i64::MAX
+        self.groups.is_none() && self.from_ms == i64::MIN && self.to_ms == i64::MAX && self.system_health
+    }
+
+    /// JSON array of the source ids this scope may not read, for `json_each`, or None when it may read them all.
+    pub fn hidden_sources(&self, c: &Db) -> Result<Option<String>> {
+        if self.system_health {
+            return Ok(None);
+        }
+        let ids: Vec<i64> = c.prepare(SYSTEM_SOURCES)?.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+        Ok(Some(serde_json::to_string(&ids)?))
     }
 
     pub fn allows(&self, code: &str) -> bool {
