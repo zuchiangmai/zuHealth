@@ -151,6 +151,7 @@ pub fn start(host: Arc<dyn Host>, offline: bool) -> Lan {
 /// Long-polls every current rid (§5.1): one request at a time, 30 s each (5 s while two days overlap).
 fn poll(host: &dyn Host, rids: &Mutex<Vec<String>>, tx: &Sender<Cmd>) {
     let mut after: HashMap<String, i64> = HashMap::new();
+    let mut fails: u64 = 1;
     loop {
         let now: Vec<String> = rids.lock().unwrap().clone();
         if now.is_empty() {
@@ -172,14 +173,30 @@ fn poll(host: &dyn Host, rids: &Mutex<Vec<String>>, tx: &Sender<Cmd>) {
                         }
                     }
                 }
-                Err(_) => std::thread::sleep(Duration::from_secs(10)),
+                // the service unreachable: wait longer each time (10 s, doubling to 5 minutes), not every 10 s forever
+                Err(_) => {
+                    std::thread::sleep(Duration::from_secs(fails.min(30) * 10));
+                    fails = (fails * 2).min(30);
+                    continue;
+                }
             }
+            fails = 1;
         }
+    }
+}
+
+/// Posts signals from a thread of its own: a post can take up to a minute when the internet is down while the LAN is
+/// up, and the loop that posted them also drives every live connection.
+fn sender(host: Arc<dyn Host>, rx: Receiver<(String, String)>) {
+    for (path, body) in rx {
+        let _ = host.post(&path, &body);
     }
 }
 
 struct Main {
     host: Arc<dyn Host>,
+    /// signals to post (`sender`)
+    outbox: Sender<(String, String)>,
     rids: Arc<Mutex<Vec<String>>>,
     live: Arc<Mutex<Live>>,
     inbox: Inbox,
@@ -197,7 +214,13 @@ struct Main {
 
 impl Main {
     fn new(host: Arc<dyn Host>, rids: Arc<Mutex<Vec<String>>>, live: Arc<Mutex<Live>>) -> Main {
+        let (outbox, posts) = channel();
+        {
+            let host = host.clone();
+            std::thread::spawn(move || sender(host, posts));
+        }
         Main {
+            outbox,
             host,
             rids,
             live,
@@ -299,7 +322,8 @@ impl Main {
         let s = Signal { v: 1, t: now, id: id.clone(), from: self.me.clone(), body };
         let ct = day.seal(&serde_json::to_vec(&s).ok()?, health_core::aead::random::<12>());
         let body = json!({ "ct": ct }).to_string();
-        self.host.post(&format!("/h/1/lan/{}", day.rid), &body).ok().map(|_| id)
+        // sent on: a signal that doesn't arrive is retried by the protocol (the next hello; an offer times out)
+        self.outbox.send((format!("/h/1/lan/{}", day.rid), body)).ok().map(|_| id)
     }
 
     fn item(&mut self, days: &[Day], ct: &str, now: i64) {

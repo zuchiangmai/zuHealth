@@ -59,12 +59,12 @@ fn measurements(c: &Db, like: &str, whole: bool, split: &dyn Fn(&str) -> String)
            FROM v_observation o JOIN metric m ON m.id = o.metric_id JOIN source s ON s.id = o.source_id
           WHERE s.connector = 'lab'
             AND (o.source_id, o.start_ms) IN (SELECT o2.source_id, o2.start_ms FROM v_observation o2
-                                               JOIN metric m2 ON m2.id = o2.metric_id WHERE m2.code LIKE ?1)
+                                               WHERE o2.metric_id IN (SELECT id FROM metric WHERE code LIKE ?1))
           ORDER BY o.start_ms DESC, o.source_id"
     } else {
         "SELECT o.source_id, o.start_ms, o.tz_min, s.external_id, m.code, o.value
            FROM v_observation o JOIN metric m ON m.id = o.metric_id JOIN source s ON s.id = o.source_id
-          WHERE s.connector = 'lab' AND m.code LIKE ?1
+          WHERE s.connector = 'lab' AND o.metric_id IN (SELECT id FROM metric WHERE code LIKE ?1)
           ORDER BY o.start_ms DESC, o.source_id"
     };
     let mut st = c.prepare(sql)?;

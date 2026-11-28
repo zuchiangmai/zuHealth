@@ -32,6 +32,15 @@ fn value_ok(agg: &str) -> String {
     )
 }
 
+/// A correction's value that correction::put would take for the local measure `lm` (R15): none (it hides the row),
+/// text on a text measure, a number on a numeric one. A crafted one (9e18, twice: a daily sum overflows and every
+/// merge with that peer fails; text on a numeric measure) is skipped and counted.
+const CORRECTION_OK: &str = "(c.value IS NULL
+     OR (lm.agg = 'none' AND typeof(c.value) = 'text')
+     OR (lm.agg NOT IN ('none', 'interval') AND ((typeof(c.value) = 'integer' AND c.value BETWEEN -9007199254740991 AND 9007199254740991)
+         OR (typeof(c.value) = 'real' AND c.value BETWEEN -1.7976931348623157e308 AND 1.7976931348623157e308
+             AND NOT (c.value = round(c.value) AND abs(c.value) > 9007199254740991)))))";
+
 /// Both, a NULL counting as false
 fn row_ok(agg: &str) -> String {
     format!("(coalesce({ROW_SHAPE}, 0) AND coalesce({}, 0))", value_ok(agg))
@@ -61,7 +70,7 @@ pub struct MergeReport {
     /// Reviews here that the other side had confirmed, now done (R2; the web's confirmedReviews)
     pub confirmed_reviews: u64,
     /// Rows skipped for a time, offset or value the writers would refuse (R13, R14), and corrections skipped for a
-    /// time outside 0..=MAX_TIME_MS
+    /// time outside 0..=MAX_TIME_MS or a value correction::put would refuse (R15)
     pub refused_rows: u64,
 }
 
@@ -710,7 +719,9 @@ fn merge_attached(c: &Db, now_ms: i64) -> Result<MergeReport> {
             "SELECT (SELECT count(*) FROM plain.observation o JOIN merge_import mi ON mi.p = o.import_id
                        LEFT JOIN merge_metric mm ON mm.p = o.metric_id LEFT JOIN metric lm ON lm.id = mm.l
                       WHERE NOT coalesce({ROW_SHAPE}, 0) OR (lm.agg IS NOT NULL AND NOT coalesce({}, 0)))
-                  + (SELECT count(*) FROM plain.correction WHERE start_ms NOT BETWEEN 0 AND ?1)",
+                  + (SELECT count(*) FROM plain.correction WHERE start_ms NOT BETWEEN 0 AND ?1)
+                  + (SELECT count(*) FROM plain.correction c JOIN merge_metric mm ON mm.p = c.metric_id
+                       JOIN metric lm ON lm.id = mm.l WHERE c.start_ms BETWEEN 0 AND ?1 AND NOT coalesce({CORRECTION_OK}, 0))",
             value_ok("lm.agg")
         ),
         [crate::write::MAX_TIME_MS],
@@ -783,7 +794,8 @@ fn merge_attached(c: &Db, now_ms: i64) -> Result<MergeReport> {
                FROM plain.correction c
                JOIN merge_metric mm ON mm.p = c.metric_id
                JOIN merge_source ms ON ms.p = c.source_id
-              WHERE c.at <= ?1 AND c.start_ms BETWEEN 0 AND 253402041600000
+               JOIN metric lm ON lm.id = mm.l
+              WHERE c.at <= ?1 AND c.start_ms BETWEEN 0 AND 253402041600000 AND {CORRECTION_OK}
              ON CONFLICT (metric_id, source_id, start_ms) DO UPDATE SET at = excluded.at, value = excluded.value WHERE {CORRECTION_WINS}"
         ),
         [max_at],
@@ -929,5 +941,50 @@ mod tests {
                 .collect::<rusqlite::Result<_>>()
                 .unwrap();
         assert_eq!(rows, [(T, 60)]);
+    }
+
+    /// R15: a merged correction holds a value correction::put would take for the measure, or it is skipped and
+    /// counted (two of 9e18 on one day would overflow the daily sum and fail every merge with that peer; text on a
+    /// numeric measure); a good one applies.
+    #[test]
+    fn corrections_the_writers_would_refuse_are_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        let keys = MemoryStore::default();
+        let a = Profile::init(dir.path(), "a", &keys).unwrap();
+        let b = Profile::init(dir.path(), "b", &keys).unwrap();
+        let src = SourceSpec::new("whoop", "u1");
+        let (id, _) = begin(&b.db, Begin { source: &src, parser: "test", blob: None, uid: None, candidates: None }, NOW).unwrap();
+        let row = |at: i64| ObsRow {
+            metric: "loinc:40443-4".into(),
+            start_ms: at,
+            end_ms: None,
+            tz_min: 480,
+            value: Value::Int(60),
+            unit: None,
+            detail: None,
+        };
+        write(&b.db, id, &[row(T), row(T + 1), row(T + 2)]).unwrap();
+        finish(&b.db, id, NOW).unwrap();
+        // past correction::put: 9e18 twice, text; and one it takes
+        for (at, v) in [(T, Value::Int(9_000_000_000_000_000_000)), (T + 1, Value::Text("high".into())), (T + 2, Value::Int(58))] {
+            b.db.execute(
+                "INSERT INTO correction (metric_id, source_id, start_ms, at, value)
+                 SELECT metric_id, source_id, start_ms, ?2, ?3 FROM observation WHERE start_ms = ?1",
+                rusqlite::params![at, 1_i64 << 20, v],
+            )
+            .unwrap();
+        }
+        let pack = dir.path().join("b.db");
+        export_plain(&b.db, &pack).unwrap();
+        let r = merge_from(&a.db, &pack, NOW).expect("the merge goes through");
+        assert_eq!(r.refused_rows, 2);
+        let values: Vec<i64> =
+            a.db.prepare("SELECT value FROM v_observation ORDER BY start_ms")
+                .unwrap()
+                .query_map([], |r| r.get(0))
+                .unwrap()
+                .collect::<rusqlite::Result<_>>()
+                .unwrap();
+        assert_eq!(values, [60, 60, 58]);
     }
 }

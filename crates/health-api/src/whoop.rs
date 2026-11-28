@@ -106,8 +106,21 @@ fn get(net: &Net, access: &str, path: &str, q: &str) -> Result<Option<Json>> {
     }
 }
 
+/// Tokens a sync got but couldn't save (the profile locked during the exchange: the old refresh token is spent
+/// already), kept in memory and saved at the next chance, so the person needn't sign in again
+static UNSAVED: std::sync::Mutex<Option<Whoop>> = std::sync::Mutex::new(None);
+
 fn load(net: &Net) -> Result<Option<Whoop>> {
-    Ok(state(net)?.whoop)
+    let saved = state(net)?.whoop;
+    let pending = UNSAVED.lock().unwrap_or_else(|e| e.into_inner()).take();
+    match pending {
+        // still the same connection (no disconnect or new sign-in meanwhile): the newer tokens win
+        Some(p) if saved.as_ref().is_some_and(|cur| cur.refresh.is_some() && cur.connected_at == p.connected_at) => {
+            keep_synced(net, &p)?;
+            Ok(Some(p))
+        }
+        _ => Ok(saved),
+    }
 }
 
 fn keep(net: &Net, w: &Whoop) -> Result<()> {
@@ -118,12 +131,13 @@ fn keep(net: &Net, w: &Whoop) -> Result<()> {
 /// What a sync learned (new tokens, reauth, the last sync), kept only if the connection it ran on is still the one
 /// here: a disconnect or a new sign-in meanwhile wins, and a stale sync never writes "connected" back.
 fn keep_synced(net: &Net, w: &Whoop) -> Result<()> {
-    let w = w.clone();
+    let kept = w.clone();
     update(net, &mut |s| {
-        if s.whoop.as_ref().is_some_and(|cur| cur.refresh.is_some() && cur.connected_at == w.connected_at) {
-            s.whoop = Some(w.clone());
+        if s.whoop.as_ref().is_some_and(|cur| cur.refresh.is_some() && cur.connected_at == kept.connected_at) {
+            s.whoop = Some(kept.clone());
         }
     })
+    .inspect_err(|_| *UNSAVED.lock().unwrap_or_else(|e| e.into_inner()) = Some(w.clone()))
 }
 
 /// One sync at a time in this process: two at once would both spend the same refresh token, and WHOOP would ask

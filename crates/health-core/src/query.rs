@@ -289,10 +289,15 @@ pub fn latest(c: &Db, scope: &Scope, code: Option<&str>) -> Result<Vec<Point>> {
     };
     let mut st = c.prepare(&format!(
         "SELECT {POINT_COLS} FROM v_observation o JOIN metric m ON m.id = o.metric_id
-          JOIN (SELECT metric_id, max(start_ms) AS t FROM v_observation
-                 WHERE (?1 IS NULL OR metric_id = ?1) AND (?2 IS NULL OR metric_id IN (SELECT value FROM json_each(?2)))
-                   AND start_ms BETWEEN ?3 AND ?4 AND (?5 IS NULL OR source_id NOT IN (SELECT value FROM json_each(?5)))
-                 GROUP BY metric_id) l
+          -- each measure's latest time, read from the top of the primary key (metric_id, start_ms): the grouped max
+          -- it replaces read every observation (the same rows come out)
+          JOIN (SELECT m0.id AS metric_id,
+                       (SELECT v.start_ms FROM v_observation v
+                         WHERE v.metric_id = m0.id AND v.start_ms BETWEEN ?3 AND ?4
+                           AND (?5 IS NULL OR v.source_id NOT IN (SELECT value FROM json_each(?5)))
+                         ORDER BY v.start_ms DESC LIMIT 1) AS t
+                  FROM metric m0
+                 WHERE (?1 IS NULL OR m0.id = ?1) AND (?2 IS NULL OR m0.id IN (SELECT value FROM json_each(?2)))) l
             ON l.metric_id = o.metric_id AND l.t = o.start_ms
          WHERE ?5 IS NULL OR o.source_id NOT IN (SELECT value FROM json_each(?5))
           ORDER BY m.code, o.source_id"
