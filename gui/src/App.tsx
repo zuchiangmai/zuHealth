@@ -273,8 +273,19 @@ function Shell({ status }: { status?: Status }) {
   const syncLive = useSyncLive();
   const [latest, latestErr] = useOp(() => op<Point[]>("obs.latest"), []);
   const [cats, setCats] = useState(true);
-  // the pages open, one over another; the one on top is the address's
+  // the pages open, one over another; the one on top is the address's. The page just closed stays a moment, to
+  // leave the way it came (worked out while rendering, so it is never unmounted and mounted again in between)
   const stack = useStack();
+  const [shown, setShown] = useState<{ stack: typeof stack; leaving: Entry[] }>({ stack, leaving: [] });
+  if (shown.stack !== stack) {
+    const gone = stack.move === "pop" ? shown.stack.entries.filter((e) => !stack.entries.some((x) => x.key === e.key)).slice(-1) : [];
+    setShown({ stack, leaving: gone });
+  }
+  useEffect(() => {
+    if (!shown.leaving.length) return;
+    const t = setTimeout(() => setShown((s) => ({ ...s, leaving: [] })), LEAVE_MS);
+    return () => clearTimeout(t);
+  }, [shown]);
   const { dark } = useAppearance();
   // narrow screens: the tab a section was opened from, where its back button returns
   // opened at an address under no tab (#/data/lab): More, where those sections are; a measure or report: Dashboard
@@ -546,11 +557,14 @@ function Shell({ status }: { status?: Status }) {
       {/* the pages, one over another as a native navigation stack has them: those under the top one stay as they
           were left (scrolled, opened, typed into), out of sight and out of reach */}
       <main className="relative h-dvh min-w-0 overflow-hidden">
-        {stack.entries.map((e, i) => (
-          <StackPage key={e.key} entry={e} active={i === stack.entries.length - 1} photo={fromRoute(parts(e.path)).page === "readings"}>
-            {(titles, title) => screen(e, i === stack.entries.length - 1, titles, title)}
-          </StackPage>
-        ))}
+        {[...stack.entries, ...shown.leaving].map((e, i) => {
+          const at = i < stack.entries.length ? (i === stack.entries.length - 1 ? "top" : "under") : "leaving";
+          return (
+            <StackPage key={e.key} entry={e} at={at} came={at === "top" && (stack.move === "push" || stack.move === "pop") ? stack.move : undefined} photo={fromRoute(parts(e.path)).page === "readings" ? (dark ? meadowDark : meadowLight) : undefined}>
+              {(titles, title) => screen(e, at === "top", titles, title)}
+            </StackPage>
+          );
+        })}
       </main>
       <Dialog
         opened={strangeLink}
@@ -603,10 +617,29 @@ function Totals({ status }: { status?: Status }) {
 /** A page under another's notice of the category in view: none (the rail marks the top page's) */
 const noSection = () => {};
 
+/** How long a page takes to come or go (narrow screens; none with reduced motion) */
+const LEAVE_MS = 400;
+
+/** Where a page of the stack is: on top, under it, or leaving (closed, on its way out). How each comes and goes,
+ *  as each platform has it: iOS pushes from the right edge, the page under moving a third of the way left; Material
+ *  fades in rising a little. Only on a narrow screen: a wide window's pages swap in place. The wrapper moves, not the
+ *  scroller (a moved scroller leaves stale tiles in Android's web view). */
+const PLACE = {
+  top: "translate-x-0 translate-y-0 opacity-100",
+  under: "invisible ios:max-wide:-translate-x-1/3",
+  leaving: "pointer-events-none wide:hidden ios:translate-x-full material:translate-y-[8%] material:opacity-0",
+} as const;
+const CAME = {
+  push: "ios:starting:translate-x-full material:starting:translate-y-[8%] material:starting:opacity-0",
+  pop: "ios:max-wide:starting:-translate-x-1/3",
+} as const;
+
 /** One page of the stack: Konsta's Page (its own scroller, the top bar following its scrolling), its own name for
  *  the top bar, its layers. Under the top one it stays mounted as it was left, but hidden and out of reach (not
- *  `display: none`, which would lose where it was scrolled to). */
-function StackPage({ entry, active, photo, children }: { entry: Entry; active: boolean; photo: boolean; children: (titles: Titles, title: string) => ReactNode }) {
+ *  `display: none`, which would lose where it was scrolled to). Its background is its own on a narrow screen, so
+ *  pages passing over each other don't show through; a wide window's is the shell's, behind the side panel too. */
+function StackPage({ entry, at, came, photo, children }: { entry: Entry; at: keyof typeof PLACE; came?: keyof typeof CAME; photo?: string; children: (titles: Titles, title: string) => ReactNode }) {
+  const active = at === "top";
   const [title, titles] = useTitles();
   const scroller = useRef<HTMLDivElement | null>(null);
   const layers = useRef<HTMLDivElement | null>(null);
@@ -627,7 +660,12 @@ function StackPage({ entry, active, photo, children }: { entry: Entry; active: b
     }
   }, [active]);
   return (
-    <div data-page={entry.key} className={`absolute inset-0 ${active ? "" : "invisible"}`} inert={!active}>
+    <div
+      data-page={entry.key}
+      inert={!active}
+      className={`absolute inset-0 max-wide:bg-cover max-wide:bg-center max-wide:transition-[translate,opacity,visibility] max-wide:duration-[400ms] max-wide:ease-[cubic-bezier(0.2,0.8,0.2,1)] motion-reduce:transition-none ios:max-wide:bg-[#f2f2f7] ios:max-wide:dark:bg-black material:max-wide:bg-md-light-surface-2 material:max-wide:dark:bg-md-dark-surface ${PLACE[at]} ${came ? CAME[came] : ""} ${photo ? "max-wide:bg-(image:--photo) max-wide:bg-[length:100%_100%]" : ""}`}
+      style={photo ? ({ "--photo": `url(${photo})` } as React.CSSProperties) : undefined}
+    >
       <KPage
         ref={scroller}
         // the background is the shell's (the dashboard's photo, else the grouped colour)
