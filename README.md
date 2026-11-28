@@ -4,7 +4,7 @@ Health data app for desktop (macOS, Windows, Linux), iPhone/iPad and Android: a 
 The layout and the seams are described in [docs/architecture.md](docs/architecture.md).
 
 ```sh
-cargo test                                            # core, runtime, sidecar
+cargo test --lib                                      # unit tests (the integration tests and fixtures aren't ported yet)
 (cd gui && npm ci && npx tauri dev)                   # desktop (stages the `health` sidecar first)
 
 . scripts/mobile-env.sh                               # Android SDK/NDK/JDK paths

@@ -112,6 +112,18 @@ after regenerating `gen/apple`, put those lines back and run `xcodegen generate`
   arm64 and the platform plugin's Kotlin compile. The Android emulator flows ran before the runtime move
   (first run, Keystore, SQLCipher, cold-start lock, unlock).
 
+## Verified (2026-11-28)
+
+- Against scratch profiles through `health serve`: background-marked calls don't put off a passphrase serve's idle
+  lock (they did before), foreground ones do; lock and unlock again with the passphrase proof; `--offline` refuses a
+  network op named with `health op`.
+- The UI in a browser through serve (dev build, StrictMode): every address opens and going back retraces them; a
+  choice sheet takes one history step; files chosen on Data sources and Restore don't come back.
+- Recognition: the worker's output is byte-identical before and after drawing PDF pages one at a time (the old
+  repo's cbc.pdf, cbc.png, chem-1.png).
+- The shared merge cases (24, from the web version) pass through the old repo's harness, run temporarily.
+- `clippy` for the desktop and the iOS target.
+
 Never exercised yet: on a phone after the runtime move (Android blocked by a running `tauri android dev`); seca
 register / start / result and every ForceDecks step after the lookup (they act on real lab devices); scanning, camera
 capture and the share sheet; LAN sync after the move; OCR on a phone; Android network ops with the bundled roots.
