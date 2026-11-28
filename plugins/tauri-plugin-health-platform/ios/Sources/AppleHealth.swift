@@ -98,9 +98,11 @@ extension PlatformPlugin {
     let to = Date(timeIntervalSince1970: args.to_ms / 1000)
     let pred = HKQuery.predicateForSamples(withStart: from, end: to, options: .strictStartDate)
     let quantity = quantityTypes.compactMap { HKQuantityType.quantityType(forIdentifier: $0) }
-    // the units Health shows (as the export writes them); refused for a type never asked about (a type added in
-    // a later version): then those types are left out until the person connects again, rather than failing all
-    healthStore.preferredUnits(for: Set(quantity)) { units, _ in
+    // the units Health shows (as the export writes them). Refused (a type never asked about, added in a later
+    // version): the read fails, rather than return days without their quantities, which the runtime would take as
+    // read whole; connecting again asks for the new type
+    healthStore.preferredUnits(for: Set(quantity)) { units, error in
+      if let error { return invoke.reject(error.localizedDescription) }
       let group = DispatchGroup()
       let lock = NSLock()
       var out: [[String: Any]] = []

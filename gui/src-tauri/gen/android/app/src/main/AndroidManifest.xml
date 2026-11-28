@@ -29,7 +29,12 @@
         </intent>
     </queries>
 
+    <!-- no backup or device transfer of the data: its key never leaves this device (Keystore), so a copy
+         elsewhere could not be opened (docs/shells.md). Keep after regenerating. -->
     <application
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:theme="@style/Theme.health_app"

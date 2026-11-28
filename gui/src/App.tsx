@@ -227,8 +227,9 @@ export function App() {
     return (
       <>
         <Hold title={t("Decrypting your data")} body={decrypting()} err={core.error ?? unlockErr} retry={unlockErr ? () => autoUnlock() : undefined} />
-        {/* a database that no longer opens: starting over is one way out */}
-        {core.error && isDesktop && (
+        {/* a database that no longer opens (its key gone with the keychain, say): starting over is one way out, on a
+            phone too */}
+        {core.error && (
           <div className="mx-auto mt-[16vh] max-w-md px-4">
             <ClearDataRow />
           </div>

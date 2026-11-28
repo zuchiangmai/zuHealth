@@ -114,6 +114,24 @@ pub(crate) fn share_file(app: AppHandle, path: String, mime: String) -> std::res
 /// `RootKeys` over the native plugin: Keychain on iOS, Keystore on Android.
 struct NativeKeys(AppHandle);
 
+/// The app now: an activity rebuilt in the same process (Android) has a new handle, and the first one's plugin
+/// holds the destroyed activity. The runtime outlives it, so the native services look it up each call.
+fn current(first: &AppHandle) -> AppHandle {
+    APP.lock().unwrap_or_else(|e| e.into_inner()).clone().unwrap_or_else(|| first.clone())
+}
+
+impl NativeKeys {
+    fn app(&self) -> AppHandle {
+        current(&self.0)
+    }
+}
+
+impl NativeHealth {
+    fn app(&self) -> AppHandle {
+        current(&self.0)
+    }
+}
+
 /// The phone's health store through the platform plugin: HealthKit on iOS, Health Connect on Android (the same
 /// plugin calls on both). Only glue: the runtime decides what to read and the core what it means.
 struct NativeHealth(AppHandle);
@@ -123,32 +141,32 @@ impl health_runtime::syshealth::SystemHealth for NativeHealth {
         if cfg!(target_os = "ios") { "healthkit" } else { "health_connect" }
     }
     fn available(&self) -> bool {
-        self.0.health_platform().health_available()
+        self.app().health_platform().health_available()
     }
     fn authorize(&self) -> std::result::Result<(), String> {
-        self.0.health_platform().health_authorize()
+        self.app().health_platform().health_authorize()
     }
     fn read(&self, from_ms: i64, to_ms: i64) -> std::result::Result<Vec<health_runtime::syshealth::Sample>, String> {
-        let raw = self.0.health_platform().health_read(from_ms, to_ms)?;
+        let raw = self.app().health_platform().health_read(from_ms, to_ms)?;
         // a sample the core can't take is skipped, not the whole read
         Ok(raw.into_iter().filter_map(|v| serde_json::from_value(v).ok()).collect())
     }
     fn changed_days(&self, anchors: &mut Value, floor_ms: i64) -> std::result::Result<Vec<i64>, String> {
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
-        self.0.health_platform().health_changed(anchors, floor_ms, now)
+        self.app().health_platform().health_changed(anchors, floor_ms, now)
     }
     fn earliest_ms(&self) -> i64 {
-        self.0.health_platform().health_earliest().unwrap_or(0)
+        self.app().health_platform().health_earliest().unwrap_or(0)
     }
     fn own(&self) -> std::result::Result<Vec<health_runtime::syshealth::Have>, String> {
-        let raw = self.0.health_platform().health_own()?;
+        let raw = self.app().health_platform().health_own()?;
         Ok(raw.into_iter().filter_map(|v| serde_json::from_value(v).ok()).collect())
     }
     fn write(&self, samples: &[health_runtime::syshealth::Want]) -> std::result::Result<(), String> {
-        self.0.health_platform().health_write(&serde_json::to_value(samples).map_err(|e| e.to_string())?)
+        self.app().health_platform().health_write(&serde_json::to_value(samples).map_err(|e| e.to_string())?)
     }
     fn delete(&self, ids: &[String]) -> std::result::Result<(), String> {
-        self.0.health_platform().health_delete(ids)
+        self.app().health_platform().health_delete(ids)
     }
 }
 
@@ -158,7 +176,7 @@ impl KeyStore for NativeKeys {
     }
 
     fn load(&self, id: &str) -> Result<Option<Key>> {
-        let Some(hex_key) = self.0.health_platform().key_load(id).map_err(store_err)? else {
+        let Some(hex_key) = self.app().health_platform().key_load(id).map_err(store_err)? else {
             return Ok(None);
         };
         let mut k = Key::default();
@@ -167,13 +185,13 @@ impl KeyStore for NativeKeys {
     }
 
     fn store(&self, id: &str, key: &Key) -> Result<()> {
-        self.0.health_platform().key_store(id, &hex::encode(&key[..])).map_err(store_err)
+        self.app().health_platform().key_store(id, &hex::encode(&key[..])).map_err(store_err)
     }
 }
 
 impl RootKeys for NativeKeys {
     fn delete(&self, id: &str) -> Result<()> {
-        self.0.health_platform().key_delete(id).map_err(store_err)
+        self.app().health_platform().key_delete(id).map_err(store_err)
     }
 }
 
@@ -217,6 +235,11 @@ pub(crate) fn run(builder: tauri::Builder<Wry>) {
             crate::clear_cache(&handle); // what the last run staged or exported
             let data_dir = app.path().app_data_dir()?;
             std::thread::spawn(move || {
+                // the data stays on this device: no iCloud backup or migration (its key can't follow it)
+                #[cfg(target_os = "ios")]
+                if let Err(e) = handle.health_platform().exclude_from_backup(&data_dir.to_string_lossy()) {
+                    eprintln!("health: backup exclusion: {e}");
+                }
                 let recognize = health_runtime::ocr::in_process(&data_dir, |page, pages| {
                     relay("ocr_progress", json!({ "stage": "read", "done": page, "total": pages }));
                 });

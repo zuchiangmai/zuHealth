@@ -97,9 +97,29 @@ extension PlatformPlugin {
       invoke.resolve()
     }
   }
+
+  /// Keeps a directory out of iCloud backup and device-to-device migration: the data's key is this device's only
+  /// (ThisDeviceOnly), so a copy elsewhere could not be opened, and the OCR models would only use up the quota.
+  @objc public func excludeFromBackup(_ invoke: Invoke) throws {
+    let args = try invoke.parseArgs(PathArgs.self)
+    var url = URL(fileURLWithPath: args.path, isDirectory: true)
+    var values = URLResourceValues()
+    values.isExcludedFromBackup = true
+    do {
+      try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+      try url.setResourceValues(values)
+      invoke.resolve()
+    } catch {
+      invoke.reject(error.localizedDescription)
+    }
+  }
 }
 
 @_cdecl("init_plugin_health_platform")
 func initPlugin() -> Plugin {
   return PlatformPlugin()
+}
+
+class PathArgs: Decodable {
+  let path: String
 }

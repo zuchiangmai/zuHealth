@@ -46,6 +46,14 @@ impl<R: Runtime> NativePlatform<R> {
         self.run("keyDelete", KeyArgs { id, value: None })
     }
 
+    /// Keeps a directory out of the system's backups (iOS: iCloud and device migration).
+    pub fn exclude_from_backup(&self, path: &str) -> Result<(), String> {
+        self.0
+            .run_mobile_plugin::<serde::de::IgnoredAny>("excludeFromBackup", serde_json::json!({ "path": path }))
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+
     /// The system share sheet for a file (Android: it must be in the app's cache directory).
     pub fn share(&self, path: &str, mime: &str) -> Result<(), String> {
         #[derive(Serialize)]

@@ -78,8 +78,15 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun healthAuthorize(invoke: Invoke) {
         if (!health.available) return invoke.reject("Health Connect is not installed")
-        val intent = PermissionController.createRequestPermissionResultContract().createIntent(activity, health.permissions())
-        startActivityForResult(invoke, intent, "healthAuthorized")
+        // the runtime calls from a worker thread; an activity is started from the main one
+        activity.runOnUiThread {
+            try {
+                val intent = PermissionController.createRequestPermissionResultContract().createIntent(activity, health.permissions())
+                startActivityForResult(invoke, intent, "healthAuthorized")
+            } catch (e: Exception) {
+                invoke.reject(e.message ?: e.toString())
+            }
+        }
     }
 
     @ActivityCallback
@@ -186,8 +193,15 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
                 .setType(args.mime ?: "application/octet-stream")
                 .putExtra(Intent.EXTRA_STREAM, uri)
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            activity.startActivity(Intent.createChooser(send, null))
-            invoke.resolve()
+            // the runtime calls from a worker thread; an activity is started from the main one
+            activity.runOnUiThread {
+                try {
+                    activity.startActivity(Intent.createChooser(send, null))
+                    invoke.resolve()
+                } catch (e: Exception) {
+                    invoke.reject("share failed: ${e.message}")
+                }
+            }
         } catch (e: Exception) {
             invoke.reject("share failed: ${e.message}")
         }

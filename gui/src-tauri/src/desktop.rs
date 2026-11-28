@@ -590,7 +590,14 @@ pub(crate) fn run(builder: tauri::Builder<tauri::Wry>) {
     app.run(move |_, e| {
         if let RunEvent::Exit = e {
             shell.quitting.store(true, Ordering::SeqCst);
+            // as stop_core: the core finishes the step it is in (a network op, a LAN sync merge) and exits; killed
+            // only if it hasn't after a moment
             if let Some(mut c) = shell.child.lock().unwrap().take() {
+                drop(c.stdin.take());
+                let t = std::time::Instant::now();
+                while matches!(c.try_wait(), Ok(None)) && t.elapsed() < Duration::from_secs(3) {
+                    std::thread::sleep(Duration::from_millis(50));
+                }
                 let _ = c.kill();
             }
         }

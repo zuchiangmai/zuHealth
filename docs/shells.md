@@ -135,7 +135,12 @@ Never exercised yet: on a phone after the runtime move (Android blocked by a run
 register / start / result and every ForceDecks step after the lookup (they act on real lab devices); scanning, camera
 capture and the share sheet; LAN sync after the move; OCR on a phone; Android network ops with the bundled roots.
 
-Not done on phones: WHOOP sign-in (nothing opens the page or catches the redirect: plan D14), HEIC photos, backup
-exclusion (D15; the OCR models are in app data too), biometrics before unlock, deep links from the system camera
-(Universal Links / App Links), HealthKit / Health Connect, CI workflows (not brought over yet). The web code's
-licence is the owner's to confirm.
+Not done on phones: WHOOP sign-in (nothing opens the page or catches the redirect: plan D14), HEIC photos,
+biometrics before unlock, CI workflows (not brought over yet). The web code's licence is the owner's to confirm.
+Built but not yet run on a device: deep links from the system camera (they also need the site's association files),
+Apple Health / Health Connect.
+
+Backups (D15): the data's key never leaves the device (keychain ThisDeviceOnly, Android Keystore), so the data must
+not either. iOS marks the data directory excluded from backup at every start (`excludeFromBackup`); Android turns
+backup and device transfer off (`allowBackup="false"`, `res/xml/data_extraction_rules.xml`). Keep both after
+regenerating `gen/`. A profile whose key is gone shows Clear data on the start screen, on phones too.
