@@ -55,12 +55,17 @@ fn core_command() -> Command {
 
 /// One request to serve on 127.0.0.1. HTTP/1.0, so the reply always comes with a Content-Length (never chunked).
 fn http(c: &Conn, method: &str, path: &str, body: &str) -> Result<(u16, Value), String> {
+    http_with(c, method, path, "", body)
+}
+
+/// `headers`: extra lines, each ending in CRLF
+fn http_with(c: &Conn, method: &str, path: &str, headers: &str, body: &str) -> Result<(u16, Value), String> {
     let mut s = TcpStream::connect_timeout(&([127, 0, 0, 1], c.port).into(), Duration::from_secs(5)).map_err(|e| e.to_string())?;
     // a wedged core must not hang the UI or the supervisor: short for the handshake, generous for ops (imports)
     let wait = if path == "/v1/meta" { 10 } else { 900 };
     s.set_read_timeout(Some(Duration::from_secs(wait))).map_err(|e| e.to_string())?;
     let req = format!(
-        "{method} {path} HTTP/1.0\r\nHost: 127.0.0.1:{}\r\nAuthorization: Bearer {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+        "{method} {path} HTTP/1.0\r\nHost: 127.0.0.1:{}\r\nAuthorization: Bearer {}\r\n{headers}Content-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
         c.port,
         c.token,
         body.len()
@@ -86,13 +91,15 @@ fn unavailable(shell: &Shell) -> Value {
 }
 
 #[tauri::command(async)]
-pub(crate) fn op(shell: tauri::State<'_, Arc<Shell>>, name: String, req: Value) -> Result<Value, Value> {
+pub(crate) fn op(shell: tauri::State<'_, Arc<Shell>>, name: String, req: Value, background: Option<bool>) -> Result<Value, Value> {
     let conn = shell.conn.lock().unwrap().clone().ok_or_else(|| unavailable(&shell))?;
     if !name.chars().all(|c| c.is_ascii_lowercase() || c == '.' || c == '_') {
         return Err(json!({ "code": "no_op", "message": name }));
     }
-    let (status, body) =
-        http(&conn, "POST", &format!("/v1/op/{name}"), &req.to_string()).map_err(|e| json!({ "code": "unavailable", "message": e }))?;
+    // the app's own call (a poll, a reload after an event): serve doesn't count it as the person using the app
+    let headers = if background == Some(true) { "X-Health-Background: 1\r\n" } else { "" };
+    let (status, body) = http_with(&conn, "POST", &format!("/v1/op/{name}"), headers, &req.to_string())
+        .map_err(|e| json!({ "code": "unavailable", "message": e }))?;
     if status == 200 {
         Ok(body["value"].clone())
     } else {

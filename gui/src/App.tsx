@@ -17,6 +17,9 @@ import {
   agentClients,
   connectAgent,
   onChange,
+  inBackground,
+  inBackgroundNow,
+  unstageFile,
   onSync,
   chooseImportFile,
   FILE_TYPES,
@@ -244,11 +247,18 @@ function useOp<T>(fn: () => Promise<T>, deps: unknown[]): [T | undefined, string
   const [data, setData] = useState<T>();
   const [err, setErr] = useState<string>();
   const [tick, setTick] = useState(0);
-  const reload = useCallback(() => setTick((t) => t + 1), []);
+  // a reload from a poll or an event (inside inBackground) fetches as the app's own call too
+  const quietNext = useRef(false);
+  const reload = useCallback(() => {
+    quietNext.current = inBackgroundNow();
+    setTick((t) => t + 1);
+  }, []);
   // biome-ignore lint: deps are the caller's
   useEffect(() => {
     let live = true;
-    fn().then(
+    const quiet = quietNext.current;
+    quietNext.current = false;
+    (quiet ? inBackground(fn) : fn()).then(
       (d) => live && (setData(d), setErr(undefined)),
       (e: unknown) => live && setErr(e instanceof OpError ? `${e.code}: ${e.message}` : String(e)),
     );
@@ -373,23 +383,32 @@ export function App() {
   // the start-up event can fire before the listener exists: ask again until the core answers
   useEffect(() => {
     if (!starting) return;
-    const t = setInterval(reload, 1000);
+    const t = setInterval(() => inBackground(reload), 1000);
     return () => clearInterval(t);
   }, [starting, reload]);
   // a phone has no passphrase: its data opens as Health opens (Face ID / fingerprint will come first, in the shell)
   const locked = !!err?.startsWith("locked:");
   const [unlockErr, setUnlockErr] = useState<string>();
   const unlocking = useRef(false);
-  const autoUnlock = useCallback(() => {
-    if (unlocking.current) return; // StrictMode's second run
+  const autoUnlock = useCallback((tries = 3) => {
+    // never while Health is out of sight: the lock in the background is the point
+    if (unlocking.current || document.hidden) return; // StrictMode's second run
     unlocking.current = true;
     setUnlockErr(undefined);
     unlock("")
-      .then(reload, (e) => setUnlockErr(errText(e)))
+      .then(reload, (e) => {
+        // back from the background: the shell may tell the core a moment after the page shows
+        if (e instanceof OpError && e.code === "locked" && tries > 1) setTimeout(() => autoUnlock(tries - 1), 700);
+        else setUnlockErr(errText(e));
+      })
       .finally(() => (unlocking.current = false));
   }, [reload]);
   useEffect(() => {
-    if (locked && isMobile) autoUnlock();
+    if (!locked || !isMobile) return;
+    autoUnlock();
+    const shown = () => autoUnlock();
+    document.addEventListener("visibilitychange", shown);
+    return () => document.removeEventListener("visibilitychange", shown);
   }, [locked, autoUnlock]);
   // the dashboard's background, fetched while the data opens
   useEffect(() => void Object.assign(new Image(), { src: matchMedia("(prefers-color-scheme: dark)").matches ? meadowDark : meadowLight }), []);
@@ -398,7 +417,7 @@ export function App() {
   if (starting || locked || (!status && !err))
     return (
       <>
-        <Hold title={t("Decrypting your data")} body={decrypting()} err={core.error ?? unlockErr} retry={unlockErr ? autoUnlock : undefined} />
+        <Hold title={t("Decrypting your data")} body={decrypting()} err={core.error ?? unlockErr} retry={unlockErr ? () => autoUnlock() : undefined} />
         {/* a database that no longer opens: starting over is one way out */}
         {core.error && isDesktop && (
           <div className="mx-auto mt-[16vh] max-w-md px-4">
@@ -458,7 +477,10 @@ function Shell() {
   const here = route.join("/");
   const [dropped, setDropped] = useState<{ path: string; at: string }>();
   useEffect(() => {
-    if (dropped && dropped.at !== here) setDropped(undefined);
+    if (dropped && dropped.at !== here) {
+      unstageFile(dropped.path);
+      setDropped(undefined);
+    }
   }, [here]);
   const importFile = (path: string) => {
     setDropped({ path, at: "data/file" });
@@ -1405,6 +1427,7 @@ function Import({
         );
       }
       setPassword("");
+      unstageFile(file);
     } catch (e) {
       setErr(errText(e));
     } finally {
@@ -1436,6 +1459,7 @@ function Import({
       setStep("read");
       const r = await op<{ import_id: number; items: number; matched: number }>("import.ocr", { path: file, tz_min: -new Date().getTimezoneOffset() });
       justRead = r.import_id;
+      unstageFile(file); // read: the report's copy is kept in the data now
       setStep(undefined);
       if (location.hash === at) go("review");
     } catch (e) {
@@ -3181,7 +3205,7 @@ function Agents({ want, path }: { want?: string; path?: string[] }) {
 /** Agents' reads change no data, so no change event announces them: look again every few seconds. */
 function usePoll(reload: () => void, ms = 5000) {
   useEffect(() => {
-    const t = setInterval(reload, ms);
+    const t = setInterval(() => inBackground(reload), ms);
     return () => clearInterval(t);
   }, [reload, ms]);
 }
@@ -3219,7 +3243,10 @@ function Backup({ want, go }: { want?: string; go: (p: Page) => void }) {
   const [file, setFile] = useState<string>();
   // a file chosen to restore is for that screen only
   useEffect(() => {
-    if (want !== "restore") setFile(undefined);
+    if (want !== "restore" && file) {
+      unstageFile(file);
+      setFile(undefined);
+    }
   }, [want]);
   const titles = { save: t("Save a backup"), restore: t("Restore a backup"), csv: t("Export a table (CSV)") };
   // each a screen of its own (#/backup/save)
@@ -3985,7 +4012,7 @@ function WhoopConnect() {
   }, [load]);
   useEffect(() => {
     if (st?.state !== "pending") return;
-    const t = setInterval(load, 3000);
+    const t = setInterval(() => inBackground(load), 3000);
     return () => clearInterval(t);
   }, [st, load]);
   const run = async (f: () => Promise<void>) => {

@@ -34,7 +34,7 @@ struct State {
     owner_token: String,
     passphrase_mode: bool,
     /// Passphrase mode: proof of the passphrase the profile was unlocked with (cleared on lock)
-    proof: Arc<Mutex<Option<String>>>,
+    proof: Proof,
     events: Listeners,
     unlock_gate: Mutex<()>,
 }
@@ -157,7 +157,11 @@ impl State {
                 let req = if body.is_empty() { Ok(json!({})) } else { serde_json::from_slice::<Value>(body) };
                 let Ok(req) = req else { return err(&Error::new(Kind::Usage, "bad_json", "")) };
                 let res = match &who {
-                    Who::Owner => self.rt.owner(name, &req, Call { dry_run: get("X-Health-Dry-Run") == Some("1") }),
+                    Who::Owner => self.rt.owner(
+                        name,
+                        &req,
+                        Call { dry_run: get("X-Health-Dry-Run") == Some("1"), background: get("X-Health-Background") == Some("1") },
+                    ),
                     Who::Agent(token) => self.rt.agent(token, name, &req),
                 };
                 match res {
@@ -196,7 +200,13 @@ impl State {
             return err(&Error::conflict("not_locked", "this profile has no passphrase"));
         }
         let _one_at_a_time = self.unlock_gate.lock().unwrap();
-        let p = serde_json::from_slice::<Value>(body).ok().and_then(|v| v["passphrase"].as_str().map(String::from)).unwrap_or_default();
+        // the passphrase and what it derives are wiped from memory when dropped
+        let p = Zeroizing::new(
+            serde_json::from_slice::<Value>(body)
+                .ok()
+                .and_then(|mut v| if let Value::String(s) = v["passphrase"].take() { Some(s) } else { None })
+                .unwrap_or_default(),
+        );
         let dir = match health_core::profile::profile_dir(&self.data_dir, &self.name) {
             Ok(d) => d,
             Err(e) => return err(&e),
@@ -208,7 +218,7 @@ impl State {
         };
         // One key derivation, before opening anything, so other requests never wait on it.
         let proof = match store.proof() {
-            Ok(p) => p,
+            Ok(p) => Zeroizing::new(p),
             Err(e) => return fail(e),
         };
         if self.rt.status().state == RtState::Ready {
@@ -242,7 +252,7 @@ pub fn run(o: Opts) -> Result<()> {
     let port = server.server_addr().to_ip().map(|a| a.port()).ok_or_else(|| Error::other("listen", "no port"))?;
 
     let events: Listeners = Arc::default();
-    let proof: Arc<Mutex<Option<String>>> = Arc::default();
+    let proof: Proof = Arc::default();
     let on_event = {
         let (events, proof) = (events.clone(), proof.clone());
         move |event: &str, data: Value| {
@@ -302,10 +312,14 @@ pub fn run(o: Opts) -> Result<()> {
     for mut rq in server.incoming_requests() {
         let s = state.clone();
         std::thread::spawn(move || {
-            let headers: Vec<(String, String)> = rq.headers().iter().map(|h| (h.field.to_string(), h.value.to_string())).collect();
-            let mut body = Vec::new();
+            // tokens, a passphrase, a proof: wiped once the request is handled
+            let mut headers: Vec<(String, String)> = rq.headers().iter().map(|h| (h.field.to_string(), h.value.to_string())).collect();
+            let mut body = Zeroizing::new(Vec::new());
             let _ = std::io::Read::take(rq.as_reader(), 64 * 1024 * 1024).read_to_end(&mut body);
             let (status, b) = s.handle(rq.method().as_str(), rq.url(), &headers, &body);
+            for (_, v) in &mut headers {
+                v.zeroize();
+            }
             let ct = |v: &str| tiny_http::Header::from_bytes("Content-Type", v).unwrap();
             let _ = match b {
                 Body::Json(v) => {
@@ -331,3 +345,7 @@ pub fn run(o: Opts) -> Result<()> {
 }
 
 use std::io::{Read as _, Write as _};
+use zeroize::{Zeroize as _, Zeroizing};
+
+/// Passphrase mode: proof of the passphrase the profile was unlocked with (cleared on lock)
+type Proof = Arc<Mutex<Option<Zeroizing<String>>>>;

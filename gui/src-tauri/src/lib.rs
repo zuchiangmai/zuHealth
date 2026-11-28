@@ -1,7 +1,7 @@
 //! The shell contract the UI (`gui/src/api.ts`) relies on, identical on every platform:
 //! - commands: `op`, `unlock`, `init_profile`, `clear_data`, `core_path`, `agent_clients`, `connect_agent`,
 //!   `ocr_status`, `ocr_install`, `set_language`, `open_link`, `shell_info`; for files the system hands over or
-//!   takes (mobile): `stage_file`, `export_path`, `share_file`
+//!   takes (mobile): `stage_file`, `unstage_file`, `export_path`, `share_file`
 //! - events: `health:status` (`{ up, locked?, need_init?, error? }`), `health:changed`, `health:locked`,
 //!   `health:unlocked`, `health:sync`, `menu`
 //!
@@ -48,7 +48,7 @@ fn stage_file(app: AppHandle, request: tauri::ipc::Request<'_>) -> Result<String
     match request.body() {
         tauri::ipc::InvokeBody::Raw(bytes) => {
             let name = request.headers().get("x-file-name").and_then(|v| v.to_str().ok()).unwrap_or("file");
-            clear_old(&dir);
+            clear(&dir, None); // one staged file at a time: the one chosen before is done with
             let path = dir.join(format!("{}-{}", std::process::id(), safe_name(&percent_decode(name))));
             std::fs::write(&path, bytes).map_err(|e| fail(e.to_string()))?;
             Ok(path.to_string_lossy().into_owned())
@@ -62,7 +62,7 @@ fn stage_file(app: AppHandle, request: tauri::ipc::Request<'_>) -> Result<String
             let bytes = base64::engine::general_purpose::STANDARD.decode(data).map_err(|e| fail(e.to_string()))?;
             let first = v["first"].as_bool() == Some(true);
             if first {
-                clear_old(&dir);
+                clear(&dir, None);
             }
             let path = dir.join(format!("{}-{id}-{}", std::process::id(), safe_name(v["name"].as_str().unwrap_or("file"))));
             let mut f = std::fs::OpenOptions::new()
@@ -98,7 +98,8 @@ fn export_path(app: AppHandle, name: String) -> Result<String, Value> {
     let fail = |m: String| json!({ "code": "export_failed", "message": m });
     let dir = app.path().app_cache_dir().map_err(|e| fail(e.to_string()))?.join("export");
     std::fs::create_dir_all(&dir).map_err(|e| fail(e.to_string()))?;
-    clear_old(&dir);
+    // not right after sharing: Android's receiving app reads the file later
+    clear(&dir, Some(std::time::Duration::from_secs(3600)));
     let safe: String = name.chars().map(|c| if c.is_alphanumeric() || "._-".contains(c) { c } else { '_' }).collect();
     let path = dir.join(safe);
     // the app's own folder: an earlier export of the same name is replaced (export ops refuse to overwrite)
@@ -106,13 +107,34 @@ fn export_path(app: AppHandle, name: String) -> Result<String, Value> {
     Ok(path.to_string_lossy().into_owned())
 }
 
-/// Removes files left over from earlier sessions (older than a day).
-fn clear_old(dir: &std::path::Path) {
-    let day = std::time::Duration::from_secs(86_400);
+/// Removes the files in `dir`, or only those older than `older`.
+fn clear(dir: &std::path::Path, older: Option<std::time::Duration>) {
     for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
-        if e.metadata().and_then(|m| m.modified()).is_ok_and(|t| t.elapsed().is_ok_and(|a| a > day)) {
+        let old = older.is_none_or(|o| e.metadata().and_then(|m| m.modified()).is_ok_and(|t| t.elapsed().is_ok_and(|a| a > o)));
+        if old {
             let _ = std::fs::remove_file(e.path());
         }
+    }
+}
+
+/// Plain copies in the app's cache (staged photos and files, exports): removed at start and with the data. Phones
+/// only: a computer imports and saves where the person chooses.
+#[cfg(mobile)]
+pub(crate) fn clear_cache(app: &AppHandle) {
+    if let Ok(cache) = app.path().app_cache_dir() {
+        clear(&cache.join("import"), None);
+        clear(&cache.join("export"), None);
+    }
+}
+
+/// A staged file that has been imported or put aside. Only a file in the app's own `import/` folder is removed:
+/// on a computer the path is the person's own file, which is never touched.
+#[tauri::command]
+fn unstage_file(app: AppHandle, path: String) {
+    let Ok(dir) = app.path().app_cache_dir().map(|c| c.join("import")) else { return };
+    let (Ok(dir), Ok(file)) = (dir.canonicalize(), std::path::Path::new(&path).canonicalize()) else { return };
+    if file.parent() == Some(dir.as_path()) {
+        let _ = std::fs::remove_file(file);
     }
 }
 
@@ -151,6 +173,7 @@ pub fn run() {
         host::share_file,
         shell_info,
         stage_file,
+        unstage_file,
         export_path
     ]));
 }

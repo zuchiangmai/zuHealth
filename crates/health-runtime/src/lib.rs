@@ -74,6 +74,9 @@ impl Platform {
 pub struct Opts {
     /// Run a write op and roll it back.
     pub dry_run: bool,
+    /// The app's own call (a poll, a reload after an event), not the person using it: it doesn't put off the idle
+    /// lock.
+    pub background: bool,
 }
 
 pub struct Outcome {
@@ -208,7 +211,8 @@ impl Runtime {
     /// A call by the person using the app. `runtime.*` names are handled here and reach no one else.
     pub fn owner(&self, name: &str, req: &Value, opts: Opts) -> Result<Outcome> {
         self.expire(false);
-        if !background(name) {
+        let quiet = opts.background || background(name);
+        if !quiet {
             self.touch();
         }
         let value = match name {
@@ -243,7 +247,7 @@ impl Runtime {
             }
             _ => return self.run(Caller::Owner, name, req, opts),
         };
-        if !background(name) {
+        if !quiet {
             self.touch(); // idle time counts from the end of the owner's call
         }
         Ok(Outcome { value, withheld: None })
@@ -279,6 +283,9 @@ impl Runtime {
     /// Opens a locked profile. Shells call this after their own gate (biometrics, a passphrase); `keys` overrides
     /// the platform's store for this unlock (a passphrase store).
     pub fn unlock(&self, keys: Option<&dyn KeyStore>) -> Result<()> {
+        if self.past_grace(self.background_since.load(Ordering::SeqCst)) {
+            return Err(Error::new(Kind::Locked, "locked", "the app is in the background"));
+        }
         let mut p = self.lock_profile();
         if p.is_some() {
             return Ok(());
@@ -329,22 +336,22 @@ impl Runtime {
     }
 
     /// Locks the profile once the app has been in the background past the grace period. `returning`: the app is
-    /// in the foreground again, so the background mark is cleared either way.
+    /// in the foreground again, so the background mark is cleared either way. Otherwise the mark stays until then:
+    /// nothing in the background (the UI's own timers, LAN sync) can open the profile again.
     fn expire(&self, returning: bool) {
-        let Some(grace) = self.platform.lock_after_ms else { return };
         let since = if returning {
             self.background_since.swap(IN_FOREGROUND, Ordering::SeqCst)
         } else {
             self.background_since.load(Ordering::SeqCst)
         };
-        if since == IN_FOREGROUND || (self.platform.now_ms)() - since < grace {
-            return;
+        if self.past_grace(since) {
+            self.lock();
         }
-        // a call while still in the background: clear the mark once, so only one caller locks
-        if !returning && self.background_since.compare_exchange(since, IN_FOREGROUND, Ordering::SeqCst, Ordering::SeqCst).is_err() {
-            return;
-        }
-        self.lock();
+    }
+
+    /// In the background (since `since`) longer than the grace period.
+    fn past_grace(&self, since: i64) -> bool {
+        self.platform.lock_after_ms.is_some_and(|grace| since != IN_FOREGROUND && (self.platform.now_ms)() - since >= grace)
     }
 
     fn touch(&self) {
@@ -450,7 +457,7 @@ impl Runtime {
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| health_api::call(&mut ctx, name, req.clone())))
             .map_err(|_| Error::other("internal", format!("{name} failed unexpectedly")))??;
         drop(p);
-        if owner {
+        if owner && !opts.background && !background(name) {
             self.touch(); // idle time counts from the end of the owner's op
         }
         if write && !dry {
@@ -507,6 +514,7 @@ impl Runtime {
 
 impl lan::Host for Runtime {
     fn with_profile(&self, f: &mut dyn FnMut(&Profile) -> Result<()>) -> Result<()> {
+        self.expire(false); // LAN sync too uses the data only within the grace period
         let p = self.lock_profile();
         let profile = p.as_ref().ok_or_else(|| self.closed_error())?;
         f(profile)

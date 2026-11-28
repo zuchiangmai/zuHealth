@@ -26,16 +26,36 @@ export class OpError extends Error {
   }
 }
 
+let quiet = false;
+
+/** Runs `f`; the ops it starts right away are the app's own (a poll, a reload after an event), not the person using
+ *  it: they don't put off the idle lock. */
+export function inBackground<T>(f: () => T): T {
+  const was = quiet;
+  quiet = true;
+  try {
+    return f();
+  } finally {
+    quiet = was;
+  }
+}
+
+/** Whether the code running now is inside `inBackground`. */
+export const inBackgroundNow = () => quiet;
+
 export async function op<T>(name: string, req: object = {}): Promise<T> {
+  const background = quiet;
   if (inTauri) {
     try {
-      return await invoke<T>("op", { name, req });
+      return await invoke<T>("op", { name, req, background });
     } catch (e) {
       const err = e as ApiError;
       throw new OpError(err.code ?? "error", err.message ?? String(e));
     }
   }
-  const r = await fetch(`/v1/op/${name}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(req) });
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  if (background) headers["x-health-background"] = "1";
+  const r = await fetch(`/v1/op/${name}`, { method: "POST", headers, body: JSON.stringify(req) });
   const body = await r.json().catch(() => ({}));
   if (!r.ok) throw new OpError(body?.error?.code ?? `http_${r.status}`, body?.error?.message ?? "");
   return body.value as T;
@@ -122,15 +142,17 @@ export async function corePath(): Promise<string> {
 
 /** LAN sync's live state changed (Tauri); in the browser, every 2 s. */
 export function onSync(fn: () => void): () => void {
-  if (inTauri) return listenAll(["health:sync", "health:changed"], fn);
-  const t = setInterval(fn, 2000);
+  const quietly = () => inBackground(fn);
+  if (inTauri) return listenAll(["health:sync", "health:changed"], quietly);
+  const t = setInterval(quietly, 2000);
   return () => clearInterval(t);
 }
 
 /** Calls `fn` after every committed write (SSE through the shell in Tauri; polling in the browser). */
 export function onChange(fn: () => void): () => void {
-  if (inTauri) return listenAll(["health:changed", "health:unlocked", "health:locked", "health:status"], fn);
-  const t = setInterval(fn, 5000);
+  const quietly = () => inBackground(fn);
+  if (inTauri) return listenAll(["health:changed", "health:unlocked", "health:locked", "health:status"], quietly);
+  const t = setInterval(quietly, 5000);
   return () => clearInterval(t);
 }
 
@@ -390,6 +412,12 @@ export interface FdSession {
   test: string;
   trials: Measurement[];
   best: number;
+}
+
+/** A staged copy that has been imported or put aside, removed (the shell removes only its own copies: a computer's
+ *  path is the person's own file). */
+export function unstageFile(path?: string) {
+  if (path && inTauri) invoke("unstage_file", { path }).catch(() => {});
 }
 
 /** A file the person picked, photographed or dropped in the page, handed to the core as a path it can import

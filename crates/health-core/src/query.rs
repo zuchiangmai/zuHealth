@@ -145,8 +145,16 @@ pub fn metric_search(c: &Db, scope: &Scope, q: &str, limit: i64, codes: &[String
             break;
         }
         let (m, aliases) = row?;
-        let hay = format!("{} {} {}", m.name.to_lowercase(), m.code.to_lowercase(), aliases.to_lowercase());
-        if words.iter().all(|w| hay.contains(w.as_str())) && fits(&m) && !out.iter().any(|o| o.code == m.code) {
+        let named = format!("{} {}", m.name.to_lowercase(), m.code.to_lowercase());
+        let hay = format!("{named} {}", aliases.to_lowercase());
+        // aliases are names printed on the person's own reports: a match through one alone says they had that test,
+        // so it counts only within the scope (a catalog measure is otherwise listable to anyone)
+        let by_alias = !words.iter().all(|w| named.contains(w.as_str()));
+        if words.iter().all(|w| hay.contains(w.as_str()))
+            && fits(&m)
+            && (!by_alias || scope.allows(&m.code))
+            && !out.iter().any(|o| o.code == m.code)
+        {
             out.push(m);
         }
     }
@@ -425,4 +433,36 @@ pub fn withheld(c: &Db, scope: &Scope) -> Result<Withheld> {
         }
     }
     Ok(w)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::access::GrantSpec;
+    use crate::keys::MemoryStore;
+    use crate::profile::Profile;
+
+    /// An alias is a name printed on the person's own report: a grant without that measure's group finds nothing
+    /// through it (it would tell the agent the person had the test), while the owner still does
+    #[test]
+    fn a_printed_name_finds_a_measure_only_within_the_grant() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = Profile::init(dir.path(), "a", &MemoryStore::default()).unwrap();
+        p.db.execute(
+            "INSERT INTO metric_alias (alias, unit, metric_id) SELECT 'hcv load', '', id FROM metric WHERE code = 'loinc:11011-4'",
+            [],
+        )
+        .unwrap();
+        let spec: GrantSpec = serde_json::from_value(serde_json::json!({
+            "name": "t", "groups": ["body"], "detail": true, "window": "all", "reports": false, "write": "none", "expires_ms": i64::MAX
+        }))
+        .unwrap();
+        let codes = |scope: &Scope, q: &str| -> Vec<String> {
+            metric_search(&p.db, scope, q, 20, &[], false).unwrap().into_iter().map(|m| m.code).collect()
+        };
+        assert_eq!(codes(&Scope::all(), "hcv load"), ["loinc:11011-4"]);
+        assert!(codes(&Scope::of(&spec, 0), "hcv load").is_empty());
+        // the catalog by its own name stays public
+        assert!(codes(&Scope::of(&spec, 0), "Hepatitis C virus RNA").contains(&"loinc:11011-4".to_string()));
+    }
 }

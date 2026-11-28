@@ -14,7 +14,7 @@ plugins/tauri-plugin-health-platform   native services for mobile (now: root key
 
 - Commands: `op`, `unlock`, `init_profile`, `clear_data`, `core_path`, `agent_clients`, `connect_agent`, `ocr_status`,
   `ocr_install`, `set_language`, `open_link`, `shell_info`; for files on phones: `stage_file` (bytes the system
-  picker or the camera gave, written to the app's cache, returned as a path the import ops take), `export_path`
+  picker or the camera gave, written to the app's cache, returned as a path the import ops take; `unstage_file` removes it once imported or put aside), `export_path`
   (where an export is written) and `share_file` (the system share sheet).
 - Events: `health:status` (`{ up, locked?, need_init?, error? }`), `health:changed`, `health:locked`,
   `health:unlocked`, `health:sync`, `health:whoop`, `menu`.
@@ -58,6 +58,8 @@ plugins/tauri-plugin-health-platform   native services for mobile (now: root key
   OCR runs on the device.
 - Export (CSV, backup, decision 106): asked for first (password, choices), then saved where the person chooses: the
   desktop's save dialog; on a phone, written in the app's cache, then the system share sheet (save to Files, send).
+- Plain copies in the cache (a staged file, an export) don't outlive their use: one staged file at a time, removed
+  once imported; exports kept an hour (the receiving app reads later); both folders emptied at start and with the data.
 - Look: Konsta UI on Tailwind (decision 103): iOS's on iPhone, iPad and desktop, Material's on Android.
 - Layout (any narrow window, decisions 88, 97): under 760 px wide, a floating tab bar at the bottom (Dashboard, Add,
   More) instead of the side panel; every screen has an address and one way back at the top (decisions 105, 106). Wider (desktop, iPad) keeps the
@@ -69,7 +71,8 @@ plugins/tauri-plugin-health-platform   native services for mobile (now: root key
 
 `lock_after_ms: Some(5 min)` on mobile, `None` on desktop. A cold start with a profile starts locked; `Suspended`
 records the time (one atomic store); `Resumed` / `Focused(true)` clear it on a worker thread and close the profile
-first if the grace period has passed; every call checks too. This gives "no access after expiry", not "key wiped at
+first if the grace period has passed; every call and LAN sync's use of the data check too. Past the grace period the
+mark stays until `Resumed`: `unlock` is refused meanwhile, and the UI doesn't unlock while it's hidden. This gives "no access after expiry", not "key wiped at
 expiry". Reopening runs the core's writer-open recovery, which sweeps `tmp/`: plan P1c changes that in the core.
 The UI unlocks as soon as it sees the lock, behind a "Decrypting your data" wait (decision 90): nothing to tap.
 

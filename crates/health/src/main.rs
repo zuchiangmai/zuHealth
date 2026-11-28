@@ -882,6 +882,10 @@ fn run(cli: &Cli) -> Result<Value> {
                 // the passphrase first, as on the direct path, so stdin lines mean the same either way
                 let auth = owner_auth(cli, &pdir, &s)?;
                 let (name, mut req) = request(&cli.cmd, now)?;
+                // a network op named directly (`health op whoop.sync`): a running serve wasn't started --offline
+                if cli.offline && health_api::account::find_net(&name).is_some() {
+                    return Err(usage("offline", "offline: nothing is sent to the health service"));
+                }
                 if name == "import.ocr" {
                     ocr::fill(&dir, &mut req, time::year(now))?;
                 }

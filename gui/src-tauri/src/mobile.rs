@@ -21,11 +21,12 @@ fn runtime(_app: &AppHandle) -> std::result::Result<Arc<Runtime>, Value> {
 }
 
 #[tauri::command(async)]
-pub(crate) fn op(app: AppHandle, name: String, req: Value) -> std::result::Result<Value, Value> {
+pub(crate) fn op(app: AppHandle, name: String, req: Value, background: Option<bool>) -> std::result::Result<Value, Value> {
     if !name.chars().all(|c| c.is_ascii_lowercase() || c == '.' || c == '_') || name.starts_with("runtime.") {
         return Err(json!({ "code": "no_op", "message": name }));
     }
-    runtime(&app)?.owner(&name, &req, Opts::default()).map(|o| o.value).map_err(|e| error_json(&e))
+    let opts = Opts { background: background == Some(true), ..Opts::default() };
+    runtime(&app)?.owner(&name, &req, opts).map(|o| o.value).map_err(|e| error_json(&e))
 }
 
 /// The passphrase is unused on mobile: Face ID / fingerprint / device passcode goes here, before the runtime opens.
@@ -42,7 +43,9 @@ pub(crate) fn init_profile(app: AppHandle) -> std::result::Result<(), Value> {
 
 #[tauri::command(async)]
 pub(crate) fn clear_data(app: AppHandle, confirm: String) -> std::result::Result<(), Value> {
-    runtime(&app)?.owner("runtime.wipe", &json!({ "confirm": confirm }), Opts::default()).map(|_| ()).map_err(|e| error_json(&e))
+    runtime(&app)?.owner("runtime.wipe", &json!({ "confirm": confirm }), Opts::default()).map_err(|e| error_json(&e))?;
+    crate::clear_cache(&app);
+    Ok(())
 }
 
 /// Desktop-only commands: agents connect to a phone through its own LAN interface, not an MCP config here.
@@ -169,6 +172,7 @@ pub(crate) fn run(builder: tauri::Builder<Wry>) {
             if RUNTIME.get().is_some() {
                 return Ok(()); // a rebuilt activity: the runtime is already up
             }
+            crate::clear_cache(&handle); // what the last run staged or exported
             let data_dir = app.path().app_data_dir()?;
             std::thread::spawn(move || {
                 let recognize = health_runtime::ocr::in_process(&data_dir, |page, pages| {

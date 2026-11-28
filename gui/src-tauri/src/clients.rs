@@ -93,7 +93,7 @@ pub fn connect(r: &Roots, id: &str, bin: &str, token: &str) -> Result<PathBuf, S
     }
     let tmp = dir.join(format!(".{name}.health-tmp"));
     let text = serde_json::to_string_pretty(&doc).map_err(|e| e.to_string())? + "\n";
-    write_private(&tmp, &text, old.is_some().then_some(file.as_path())).map_err(|e| e.to_string())?;
+    write_private(&tmp, &text).map_err(|e| e.to_string())?;
     std::fs::rename(&tmp, &file).map_err(|e| {
         let _ = std::fs::remove_file(&tmp);
         e.to_string()
@@ -101,9 +101,8 @@ pub fn connect(r: &Roots, id: &str, bin: &str, token: &str) -> Result<PathBuf, S
     Ok(file)
 }
 
-/// Writes `text` to a file created owner-only (the token is in it); when replacing a file, then takes on its
-/// permissions.
-fn write_private(p: &Path, text: &str, like: Option<&Path>) -> std::io::Result<()> {
+/// Writes `text` to a file created owner-only (the token is in it), also when it replaces a file others could read.
+fn write_private(p: &Path, text: &str) -> std::io::Result<()> {
     use std::io::Write;
     let _ = std::fs::remove_file(p);
     let mut o = std::fs::OpenOptions::new();
@@ -113,9 +112,6 @@ fn write_private(p: &Path, text: &str, like: Option<&Path>) -> std::io::Result<(
     let mut f = o.open(p)?;
     f.write_all(text.as_bytes())?;
     f.sync_all()?;
-    if let Some(l) = like {
-        std::fs::set_permissions(p, std::fs::metadata(l)?.permissions())?;
-    }
     Ok(())
 }
 
@@ -170,6 +166,19 @@ mod tests {
         let bak = real.with_file_name("mcp.json.health-bak");
         assert_eq!(std::fs::read_to_string(&bak).unwrap(), r#"{"mcpServers":{}}"#, "the first original is kept");
         assert_eq!(std::fs::metadata(&bak).unwrap().permissions().mode() & 0o777, 0o600);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_readable_file_becomes_private_once_it_holds_the_token() {
+        use std::os::unix::fs::PermissionsExt;
+        let r = roots("open");
+        let f = r.home.join(".cursor/mcp.json");
+        std::fs::create_dir_all(f.parent().unwrap()).unwrap();
+        std::fs::write(&f, r#"{"mcpServers":{}}"#).unwrap();
+        std::fs::set_permissions(&f, std::fs::Permissions::from_mode(0o644)).unwrap();
+        connect(&r, "cursor", "/b", "hk").unwrap();
+        assert_eq!(std::fs::metadata(&f).unwrap().permissions().mode() & 0o777, 0o600);
     }
 
     #[test]
