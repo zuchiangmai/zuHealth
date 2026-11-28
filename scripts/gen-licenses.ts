@@ -3,7 +3,7 @@
 // interface bundles. Writes gui/src/licenses.json. Run after changing dependencies:
 //   bun scripts/gen-licenses.ts
 // The hand-written part (main components with their copyright lines, models, data, LOINC notice) is in
-// gui/src/About.tsx.
+// gui/src/screens/about.tsx.
 import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { homedir } from "node:os";

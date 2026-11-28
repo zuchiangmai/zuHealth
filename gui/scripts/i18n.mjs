@@ -6,7 +6,8 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const src = new URL("../src/", import.meta.url).pathname;
-const files = readdirSync(src).filter((f) => /\.(ts|tsx)$/.test(f));
+// every source file, screens/ included
+const files = readdirSync(src, { recursive: true }).filter((f) => /\.(ts|tsx)$/.test(f));
 const keys = new Set();
 const plural = new Set();
 for (const f of files) {
