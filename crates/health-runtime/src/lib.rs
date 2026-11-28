@@ -589,6 +589,19 @@ impl Runtime {
         })
     }
 
+    /// Saves a sync's progress, keeping whether this device is connected as it is now (a disconnect during the
+    /// sync stands).
+    fn syshealth_save_progress(&self, st: &health_core::syncstate::SystemHealthState) -> Result<()> {
+        let p = self.lock_profile();
+        let profile = p.as_ref().ok_or_else(|| self.closed_error())?;
+        profile.sync.update(|s| {
+            let on = s.system_health.as_ref().is_some_and(|h| h.on);
+            let connected_at_ms = s.system_health.as_ref().map_or(0, |h| h.connected_at_ms);
+            s.system_health = Some(health_core::syncstate::SystemHealthState { on, connected_at_ms, ..st.clone() });
+            Ok(())
+        })
+    }
+
     fn syshealth_status(&self) -> Result<Value> {
         let Some(store) = self.platform.system_health.as_deref() else { return Ok(json!({ "kind": null })) };
         let (st, me) = self.syshealth_state()?;
@@ -603,7 +616,8 @@ impl Runtime {
             "on": st.on,
             "last_sync_ms": (st.last_sync_ms > 0).then_some(st.last_sync_ms),
             "history_left": st.backfill_to_ms.is_some(),
-            "other_reader": other.map(|(id, name, at)| json!({ "id": id, "name": name, "at": at })),
+            "other_reader": other.map(|o| json!({ "id": o.id, "name": o.name, "at": o.at })),
+            "last_error": st.last_error,
         }))
     }
 
@@ -615,20 +629,25 @@ impl Runtime {
         }
         let (mut st, me) = self.syshealth_state()?;
         let now = (self.platform.now_ms)();
-        if !take_over {
+        let other = {
             let p = self.lock_profile();
             let profile = p.as_ref().ok_or_else(|| self.closed_error())?;
-            if let Some((_, name, at)) = syshealth::other_reader(&profile.db, &me)?
-                && at > now - 14 * syshealth_day()
-            {
-                return Ok(json!({ "other_reader": name }));
-            }
+            syshealth::other_reader(&profile.db, &me)?
+        };
+        if !take_over
+            && let Some(o) = &other
+            && o.at > now - 14 * syshealth_day()
+        {
+            return Ok(json!({ "other_reader": o.name }));
         }
         store.authorize().map_err(|e| Error::other("system_health", e))?;
         st.on = true;
-        // a device taking over goes on from what was read (the imports' spans hold it): its own window reads the
-        // last 36 hours again; history before its first sync is the other reader's
-        if take_over && st.synced_to_ms == 0 {
+        // connected last, so this device reads now; the other stops at its next sync
+        st.connected_at_ms = now;
+        // a device taking over from a reader of the same store goes on from what was read: its own window reads the
+        // last 36 hours again; history before its first sync is the other reader's (another store: all of it)
+        let parser = if store.kind() == "healthkit" { "healthkit-1" } else { "health-connect-1" };
+        if take_over && st.synced_to_ms == 0 && other.as_ref().is_some_and(|o| o.parser == parser) {
             st.synced_to_ms = now;
             st.backfill_to_ms = None;
         }
@@ -646,7 +665,12 @@ impl Runtime {
     /// One sync, if this device reads: the recent days, the days the store says changed, a step of history.
     fn syshealth_sync(&self) -> Result<Value> {
         static ONE: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        let Ok(_one) = ONE.try_lock() else { return Ok(json!({ "busy": true })) };
+        let _one = match ONE.try_lock() {
+            Ok(g) => g,
+            // a sync that panicked holds nothing: go on
+            Err(std::sync::TryLockError::Poisoned(p)) => p.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => return Ok(json!({ "busy": true })),
+        };
         let store = self.store()?;
         let (mut st, me) = self.syshealth_state()?;
         if !st.on {
@@ -657,41 +681,54 @@ impl Runtime {
         {
             let p = self.lock_profile();
             let profile = p.as_ref().ok_or_else(|| self.closed_error())?;
-            if let Some((_, name, at)) = syshealth::other_reader(&profile.db, &me)?
-                && st.last_sync_ms > 0
-                && at > st.last_sync_ms
+            if let Some(o) = syshealth::other_reader(&profile.db, &me)?
+                && o.connected_at > st.connected_at_ms
             {
                 drop(p);
                 st.on = false;
                 self.syshealth_save(&st)?;
-                return Ok(serde_json::to_value(syshealth::Report { moved_to: Some(name), ..Default::default() })?);
+                return Ok(serde_json::to_value(syshealth::Report { moved_to: Some(o.name), ..Default::default() })?);
             }
         }
         let parser = if store.kind() == "healthkit" { "healthkit-1" } else { "health-connect-1" };
-        let w = LockedWriter { rt: self, parser, reader: &me, reader_name: &self.platform.device_name, now_ms: now };
-        let report = syshealth::sync(store, &mut st, &w, now);
-        // progress is kept whatever happened (a locked phone stops HealthKit midway: the next sync goes on)
-        self.syshealth_save(&st)?;
-        let mut report = report?;
+        let w = LockedWriter {
+            rt: self,
+            parser,
+            reader: &me,
+            reader_name: &self.platform.device_name,
+            connected_at_ms: st.connected_at_ms,
+            now_ms: now,
+        };
+        let result = syshealth::sync(store, &mut st, &w, now);
+        // the state moves on only for what was read (sync() leaves it where it was otherwise); the error, kept
+        // for the card, since syncs on their own tell no one
+        st.last_error = result.as_ref().err().map(|e| e.to_string());
+        self.syshealth_save_progress(&st)?;
+        let mut report = result?;
+        if report.written > 0 || report.rebuilt > 0 {
+            self.emit("changed", json!({ "op": "syshealth.sync" }));
+        }
         // then the lab's body composition, so the store holds what the data holds: compared with what the store
         // has from this app (not a local list, which could be lost), missing ones written, changed ones rewritten,
-        // gone ones deleted. A refusal (access taken back) leaves it for the next sync.
+        // gone ones deleted. A refusal (no write access) is told, and the reading stands.
         let want = {
             let p = self.lock_profile();
             let profile = p.as_ref().ok_or_else(|| self.closed_error())?;
             health_core::syshealth::wanted(&profile.db, store.kind())?
         };
-        let have = store.own().map_err(|e| Error::other("system_health", e))?;
-        let (delete, write) = health_core::syshealth::reconcile(&want, &have);
-        if !delete.is_empty() {
-            store.delete(&delete).map_err(|e| Error::other("system_health", e))?;
-        }
-        if !write.is_empty() {
-            store.write(&write).map_err(|e| Error::other("system_health", e))?;
-        }
-        (report.wrote, report.removed) = (write.len() as u64, delete.len() as u64);
-        if report.written > 0 {
-            self.emit("changed", json!({ "op": "syshealth.sync" }));
+        let written = store.own().and_then(|have| {
+            let (delete, write) = health_core::syshealth::reconcile(&want, &have);
+            if !delete.is_empty() {
+                store.delete(&delete)?;
+            }
+            if !write.is_empty() {
+                store.write(&write)?;
+            }
+            Ok((write.len() as u64, delete.len() as u64))
+        });
+        match written {
+            Ok((wrote, removed)) => (report.wrote, report.removed) = (wrote, removed),
+            Err(e) => report.write_error = Some(e),
         }
         Ok(serde_json::to_value(report)?)
     }
@@ -707,36 +744,38 @@ struct LockedWriter<'a> {
     parser: &'a str,
     reader: &'a str,
     reader_name: &'a str,
+    connected_at_ms: i64,
     now_ms: i64,
 }
 
-impl syshealth::Writer for LockedWriter<'_> {
-    fn day(&self, key: &syshealth::SourceKey, day: i64, rows: &[health_core::write::ObsRow]) -> Result<(u64, bool)> {
+impl LockedWriter<'_> {
+    fn with<T>(&self, write: bool, f: impl FnOnce(&syshealth::ProfileWriter) -> Result<T>) -> Result<T> {
         let p = self.rt.lock_profile();
         let profile = p.as_ref().ok_or_else(|| self.rt.closed_error())?;
-        if !profile.is_writer() {
+        if write && !profile.is_writer() {
             return Err(Error::other("not_writer", "write op on a read-only profile"));
         }
-        syshealth::ProfileWriter {
+        f(&syshealth::ProfileWriter {
             db: &profile.db,
             parser: self.parser,
             reader: self.reader,
             reader_name: self.reader_name,
+            connected_at_ms: self.connected_at_ms,
             now_ms: self.now_ms,
-        }
-        .day(key, day, rows)
+        })
+    }
+}
+
+impl syshealth::Writer for LockedWriter<'_> {
+    fn day(&self, key: &syshealth::SourceKey, day: i64, rows: &[health_core::write::ObsRow]) -> Result<(u64, bool, u64)> {
+        self.with(true, |w| w.day(key, day, rows))
+    }
+
+    fn held_days(&self, from_day: i64, to_day: i64) -> Result<Vec<(syshealth::SourceKey, i64)>> {
+        self.with(false, |w| w.held_days(from_day, to_day))
     }
 
     fn export_ends(&self, key: &syshealth::SourceKey) -> Result<std::collections::BTreeMap<String, i64>> {
-        let p = self.rt.lock_profile();
-        let profile = p.as_ref().ok_or_else(|| self.rt.closed_error())?;
-        syshealth::ProfileWriter {
-            db: &profile.db,
-            parser: self.parser,
-            reader: self.reader,
-            reader_name: self.reader_name,
-            now_ms: self.now_ms,
-        }
-        .export_ends(key)
+        self.with(false, |w| w.export_ends(key))
     }
 }

@@ -120,18 +120,27 @@ pub fn write_derived(c: &Db, scope: &Scope, writer: &str, d: &Derive, now_ms: i6
                 return Err(Error::new(crate::Kind::Denied, "out_of_scope", format!("{} is not in this grant", i.metric)));
             }
             // only the data this grant may read; whether any of it is the system's health data
-            let mut st = c.prepare(&format!(
-                "SELECT DISTINCT im.uid, o.source_id IN ({}) FROM v_observation o JOIN import im ON im.id = o.import_id
+            let mut st = c.prepare(
+                "SELECT DISTINCT im.uid FROM v_observation o JOIN import im ON im.id = o.import_id
                   WHERE o.metric_id = (SELECT id FROM metric WHERE code = ?1) AND o.start_ms BETWEEN ?2 AND ?3
                     AND (?4 IS NULL OR o.source_id NOT IN (SELECT value FROM json_each(?4))) LIMIT 1000",
-                crate::scope::SYSTEM_SOURCES
-            ))?;
+            )?;
             let (a, b) = (i.from_ms.max(scope.from_ms), i.to_ms.min(scope.to_ms));
-            for r in st.query_map(rusqlite::params![i.metric, a, b, scope.hidden_sources(c)?], |r| {
-                Ok((r.get::<_, String>(0)?, r.get::<_, bool>(1)?))
-            })? {
-                let (u, system) = r?;
-                from_system |= system;
+            let hidden = scope.hidden_sources(c)?;
+            // over the whole range, not the first 1000 imports the uids list keeps
+            if !from_system && scope.system_health {
+                from_system = c.query_row(
+                    &format!(
+                        "SELECT EXISTS (SELECT 1 FROM v_observation o WHERE o.metric_id = (SELECT id FROM metric WHERE code = ?1)
+                            AND o.start_ms BETWEEN ?2 AND ?3 AND o.source_id IN ({}))",
+                        crate::scope::SYSTEM_SOURCES
+                    ),
+                    rusqlite::params![i.metric, a, b],
+                    |r| r.get(0),
+                )?;
+            }
+            for r in st.query_map(rusqlite::params![i.metric, a, b, hidden], |r| r.get::<_, String>(0))? {
+                let u = r?;
                 if !uids.contains(&u) {
                     uids.push(u);
                 }

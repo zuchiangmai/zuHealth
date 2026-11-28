@@ -169,6 +169,32 @@ pub struct DayOutcome {
     pub fresh: bool,
     /// the day's earlier import was erased: a row went down or away
     pub rebuilt: bool,
+    /// rows left out: an unknown measure or unit, a bad offset (like `write`, which counts and goes on)
+    pub skipped: u64,
+}
+
+/// R1's order for two rows at one key (merge::newer_row): typeof, then value, end_ms, tz_min (no detail here).
+fn r1_cmp(a: &(Value, ObsRow), b: &(Value, ObsRow)) -> std::cmp::Ordering {
+    let rank = |v: &Value| match v {
+        Value::Int(_) => 1,
+        Value::Null => 2,
+        Value::Real(_) => 3,
+        Value::Text(_) => 4,
+    };
+    let num = |v: &Value| match v {
+        Value::Int(i) => *i as f64,
+        Value::Real(f) => *f,
+        _ => 0.0,
+    };
+    rank(&a.0)
+        .cmp(&rank(&b.0))
+        .then(num(&a.0).total_cmp(&num(&b.0)))
+        .then_with(|| match (&a.0, &b.0) {
+            (Value::Text(x), Value::Text(y)) => x.cmp(y),
+            _ => std::cmp::Ordering::Equal,
+        })
+        .then(a.1.end_ms.cmp(&b.1.end_ms))
+        .then(a.1.tz_min.cmp(&b.1.tz_min))
 }
 
 /// One UTC day of one source, read whole from the system (HealthKit or Health Connect).
@@ -181,6 +207,8 @@ pub struct SyncDay<'a> {
     /// the device that read it, and its name
     pub reader: &'a str,
     pub reader_name: &'a str,
+    /// when the reader was connected (`SystemHealthState::connected_at_ms`)
+    pub connected_at_ms: i64,
     /// every row of the day, as converted for the catalog by `apple::Parser::record` or `rows`
     pub rows: &'a [ObsRow],
 }
@@ -198,13 +226,14 @@ type Stored = (Value, Option<i64>, i64, Option<String>, i64, String);
 /// to a new import above it. A row already holding the same value is not written, so an export's rows stay with
 /// the export. All in one transaction: a crash never leaves a running import to be erased at the next open.
 pub fn sync_day(c: &crate::db::Db, d: &SyncDay, now_ms: i64) -> crate::error::Result<DayOutcome> {
-    use crate::db::{one, tx};
+    use crate::db::tx;
     use crate::error::Error;
     use crate::write::{Begin, begin, check_row, finish, metric_by_code, source_id, write};
     let lo = d.day * DAY_MS;
     if let Some(r) = d.rows.iter().find(|r| r.start_ms < lo || r.start_ms >= lo + DAY_MS) {
         return Err(Error::invalid("bad_request", format!("{} at {} is outside day {}", r.metric, r.start_ms, d.day)));
     }
+    use rusqlite::OptionalExtension;
     tx(c, || {
         let sid = source_id(c, d.source)?;
         let held: Option<(i64, String)> = c
@@ -214,7 +243,30 @@ pub fn sync_day(c: &crate::db::Db, d: &SyncDay, now_ms: i64) -> crate::error::Re
                 rusqlite::params![sid, d.parser, d.day],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
-            .ok();
+            .optional()?;
+        // rows the catalog takes, as stored (catalog unit), one per (measure, start): the R1 winner, so two
+        // samples at one key don't make the day flip between them sync after sync
+        let mut skipped = 0u64;
+        let mut by_key: std::collections::BTreeMap<(String, i64), (Value, ObsRow, crate::write::MetricRow)> = Default::default();
+        for r in d.rows {
+            let Some(m) = metric_by_code(c, &r.metric)? else {
+                skipped += 1;
+                continue;
+            };
+            let Ok(v) = check_row(&m, r) else {
+                skipped += 1;
+                continue;
+            };
+            let k = (r.metric.clone(), r.start_ms);
+            let keep = match by_key.get(&k) {
+                Some((ov, or, _)) => r1_cmp(&(v.clone(), r.clone()), &(ov.clone(), or.clone())).is_gt(),
+                None => true,
+            };
+            if keep {
+                by_key.insert(k, (v, r.clone(), m));
+            }
+        }
+        let valid: Vec<ObsRow> = by_key.values().map(|(_, r, _)| r.clone()).collect();
         let newer = format!(
             "SELECT {} FROM (SELECT ?1 AS value, ?2 AS end_ms, ?3 AS tz_min, NULL AS detail) n, observation o
               WHERE o.metric_id = ?4 AND o.start_ms = ?5 AND o.source_id = ?6",
@@ -222,10 +274,8 @@ pub fn sync_day(c: &crate::db::Db, d: &SyncDay, now_ms: i64) -> crate::error::Re
         );
         let (mut fresh, mut rebuilt) = (held.is_none(), false);
         let mut todo: Vec<&ObsRow> = Vec::new();
-        for r in d.rows {
-            let m = metric_by_code(c, &r.metric)?.ok_or_else(|| Error::invalid("unknown_metric", r.metric.clone()))?;
-            // as it would be stored (catalog unit), to compare with what is
-            let v = check_row(&m, r).map_err(|e| Error::invalid("bad_row", format!("{}: {e:?}", r.metric)))?;
+        for (v, r, m) in by_key.values() {
+            let v = v.clone();
             let stored: Option<Stored> = c
                 .query_row(
                     "SELECT o.value, o.end_ms, o.tz_min, o.detail, o.import_id, i.uid FROM observation o JOIN import i ON i.id = o.import_id
@@ -233,13 +283,15 @@ pub fn sync_day(c: &crate::db::Db, d: &SyncDay, now_ms: i64) -> crate::error::Re
                     rusqlite::params![m.id, r.start_ms, sid],
                     |x| Ok((x.get(0)?, x.get(1)?, x.get(2)?, x.get(3)?, x.get(4)?, x.get(5)?)),
                 )
-                .ok();
+                .optional()?;
             let Some((sv, se, stz, sd, owner, owner_uid)) = stored else {
                 todo.push(r);
                 continue;
             };
-            if sv == v && se == r.end_ms && stz == r.tz_min && sd.is_none() {
-                continue; // the same: left with whichever import holds it
+            // the same: left with whichever import holds it. An instant keeps the offset it was stored with
+            // (plan §二): a sample without its own zone gets the phone's, which changes when the person travels.
+            if sv == v && se == r.end_ms && sd.is_none() && (stz == r.tz_min || r.end_ms.is_none()) {
+                continue;
             }
             match &held {
                 Some((id, _)) if owner == *id => {
@@ -247,45 +299,51 @@ pub fn sync_day(c: &crate::db::Db, d: &SyncDay, now_ms: i64) -> crate::error::Re
                     rebuilt |= !wins;
                 }
                 Some((_, uid)) if owner_uid > *uid => fresh = true,
-                None if one::<i64>(c, "SELECT 1 FROM import WHERE id = ? AND parser = ?", rusqlite::params![owner, d.parser])?
-                    .is_some() =>
-                {
-                    fresh = true
-                }
                 _ => {}
             }
             todo.push(r);
         }
         // a row the day's import holds that the read no longer has: gone from the system
+        // (by the primary key, a measure at a time: observation has no index on import_id)
         if let Some((id, _)) = &held {
-            let keys: Vec<(String, i64)> = d.rows.iter().map(|r| (r.metric.clone(), r.start_ms)).collect();
-            let mut st =
-                c.prepare("SELECT m.code, o.start_ms FROM observation o JOIN metric m ON m.id = o.metric_id WHERE o.import_id = ?")?;
-            for k in st.query_map([id], |x| Ok((x.get::<_, String>(0)?, x.get::<_, i64>(1)?)))? {
-                if !keys.contains(&k?) {
-                    rebuilt = true;
-                    break;
+            let meta: Option<String> = c.query_row("SELECT meta FROM import WHERE id = ?", [id], |x| x.get(0))?;
+            let mut st = c.prepare(
+                "SELECT o.start_ms FROM observation o WHERE o.metric_id = ? AND o.start_ms >= ? AND o.start_ms < ?
+                   AND o.source_id = ? AND o.import_id = ?",
+            )?;
+            'held: for (metric_id, _) in crate::write::span_of(&crate::write::parse_meta(meta)) {
+                let code: String = c.query_row("SELECT code FROM metric WHERE id = ?", [metric_id], |x| x.get(0))?;
+                for t in st.query_map(rusqlite::params![metric_id, lo, lo + DAY_MS, sid, id], |x| x.get::<_, i64>(0))? {
+                    if !by_key.contains_key(&(code.clone(), t?)) {
+                        rebuilt = true;
+                        break 'held;
+                    }
                 }
             }
         }
         let rows: Vec<ObsRow> = if rebuilt {
-            // anew: every row of the day
+            // anew: every row of the day (none left: the day is only erased)
             crate::erase::erase(c, held.as_ref().expect("held").0, now_ms)?;
+            if valid.is_empty() {
+                return Ok(DayOutcome { import_id: held.as_ref().expect("held").0, written: 0, fresh: false, rebuilt, skipped });
+            }
             fresh = true;
-            d.rows.to_vec()
+            valid.clone()
         } else if fresh {
-            d.rows.to_vec()
+            valid.clone()
         } else {
             todo.into_iter().cloned().collect()
         };
-        if rows.is_empty() && !fresh {
-            return Ok(DayOutcome { import_id: held.as_ref().expect("held").0, written: 0, fresh, rebuilt });
+        if rows.is_empty() {
+            // nothing the catalog takes, or nothing new
+            return Ok(DayOutcome { import_id: held.as_ref().map_or(0, |h| h.0), written: 0, fresh: false, rebuilt, skipped });
         }
         let import_id = if fresh {
             let (id, _) = begin(c, Begin { source: d.source, parser: d.parser, blob: None, uid: None, candidates: None }, now_ms)?;
             c.execute(
-                "UPDATE import SET meta = json_set(coalesce(meta, '{}'), '$.day', ?, '$.reader', ?, '$.reader_name', ?) WHERE id = ?",
-                rusqlite::params![d.day, d.reader, d.reader_name, id],
+                "UPDATE import SET meta = json_set(coalesce(meta, '{}'), '$.day', ?, '$.reader', ?, '$.reader_name', ?, '$.connected_at', ?)
+                  WHERE id = ?",
+                rusqlite::params![d.day, d.reader, d.reader_name, d.connected_at_ms, id],
             )?;
             id
         } else {
@@ -295,7 +353,7 @@ pub fn sync_day(c: &crate::db::Db, d: &SyncDay, now_ms: i64) -> crate::error::Re
         };
         let res = write(c, import_id, &rows)?;
         finish(c, import_id, now_ms)?;
-        Ok(DayOutcome { import_id, written: res.written as u64, fresh, rebuilt })
+        Ok(DayOutcome { import_id, written: res.written as u64, fresh, rebuilt, skipped })
     })
 }
 
@@ -477,8 +535,12 @@ mod tests {
             detail: None,
         };
         let sync = |rows: &[ObsRow]| {
-            sync_day(&p.db, &SyncDay { source: &src, parser: "healthkit-1", day, reader: "d1", reader_name: "iPhone", rows }, t + DAY_MS)
-                .unwrap()
+            sync_day(
+                &p.db,
+                &SyncDay { source: &src, parser: "healthkit-1", day, reader: "d1", reader_name: "iPhone", connected_at_ms: 1, rows },
+                t + DAY_MS,
+            )
+            .unwrap()
         };
         let live = || -> i64 {
             p.db.query_row("SELECT count(*) FROM import WHERE parser = 'healthkit-1' AND status = 'done'", [], |r| r.get(0)).unwrap()
@@ -506,6 +568,14 @@ mod tests {
         assert_eq!((live(), erased()), (1, 2));
         let n: i64 = p.db.query_row("SELECT count(*) FROM v_observation", [], |r| r.get(0)).unwrap();
         assert_eq!(n, 2);
+        // two samples at one key: the R1 winner, the same every time (no rebuild loop); a measure the catalog
+        // doesn't know: left out and counted; an instant read with another offset (travel): left as stored
+        let unknown = ObsRow { metric: "x:no_such_measure".into(), ..hr(0, 1) };
+        let moved = ObsRow { tz_min: 0, ..hr(0, 60) };
+        for _ in 0..2 {
+            let f = sync(&[hr(0, 59), moved.clone(), steps(120), unknown.clone()]);
+            assert_eq!((f.written, f.rebuilt, f.skipped), (0, false, 1));
+        }
 
         // an export imported afterwards (a newer uid) holds the hour: a changed read goes to a new import above it
         let (zip, _) =
@@ -523,11 +593,43 @@ mod tests {
             .unwrap();
         assert_eq!(v, 63);
 
+        // every sample of a day deleted in the system: the day is erased, no empty import left
+        let src2 = SourceSpec::new("apple_health", "Scale");
+        let w = ObsRow { metric: "loinc:29463-7".into(), unit: Some("kg".into()), value: Value::Real(70.5), ..hr(0, 0) };
+        let one_day = |rows: &[ObsRow]| {
+            sync_day(
+                &p.db,
+                &SyncDay { source: &src2, parser: "healthkit-1", day, reader: "d1", reader_name: "iPhone", connected_at_ms: 1, rows },
+                t + DAY_MS,
+            )
+            .unwrap()
+        };
+        assert!(one_day(std::slice::from_ref(&w)).fresh);
+        let g = one_day(&[]);
+        assert!(g.rebuilt && !g.fresh);
+        let left: i64 =
+            p.db.query_row(
+                "SELECT count(*) FROM v_observation WHERE metric_id = (SELECT id FROM metric WHERE code = 'loinc:29463-7')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(left, 0);
+        assert!(!one_day(&[]).rebuilt, "nothing held any more");
+
         // a row outside the day is refused
         assert!(
             sync_day(
                 &p.db,
-                &SyncDay { source: &src, parser: "healthkit-1", day, reader: "d1", reader_name: "iPhone", rows: &[hr(DAY_MS, 1)] },
+                &SyncDay {
+                    source: &src,
+                    parser: "healthkit-1",
+                    day,
+                    reader: "d1",
+                    reader_name: "iPhone",
+                    connected_at_ms: 1,
+                    rows: &[hr(DAY_MS, 1)]
+                },
                 t
             )
             .is_err()

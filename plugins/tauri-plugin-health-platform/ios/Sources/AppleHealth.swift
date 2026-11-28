@@ -53,7 +53,8 @@ private func offsetMinutes(_ s: HKSample) -> Int {
   return TimeZone.current.secondsFromGMT(for: s.startDate) / 60
 }
 
-private func ms(_ d: Date) -> Double { (d.timeIntervalSince1970 * 1000).rounded() }
+/// Whole milliseconds, as an integer (the runtime reads i64)
+private func ms(_ d: Date) -> Int64 { Int64((d.timeIntervalSince1970 * 1000).rounded(.down)) }
 
 extension PlatformPlugin {
   @objc public func healthAvailable(_ invoke: Invoke) throws {
@@ -68,8 +69,26 @@ extension PlatformPlugin {
     }
   }
 
+  /// Where history starts: the oldest sample of a read type (one sample each, oldest first), not before what
+  /// HealthKit permits. With no samples at all: now (nothing to read back).
   @objc public func healthEarliest(_ invoke: Invoke) throws {
-    invoke.resolve(["ms": ms(healthStore.earliestPermittedSampleDate())])
+    let group = DispatchGroup()
+    let lock = NSLock()
+    var oldest = Date()
+    let oldestFirst = [NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)]
+    for type in readTypes {
+      group.enter()
+      let q = HKSampleQuery(sampleType: type, predicate: nil, limit: 1, sortDescriptors: oldestFirst) { _, samples, _ in
+        defer { group.leave() }
+        lock.lock()
+        defer { lock.unlock() }
+        if let s = samples?.first, s.startDate < oldest { oldest = s.startDate }
+      }
+      healthStore.execute(q)
+    }
+    group.notify(queue: .global()) {
+      invoke.resolve(["ms": ms(max(oldest, healthStore.earliestPermittedSampleDate()))])
+    }
   }
 
   /// Samples starting in [from, to), as the export writes them; this app's own are left out.
@@ -79,8 +98,9 @@ extension PlatformPlugin {
     let to = Date(timeIntervalSince1970: args.to_ms / 1000)
     let pred = HKQuery.predicateForSamples(withStart: from, end: to, options: .strictStartDate)
     let quantity = quantityTypes.compactMap { HKQuantityType.quantityType(forIdentifier: $0) }
-    healthStore.preferredUnits(for: Set(quantity)) { units, error in
-      if let error { return invoke.reject(error.localizedDescription) }
+    // the units Health shows (as the export writes them); refused for a type never asked about (a type added in
+    // a later version): then those types are left out until the person connects again, rather than failing all
+    healthStore.preferredUnits(for: Set(quantity)) { units, _ in
       let group = DispatchGroup()
       let lock = NSLock()
       var out: [[String: Any]] = []
@@ -103,7 +123,8 @@ extension PlatformPlugin {
               "tz_min": offsetMinutes(s), "source": s.sourceRevision.source.name,
             ]
             if let q = s as? HKQuantitySample, let qt = type as? HKQuantityType {
-              let unit = units[qt] ?? HKUnit.count()
+              // doubleValue(for:) with an incompatible unit raises: skip what can't be converted
+              guard let unit = units[qt], q.quantity.is(compatibleWith: unit) else { continue }
               row["number"] = q.quantity.doubleValue(for: unit)
               row["unit"] = unit.unitString
             } else if let c = s as? HKCategorySample {
@@ -216,12 +237,15 @@ extension PlatformPlugin {
       HKQuery.predicateForObjects(withMetadataKey: HKMetadataKeySyncIdentifier, allowedValues: args.ids),
     ])
     let group = DispatchGroup()
+    let lock = NSLock()
     var failed: String?
     for id in writtenTypes {
       guard let type = HKQuantityType.quantityType(forIdentifier: id) else { continue }
       group.enter()
       healthStore.deleteObjects(of: type, predicate: pred) { ok, _, error in
+        lock.lock()
         if !ok, let error, (error as? HKError)?.code != .errorNoData { failed = error.localizedDescription }
+        lock.unlock()
         group.leave()
       }
     }

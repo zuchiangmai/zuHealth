@@ -167,6 +167,8 @@ export function LabSelfService({
           e.preventDefault();
           // the address beside the code, or just the device's id
           const d = codeTarget(typed);
+          // an address that isn't a lab device's (another site, another path): said so, not sent as an id
+          if (d.kind !== "device" && /[/:.]/.test(typed.trim())) return setErr(t("That isn't a lab device's code."));
           void open(d.kind === "device" ? d.device : typed.trim(), d.kind === "device" ? d.page : "s");
         }}
       >

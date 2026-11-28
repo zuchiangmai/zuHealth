@@ -61,6 +61,12 @@ pub struct SystemHealthState {
     /// When the last sync ended
     #[serde(default)]
     pub last_sync_ms: i64,
+    /// When this device was connected: of two readers, the one connected last reads (its imports carry it)
+    #[serde(default)]
+    pub connected_at_ms: i64,
+    /// The last sync's error, if it failed (shown on the card)
+    #[serde(default)]
+    pub last_error: Option<String>,
 }
 
 impl Default for SyncState {

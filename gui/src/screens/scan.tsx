@@ -3,6 +3,7 @@
 // not take the account in one tap); anything else is explained.
 import { Dialog, DialogButton } from "konsta/react";
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { codeTarget, op, scanCode } from "../api";
 import { t } from "../i18n";
 import { go as nav } from "../router";
@@ -53,38 +54,42 @@ export function ScanButton({ round }: { round?: boolean }) {
       >
         <Icon k="scan" className="h-6 w-6" />
       </button>
-      <Dialog
-        opened={!!note}
-        onBackdropClick={() => setNote(undefined)}
-        title={note?.title}
-        content={note?.text}
-        buttons={
-          note?.give ? (
-            <>
-              <DialogButton onClick={() => setNote(undefined)}>{t("Cancel")}</DialogButton>
-              <DialogButton
-                strong
-                onClick={() => {
-                  offerLinkCode(note.give!);
-                  setNote(undefined);
-                  nav("account/give");
-                }}
-              >
-                {t("Continue")}
-              </DialogButton>
-            </>
-          ) : (
-            <>
-              <DialogButton onClick={() => setNote(undefined)}>{t("OK")}</DialogButton>
-              {note?.again && (
-                <DialogButton strong onClick={() => void scan()}>
-                  {t("Scan again")}
+      {/* in Konsta's root, not the top bar it sits in: a sticky bar would keep it under the tab bar */}
+      {createPortal(
+        <Dialog
+          opened={!!note}
+          onBackdropClick={() => setNote(undefined)}
+          title={note?.title}
+          content={note?.text}
+          buttons={
+            note?.give ? (
+              <>
+                <DialogButton onClick={() => setNote(undefined)}>{t("Cancel")}</DialogButton>
+                <DialogButton
+                  strong
+                  onClick={() => {
+                    offerLinkCode(note.give!);
+                    setNote(undefined);
+                    nav("account/give");
+                  }}
+                >
+                  {t("Continue")}
                 </DialogButton>
-              )}
-            </>
-          )
-        }
-      />
+              </>
+            ) : (
+              <>
+                <DialogButton onClick={() => setNote(undefined)}>{t("OK")}</DialogButton>
+                {note?.again && (
+                  <DialogButton strong onClick={() => void scan()}>
+                    {t("Scan again")}
+                  </DialogButton>
+                )}
+              </>
+            )
+          }
+        />,
+        document.getElementById("root")?.firstElementChild ?? document.body,
+      )}
     </>
   );
 }

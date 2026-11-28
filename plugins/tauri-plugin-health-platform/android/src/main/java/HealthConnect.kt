@@ -61,19 +61,40 @@ class HealthConnect(private val context: Context) {
     val available: Boolean get() = HealthConnectClient.getSdkStatus(context) == HealthConnectClient.SDK_AVAILABLE
     private val client by lazy { HealthConnectClient.getOrCreate(context) }
 
-    /** Everything this app asks for: reading the types above, writing the body composition, older history */
+    private fun historyFeature(): Boolean =
+        client.features.getFeatureStatus(HealthConnectFeatures.FEATURE_READ_HEALTH_DATA_HISTORY) ==
+            HealthConnectFeatures.FEATURE_STATUS_AVAILABLE
+
+    /** Everything this app asks for: reading the types above, writing the body composition, older history (where
+     *  this Health Connect has it) */
     fun permissions(): Set<String> =
         readTypes.map { HealthPermission.getReadPermission(it) }.toSet() +
             writtenTypes.map { HealthPermission.getWritePermission(it) } +
-            HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY
+            (if (historyFeature()) setOf(HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY) else emptySet())
 
-    private suspend fun historyAllowed(): Boolean =
-        client.features.getFeatureStatus(HealthConnectFeatures.FEATURE_READ_HEALTH_DATA_HISTORY) ==
-            HealthConnectFeatures.FEATURE_STATUS_AVAILABLE &&
-            HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY in client.permissionController.getGrantedPermissions()
+    private suspend fun granted(): Set<String> = client.permissionController.getGrantedPermissions()
 
-    /** The oldest data it will give: all of it with the history permission, else the 30 days before access */
-    suspend fun earliestMs(): Long = if (historyAllowed()) 0 else System.currentTimeMillis() - 30L * 86_400_000
+    /** The read types the person allowed: reading one not allowed throws, and people untick types */
+    private suspend fun readable(): List<KClass<out Record>> {
+        val g = granted()
+        return readTypes.filter { HealthPermission.getReadPermission(it) in g }
+    }
+
+    /** Where history starts: the oldest record of an allowed type, not before what Health Connect gives (all of it
+     *  with the history permission, else the 30 days before access). With nothing at all: now. */
+    suspend fun earliestMs(): Long {
+        val now = System.currentTimeMillis()
+        val history = historyFeature() && HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY in granted()
+        val floor = if (history) 0 else now - 30L * 86_400_000
+        var oldest = now
+        for (type in readable()) {
+            val r = client.readRecords(
+                ReadRecordsRequest(type, TimeRangeFilter.between(Instant.ofEpochMilli(floor), Instant.ofEpochMilli(now)), ascendingOrder = true, pageSize = 1)
+            )
+            r.records.firstOrNull()?.let { rec -> startOf(rec)?.let { oldest = minOf(oldest, it.toEpochMilli()) } }
+        }
+        return maxOf(oldest, floor)
+    }
 
     /** Every page of one type in [from, to), this app's own left out */
     private suspend fun <T : Record> all(type: KClass<T>, from: Instant, to: Instant, mine: Boolean = false): List<T> {
@@ -122,9 +143,14 @@ class HealthConnect(private val context: Context) {
 
     /** Records starting in [from, to), one sample each (series and blood pressure split), as the core reads them */
     suspend fun read(fromMs: Long, toMs: Long): JSONArray {
+        // a day either side, so a series or a sleep session crossing the range's edge comes whole; only what starts
+        // inside the range is sent (the runtime treats each day it gets as read whole)
         val from = Instant.ofEpochMilli(fromMs)
         val to = Instant.ofEpochMilli(toMs)
         val inRange = { t: Instant -> !t.isBefore(from) && t.isBefore(to) }
+        val allowed = readable().toSet()
+        suspend fun <T : Record> all(type: KClass<T>, from: Instant, to: Instant): List<T> =
+            if (type in allowed) this@HealthConnect.all(type, from.minusSeconds(86_400), to.plusSeconds(86_400), false) else emptyList()
         val out = JSONArray()
         for (r in all(HeartRateRecord::class, from, to)) for (s in r.samples) if (inRange(s.time))
             out.put(sample("HeartRate", s.beatsPerMinute.toDouble(), s.time, null, r.startZoneOffset, r))
@@ -164,10 +190,11 @@ class HealthConnect(private val context: Context) {
             out.put(sample("FloorsClimbed", r.floors, r.startTime, r.endTime, r.startZoneOffset, r))
         for (r in all(ActiveCaloriesBurnedRecord::class, from, to)) if (inRange(r.startTime))
             out.put(sample("ActiveCaloriesBurned", r.energy.inKilocalories, r.startTime, r.endTime, r.startZoneOffset, r))
-        for (r in all(SleepSessionRecord::class, from, to)) if (inRange(r.startTime)) {
-            // each stage an interval; a session without stages one interval, "SLEEPING"
+        for (r in all(SleepSessionRecord::class, from, to)) {
+            // each stage an interval, by its own start; a session without stages one interval, "SLEEPING"
             val stages = r.stages.ifEmpty { listOf(SleepSessionRecord.Stage(r.startTime, r.endTime, SleepSessionRecord.STAGE_TYPE_SLEEPING)) }
-            for (s in stages) out.put(sample("SleepSession", null, s.startTime, s.endTime, r.startZoneOffset, r).put("stage", stageName(s.stage)))
+            for (s in stages) if (inRange(s.startTime))
+                out.put(sample("SleepSession", null, s.startTime, s.endTime, r.startZoneOffset, r).put("stage", stageName(s.stage)))
         }
         return out
     }
@@ -210,19 +237,24 @@ class HealthConnect(private val context: Context) {
      * UTC days holding records added or changed since the token, and the next token. No token yet, or one Health
      * Connect let expire (30 days unused): a fresh token and no days (the runtime reads by date meanwhile).
      */
-    suspend fun changed(token: String?): Pair<List<Long>, String> {
-        if (token == null) return emptyList<Long>() to client.getChangesToken(ChangesTokenRequest(readTypes.toSet()))
+    suspend fun changed(token: String?, types: String?): Triple<List<Long>, String, String> {
+        // a token covers the types allowed when it was made: another set allowed now, a fresh one
+        val allowed = readable()
+        val names = allowed.mapNotNull { it.simpleName }.sorted().joinToString(",")
+        val fresh = suspend { Triple(emptyList<Long>(), client.getChangesToken(ChangesTokenRequest(allowed.toSet())), names) }
+        if (allowed.isEmpty()) return Triple(emptyList(), "", names)
+        if (token == null || types != names) return fresh()
         val days = mutableSetOf<Long>()
         var t: String = token
         while (true) {
             val r = client.getChanges(t)
-            if (r.changesTokenExpired) return emptyList<Long>() to client.getChangesToken(ChangesTokenRequest(readTypes.toSet()))
+            if (r.changesTokenExpired) return fresh()
             for (c in r.changes) if (c is UpsertionChange && c.record.metadata.dataOrigin.packageName != context.packageName)
                 startOf(c.record)?.let { days += Math.floorDiv(it.toEpochMilli(), 86_400_000L) }
             t = r.nextChangesToken
             if (!r.hasMore) break
         }
-        return days.toList() to t
+        return Triple(days.toList(), t, names)
     }
 
     /** This app's own written records: [{id, version, value}] */
@@ -233,10 +265,12 @@ class HealthConnect(private val context: Context) {
             val id = r.metadata.clientRecordId ?: return
             out.put(JSONObject().put("id", id).put("version", r.metadata.clientRecordVersion.toString()).put("value", v))
         }
-        for (r in all(WeightRecord::class, far.first, far.second, mine = true)) put(r, r.weight.inKilograms)
-        for (r in all(HeightRecord::class, far.first, far.second, mine = true)) put(r, r.height.inMeters)
-        for (r in all(BodyFatRecord::class, far.first, far.second, mine = true)) put(r, r.percentage.value)
-        for (r in all(LeanBodyMassRecord::class, far.first, far.second, mine = true)) put(r, r.mass.inKilograms)
+        // only types it may read back (reading one not allowed throws)
+        val allowed = readable().toSet()
+        if (WeightRecord::class in allowed) for (r in all(WeightRecord::class, far.first, far.second, mine = true)) put(r, r.weight.inKilograms)
+        if (HeightRecord::class in allowed) for (r in all(HeightRecord::class, far.first, far.second, mine = true)) put(r, r.height.inMeters)
+        if (BodyFatRecord::class in allowed) for (r in all(BodyFatRecord::class, far.first, far.second, mine = true)) put(r, r.percentage.value)
+        if (LeanBodyMassRecord::class in allowed) for (r in all(LeanBodyMassRecord::class, far.first, far.second, mine = true)) put(r, r.mass.inKilograms)
         return out
     }
 
@@ -249,12 +283,17 @@ class HealthConnect(private val context: Context) {
             val zone = ZoneOffset.ofTotalSeconds(w.getInt("tz_min") * 60)
             val meta = Metadata.manualEntry(clientRecordId = w.getString("id"), clientRecordVersion = w.getString("version").toLong())
             val v = w.getDouble("value")
-            records += when (w.getString("kind")) {
-                "Weight" -> WeightRecord(time = at, zoneOffset = zone, weight = Mass.kilograms(v), metadata = meta)
-                "Height" -> HeightRecord(time = at, zoneOffset = zone, height = Length.meters(v), metadata = meta)
-                "BodyFat" -> BodyFatRecord(time = at, zoneOffset = zone, percentage = Percentage(v), metadata = meta)
-                "LeanBodyMass" -> LeanBodyMassRecord(time = at, zoneOffset = zone, mass = Mass.kilograms(v), metadata = meta)
-                else -> continue
+            // a value outside what Health Connect takes (its constructors check ranges): that one left out
+            records += try {
+                when (w.getString("kind")) {
+                    "Weight" -> WeightRecord(time = at, zoneOffset = zone, weight = Mass.kilograms(v), metadata = meta)
+                    "Height" -> HeightRecord(time = at, zoneOffset = zone, height = Length.meters(v), metadata = meta)
+                    "BodyFat" -> BodyFatRecord(time = at, zoneOffset = zone, percentage = Percentage(v), metadata = meta)
+                    "LeanBodyMass" -> LeanBodyMassRecord(time = at, zoneOffset = zone, mass = Mass.kilograms(v), metadata = meta)
+                    else -> continue
+                }
+            } catch (e: IllegalArgumentException) {
+                continue
             }
         }
         if (records.isNotEmpty()) client.insertRecords(records)

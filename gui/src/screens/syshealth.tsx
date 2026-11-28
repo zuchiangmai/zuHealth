@@ -14,8 +14,9 @@ type Status = {
   last_sync_ms?: number;
   history_left?: boolean;
   other_reader?: { id: string; name: string; at: number };
+  last_error?: string | null;
 };
-type Report = { days?: number; written?: number; more?: boolean; moved_to?: string; busy?: boolean };
+type Report = { days?: number; written?: number; more?: boolean; moved_to?: string; busy?: boolean; write_error?: string };
 
 export const storeName = (kind: Status["kind"]) => (kind === "health_connect" ? "Health Connect" : t("Apple Health"));
 
@@ -33,12 +34,13 @@ export function useSystemHealthSync() {
         if (!s.kind || !s.on) return;
         last = Date.now();
         // a few steps of history at a time, so a first read of years doesn't hold the app for long
-        for (let i = 0; i < 4; i++) {
+        // and not once the app is put away (Android refuses reading in the background)
+        for (let i = 0; i < 4 && !document.hidden; i++) {
           const r = await inBackground(() => op<Report>("syshealth.sync"));
           if (!r.more) break;
         }
       } catch {
-        // locked, or the store refused: the next time round tries again
+        // locked, or the store refused: the card shows the error (the runtime keeps it); the next time round tries again
       } finally {
         running = false;
       }
@@ -74,7 +76,8 @@ export function SystemHealthCard() {
   const told = (r: Report) => {
     if (r.moved_to) return setNote(t("{{device}} reads it now, so this device stopped.", { device: r.moved_to }));
     if (r.busy) return setNote(t("A sync is already running."));
-    setNote(r.written ? t("{{count}} new readings.", { count: r.written }) : t("Nothing new."));
+    const read = r.written ? t("{{count}} new readings.", { count: r.written }) : t("Nothing new.");
+    setNote(r.write_error ? `${read} ${t("Lab results couldn't be added: {{why}}", { why: r.write_error })}` : read);
   };
   const connect = (takeOver: boolean) =>
     run(async () => {
@@ -87,13 +90,18 @@ export function SystemHealthCard() {
   return (
     <div className={`${card} flex flex-col gap-3`}>
       {st.available === false ? (
-        <p className="text-[15px]">{t("Install Health Connect from Google Play, then come back here to connect it.")}</p>
+        <p className="text-[15px]">
+          {st.kind === "health_connect"
+            ? t("Install Health Connect from Google Play, then come back here to connect it.")
+            : t("Apple Health isn't available on this device.")}
+        </p>
       ) : st.on ? (
         <>
           <p className="text-[15px]">
             {st.last_sync_ms ? t("Connected. Last synced {{when}}.", { when: when(st.last_sync_ms) }) : t("Connected.")}
             {st.history_left ? ` ${t("Earlier history is still being read, a part at each sync.")}` : ""}
           </p>
+          {st.last_error && !err && <Problem text={t("The last sync failed: {{why}}", { why: st.last_error })} />}
           <p className="text-[13px] text-black/55 dark:text-white/55">
             {t("{{name}} syncs when PhysiMind opens and while you use it. Body composition measured in the lab is added to {{name}}.", { name })}
           </p>

@@ -106,8 +106,11 @@ class PlatformPlugin(private val activity: Activity) : Plugin(activity) {
     fun healthChanged(invoke: Invoke) {
         val anchors = invoke.getArgs().optJSONObject("anchors")
         store(invoke) {
-            val (days, token) = health.changed(anchors?.optString("token")?.takeIf { it.isNotEmpty() })
-            JSObject().put("days", JSONArray(days)).put("anchors", JSONObject().put("token", token))
+            val (days, token, types) = health.changed(
+                anchors?.optString("token")?.takeIf { it.isNotEmpty() },
+                anchors?.optString("types"),
+            )
+            JSObject().put("days", JSONArray(days)).put("anchors", JSONObject().put("token", token).put("types", types))
         }
     }
 

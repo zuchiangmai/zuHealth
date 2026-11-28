@@ -830,5 +830,8 @@
  "{{device}} reads {{name}} now. Reading it here instead stops it there; what it already read stays.": "现在由 {{device}} 读取 {{name}}。改在这里读取后，那台设备会停止读取，已读取的数据保留。",
  "Read here": "在这里读取",
  "Apple Health syncs here already, so an export is usually not needed. Importing one is still fine.": "这台设备已在同步 Apple 健康，通常不需要再导入导出文件；导入也没问题。",
- "{{count}} new readings._other": "{{count}} 条新数据。"
+ "{{count}} new readings._other": "{{count}} 条新数据。",
+ "Lab results couldn't be added: {{why}}": "检测室结果未能写入：{{why}}",
+ "Apple Health isn't available on this device.": "这台设备不支持 Apple 健康。",
+ "The last sync failed: {{why}}": "上次同步失败：{{why}}"
 }

@@ -2872,6 +2872,7 @@ dependencies = [
  "health-core",
  "health-ocr",
  "health-proto",
+ "rusqlite",
  "serde",
  "serde_json",
  "tempfile",
