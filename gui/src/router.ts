@@ -56,21 +56,54 @@ export function backBy(steps: number, parent: string) {
   else go(parent, true);
 }
 
+/** The layers on screen now, by the id their history entry carries. */
+const layers = new Set<string>();
+type Entry = { depth?: number; layer?: string } | null;
+if (typeof window !== "undefined")
+  // back or forward onto the entry of a layer that has closed meanwhile: step over it
+  window.addEventListener("popstate", () => {
+    const id = (history.state as Entry)?.layer;
+    if (id && !layers.has(id)) history.back();
+  });
+
 /** A layer with no address of its own (a choice, a confirmation): it still takes one step of history, so going back
- *  (Android's button too) closes it. Returns the way to close it from inside, which goes back over that step. */
+ *  (Android's button too) closes it. Returns the way to close it from inside, which goes back over that step. Closed
+ *  any other way (a choice made, its page gone), it takes that step off history itself. */
 export function useLayer(close: () => void, on = true): () => void {
   const closing = useRef(close);
   closing.current = close;
+  const id = useRef("");
   const gone = useRef(false);
+  const live = useRef(false);
   useEffect(() => {
     if (!on) return;
-    history.pushState({ depth: depth() + 1, layer: true }, "", location.href);
+    id.current ||= Math.random().toString(36).slice(2);
+    const me = id.current;
+    live.current = true;
+    gone.current = false;
+    layers.add(me);
+    // once: StrictMode runs this twice in development
+    if ((history.state as Entry)?.layer !== me) history.pushState({ depth: depth() + 1, layer: me }, "", location.href);
     const pop = () => {
+      if ((history.state as Entry)?.layer === me) return;
       gone.current = true;
       closing.current();
     };
-    window.addEventListener("popstate", pop, { once: true });
-    return () => window.removeEventListener("popstate", pop);
+    window.addEventListener("popstate", pop);
+    return () => {
+      window.removeEventListener("popstate", pop);
+      live.current = false;
+      if (gone.current) {
+        layers.delete(me);
+        return;
+      }
+      // a beat later, unless it came straight back (StrictMode unmounts and mounts again in development)
+      setTimeout(() => {
+        if (live.current) return;
+        layers.delete(me);
+        if ((history.state as Entry)?.layer === me) history.back();
+      }, 0);
+    };
   }, [on]);
   return () => (!on || gone.current ? closing.current() : history.back());
 }

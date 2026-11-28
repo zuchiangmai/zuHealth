@@ -79,13 +79,16 @@ export function LabSelfService({
 }) {
   const [typed, setTyped] = useState("");
   const device = id && (page === "s" || page === "d") ? { id, page } : undefined;
-  const [kind, setKind] = useState<Kind>();
+  // what a device is, for that device only (a short code's page never needs it)
+  const [known, setKnown] = useState<{ device: string; kind: Kind }>();
+  const kind = known && known.device === device?.id ? known.kind : undefined;
+  const learn = (id: string) => op<Kind>("lab.device", { device: id }).then((k) => setKnown({ device: id, kind: k }));
   const [err, setErr] = useState<string>();
   const { busy, once } = useOnce();
   // a lab device's page needs what the device is (asked here when its address was opened directly)
   useEffect(() => {
     if (device?.page !== "s" || kind) return;
-    op<Kind>("lab.device", { device: device.id }).then(setKind, (e) => setErr(errText(e)));
+    learn(device.id).catch((e) => setErr(errText(e)));
   }, [device?.page, device?.id]);
   const setDevice = (d: { id: string; page: "s" | "d" }) => go(`data/lab/${d.page}/${encodeURIComponent(d.id)}`);
 
@@ -94,7 +97,7 @@ export function LabSelfService({
       setErr(undefined);
       if (page === "d") return setDevice({ id, page });
       try {
-        setKind(await op<Kind>("lab.device", { device: id }));
+        await learn(id);
         setDevice({ id, page });
       } catch (e) {
         setErr(errText(e));
@@ -109,13 +112,14 @@ export function LabSelfService({
         if (!text) return;
         const d = deviceFromCode(text);
         if (!d) return setErr(t("That isn't a lab device's code."));
-        if (d.page === "s") setKind(await op<Kind>("lab.device", { device: d.device }));
+        if (d.page === "s") await learn(d.device);
         setDevice({ id: d.device, page: d.page });
       } catch (e) {
         setErr(errText(e));
       }
     });
 
+  if (device?.page === "d") return <ShortCode device={device.id} errText={errText} pollFast={pollFast} />;
   if (device?.page === "s" && !kind) return err ? <Problem text={err} /> : <p aria-busy="true" />;
   if (device && kind?.kind === "seca") return <SecaSelf device={device.id} errText={errText} showResults={showResults} />;
   if (device && kind?.kind === "forcedecks") return <FdSelf device={device.id} kind={kind} errText={errText} showResults={showResults} />;
@@ -553,8 +557,12 @@ function FdSelf({ device, kind, errText, showResults }: { device: string; kind: 
       ended.current ??= Date.now();
       return Date.now() - ended.current < FD_GRACE_MS;
     };
+    // one ask at a time: a hidden page skips its turn (no timer left), and showing it again asks once
+    let asking = false;
     const tick = async () => {
-      if (stop || document.hidden) return;
+      timer = undefined;
+      if (stop || asking || document.hidden) return;
+      asking = true;
       try {
         const r = await op<FdView & { taken: number }>("fd.check", { device });
         if (stop) return;
@@ -566,10 +574,12 @@ function FdSelf({ device, kind, errText, showResults }: { device: string; kind: 
         if (stop) return;
         setSt((s) => (s.s === "profile" ? { ...s, err: errText(e) } : s));
         timer = setTimeout(() => void tick(), FD_BACKOFF_MS[Math.min(errors++, FD_BACKOFF_MS.length - 1)]);
+      } finally {
+        asking = false;
       }
     };
     const visible = () => {
-      if (!document.hidden && !timer) void tick();
+      if (!document.hidden && !timer && !asking) void tick();
     };
     document.addEventListener("visibilitychange", visible);
     void tick();

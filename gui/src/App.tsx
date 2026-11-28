@@ -446,13 +446,24 @@ function Shell() {
     band.current = el && isAndroid ? rubberBand(el) : undefined;
   }, []);
   // narrow screens: the tab a section was opened from, where its back button returns
-  const tab = useRef<Tab>("readings");
+  // opened at an address under no tab (#/data/lab): More, where those sections are; a measure or report: Dashboard
+  const tab = useRef<Tab>(TABS.some((x) => x.key === page) ? (page as Tab) : metric || route[0] === "report" || !route.length ? "readings" : "more");
   useEffect(() => {
     if (TABS.some((x) => x.key === page)) tab.current = page as Tab;
   }, [page]);
   // the category scrolled into view on Readings (null: its top)
   const [inView, setInView] = useState<string | null>(null);
-  const [dropped, setDropped] = useState<string>();
+  // a file dropped or chosen from the menu, for the import screen it opened (#/data/file); any other address drops it,
+  // so coming back to Data sources neither jumps to it nor reads it again
+  const here = route.join("/");
+  const [dropped, setDropped] = useState<{ path: string; at: string }>();
+  useEffect(() => {
+    if (dropped && dropped.at !== here) setDropped(undefined);
+  }, [here]);
+  const importFile = (path: string) => {
+    setDropped({ path, at: "data/file" });
+    nav("data/file");
+  };
   const [hovering, setHovering] = useState(false);
   // a file dropped anywhere on the window opens Import with it
   useEffect(
@@ -462,8 +473,7 @@ function Shell() {
         drop: (paths) => {
           if (!paths[0]) return;
           if (dropInto) return dropInto(paths[0]);
-          setDropped(paths[0]);
-          setPage("data");
+          importFile(paths[0]);
         },
       }),
     [],
@@ -480,10 +490,7 @@ function Shell() {
       setFind(true);
     } else if (id === "import")
       chooseImportFile().then((f) => {
-        if (f) {
-          setDropped(f);
-          setPage("data");
-        }
+        if (f) importFile(f);
       });
   }, []);
   useEffect(() => onMenu(command), [command]);
@@ -650,7 +657,7 @@ function Shell() {
           back={route.length > 1 || !isTab ? () => goBack(parentOf(route, pathOf(tab.current))) : undefined}
         />
         <div key={`${page}-${i18n.language}`}>
-          {metric && <Record code={metric} pick={setMetric} />}
+          {metric && <Record key={metric} code={metric} pick={setMetric} />}
           {page === "readings" && !metric && (
             <Readings
               latest={latest}
@@ -675,10 +682,10 @@ function Shell() {
               done={open}
             />
           )}
-          {page === "data" && <DataSources file={dropped} onFile={setDropped} go={(p) => setPage(p)} done={open} want={want} path={rest} />}
+          {page === "data" && <DataSources file={dropped?.at === here ? dropped.path : undefined} onFile={(p) => setDropped(p ? { path: p, at: here } : undefined)} go={(p) => setPage(p)} done={open} want={want} path={rest} />}
           {page === "review" && <Review />}
           {page === "agents" && <Agents want={want} path={rest} />}
-          {page === "backup" && <Backup want={want} />}
+          {page === "backup" && <Backup want={want} go={(p) => setPage(p)} />}
           {page === "profile" && <ProfilePage want={want} />}
           {page === "account" && <HealthAccount go={(p) => setPage(p)} want={want} />}
           {page === "about" && <About version={status?.version} want={want} />}
@@ -1017,7 +1024,17 @@ function human(text: string): string {
   const m = /^([a-z_]+): ?(.*)$/s.exec(text);
   return m ? explain(m[1]!, m[2]) : text;
 }
-const errText = (e: unknown) => (e instanceof OpError ? explain(e.code, e.message) : String(e));
+/** What went wrong, in words: the core's errors, and the shell's (Tauri rejects with a plain `{ code, message }`
+ *  object, or a string) */
+const errText = (e: unknown): string => {
+  if (e instanceof OpError) return explain(e.code, e.message);
+  if (e instanceof Error) return e.message;
+  if (e && typeof e === "object") {
+    const { code, message } = e as { code?: unknown; message?: unknown };
+    if (typeof message === "string" || typeof code === "string") return explain(String(code ?? "error"), typeof message === "string" ? message : "");
+  }
+  return String(e);
+};
 
 function Problem({ text }: { text?: string }) {
   return text ? (
@@ -1025,6 +1042,18 @@ function Problem({ text }: { text?: string }) {
       {human(text)}
     </p>
   ) : null;
+}
+
+/** A screen that couldn't load what it shows: why, and a second try. */
+function Failed({ text, retry }: { text: string; retry: () => void }) {
+  return (
+    <section className="mx-auto w-full max-w-3xl">
+      <Problem text={text} />
+      <Btn type="button" primary className="mt-3" onClick={retry}>
+        {t("Try again")}
+      </Btn>
+    </section>
+  );
 }
 
 function Copy({ text, label }: { text: string; label: string }) {
@@ -1107,7 +1136,11 @@ function FilePick({ path, onPath, kind }: { path?: string; onPath: (p: string) =
           <Icon k={icon} />
         </IconDot>
         <span className="min-w-0 flex-1 text-[17px] material:text-[16px]">{title}</span>
-        <input type="file" hidden accept={accept} capture={capture ? "environment" : undefined} onChange={(e) => void take(e.target.files?.[0])} />
+        <input type="file" hidden accept={accept} capture={capture ? "environment" : undefined} onChange={(e) => {
+            void take(e.target.files?.[0]);
+            // the same file chosen again still counts
+            e.target.value = "";
+          }} />
       </label>
     );
   return (
@@ -1218,9 +1251,6 @@ function DataSources({
   const setSheet = (x: SourceSheet) => nav(`data/${x}`);
   const [batches] = useOp(() => op<Batch[]>("import.list"), []);
   const [whoop] = useOp(() => op<WhoopStatus>("whoop.status"), []);
-  useEffect(() => {
-    if (file && !sheet) setSheet("file");
-  }, [file]);
   const lastOf = (connector: string) => {
     const at = Math.max(0, ...(batches ?? []).filter((b) => b.connector === connector).map((b) => b.at ?? 0));
     return at ? t("Last import {{when}}", { when: shortDate(at) }) : batches ? t("Not imported yet") : undefined;
@@ -1383,8 +1413,12 @@ function Import({
   };
   /** A lab report: the models first if they're missing (asked once; a phone takes only the ~21 MB it needs, not
    *  the matching model), then read; the result opens for checking (nothing counts until it's confirmed). */
+  const reading = useRef(false);
   const readReport = async (fetch = false) => {
-    if (!file) return;
+    if (!file || reading.current) return;
+    reading.current = true;
+    // the check opens only if the person is still here; elsewhere the review badge says it's waiting
+    const at = location.hash;
     setErr(undefined);
     setProgress(undefined);
     try {
@@ -1403,10 +1437,12 @@ function Import({
       const r = await op<{ import_id: number; items: number; matched: number }>("import.ocr", { path: file, tz_min: -new Date().getTimezoneOffset() });
       justRead = r.import_id;
       setStep(undefined);
-      go("review");
+      if (location.hash === at) go("review");
     } catch (e) {
       setStep(undefined);
       setErr(errText(e));
+    } finally {
+      reading.current = false;
     }
   };
   // a report is read as soon as it is chosen (as the web's): there is nothing to fill in first. Once per file
@@ -1414,6 +1450,8 @@ function Import({
   const started = useRef<string | undefined>(undefined);
   // biome-ignore lint/correctness/useExhaustiveDependencies: once per file chosen
   useEffect(() => {
+    // cleared: the same file chosen again is read again
+    if (!file) started.current = undefined;
     if (!file || kind !== "report" || started.current === file) return;
     started.current = file;
     void readReport();
@@ -2109,7 +2147,12 @@ function Enter({ done, part }: { done: (code: string) => void; part?: boolean })
   const [err, setErr] = useState<string>();
   const [busy, setBusy] = useState(false);
   const pick = async (x: Metric) => {
-    const info = await op<MetricInfo>("metric.show", { code: x.code });
+    let info: MetricInfo;
+    try {
+      info = await op<MetricInfo>("metric.show", { code: x.code });
+    } catch (e) {
+      return setErr(errText(e));
+    }
     setM(info);
     setUnit(info.units.length === 1 ? (info.units[0] ?? "") : "");
     // a fresh form: now, no value, no old error
@@ -2144,6 +2187,7 @@ function Enter({ done, part }: { done: (code: string) => void; part?: boolean })
       {!m ? (
         <>
           <MetricPicker placeholder={t("What did you measure?")} onPick={pick} manual />
+          <Problem text={err} />
           <div className="my-3 mb-6 flex flex-wrap gap-2" role="group" aria-label={t("Common measures")}>
             {QUICK.map(([code, label]) => (
               <Btn key={code} type="button" small onClick={() => pick({ code, name: label, unit: "", agg: "instant" })}>
@@ -2258,6 +2302,7 @@ function Sources({ go, path: [kind, id] }: { go: (p: Page) => void; path: string
   const setOpen = (b: Batch) => nav(`data/manage/${encodeURIComponent(kind!)}/${b.import_id}`);
   const [msg, setMsg] = useState<string>();
   const [ordering, setOrdering] = useState(false);
+  const [erasing, setErasing] = useState(false);
   const run = async (fn: () => Promise<unknown>, ok: string) => {
     setMsg(undefined);
     try {
@@ -2348,14 +2393,16 @@ function Sources({ go, path: [kind, id] }: { go: (p: Page) => void; path: string
                 ? t("The data of {{count}} syncs will be deleted, and WHOOP disconnected.", { count: list.length })
                 : t("The data of {{count}} imports will be deleted.", { count: list.length })
             }
-            busy={false}
-            run={() =>
-              run(async () => {
+            busy={erasing}
+            run={() => {
+              if (erasing) return;
+              setErasing(true);
+              void run(async () => {
                 await op("import.erase_source", { connector: kind });
                 if (whole) await op("whoop.disconnect");
                 goBack("data/manage");
-              }, t("Deleted."))
-            }
+              }, t("Deleted.")).finally(() => setErasing(false));
+            }}
           />
         )}
       </div>
@@ -2495,6 +2542,8 @@ function OcrReview({ b, done, discard }: { b: BatchDetail; done: (text: string) 
   const [picked, setPicked] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string>();
+  // what couldn't be looked up: not asked again (a failure written into the state would ask in a loop)
+  const failed = useRef(new Set<string>());
   // names and units of every measure on offer
   useEffect(() => {
     const codes = new Set<string>();
@@ -2504,16 +2553,21 @@ function OcrReview({ b, done, discard }: { b: BatchDetail; done: (text: string) 
       const p = picks[i]?.code;
       if (p) codes.add(p);
     });
-    const missing = [...codes].filter((x) => !info[x]);
+    const missing = [...codes].filter((x) => !info[x] && !failed.current.has(x));
+    for (const x of missing) failed.current.add(x);
     if (missing.length)
-      Promise.all(missing.map((code) => op<MetricInfo>("metric.show", { code }).then((m) => [code, m] as const, () => null))).then((got) =>
-        setInfo((old) => ({ ...old, ...Object.fromEntries(got.filter((g): g is readonly [string, MetricInfo] => !!g)) })),
-      );
+      Promise.all(missing.map((code) => op<MetricInfo>("metric.show", { code }).then((m) => [code, m] as const, () => null))).then((got) => {
+        const ok = got.filter((g): g is readonly [string, MetricInfo] => !!g);
+        for (const [code] of ok) failed.current.delete(code);
+        if (ok.length) setInfo((old) => ({ ...old, ...Object.fromEntries(ok) }));
+      });
     // which unit each chosen measure would take the printed one as
     const want = c.items.flatMap((it, i) => {
       const code = picks[i]?.code;
-      return code && picked[`${code} ${it.unit}`] === undefined ? [[code, it.unit] as const] : [];
+      const key = `${code} ${it.unit}`;
+      return code && picked[key] === undefined && !failed.current.has(key) ? [[code, it.unit] as const] : [];
     });
+    for (const [code, unit] of want) failed.current.add(`${code} ${unit}`);
     if (want.length)
       Promise.all(
         want.map(([code, unit]) =>
@@ -2522,7 +2576,11 @@ function OcrReview({ b, done, discard }: { b: BatchDetail; done: (text: string) 
             () => null,
           ),
         ),
-      ).then((got) => setPicked((old) => ({ ...old, ...Object.fromEntries(got.filter((g): g is readonly [string, string] => !!g)) })));
+      ).then((got) => {
+        const ok = got.filter((g): g is readonly [string, string] => !!g);
+        for (const [key] of ok) failed.current.delete(key);
+        if (ok.length) setPicked((old) => ({ ...old, ...Object.fromEntries(ok) }));
+      });
   }, [picks, c.items, info, picked]);
   const set = (i: number, p: OcrPick) => setPicks((old) => old.map((x, k) => (k === i ? p : x)));
   /** a numeric measure whose units don't include the printed one: the person must choose */
@@ -2894,14 +2952,25 @@ function Agents({ want, path }: { want?: string; path?: string[] }) {
     corePath().then(setBin, () => {});
     agentClients().then((c) => setFound(c.map((x) => x.id)), () => {});
   }, []);
+  const [creating, setCreating] = useState(false);
+  // each app starts from the defaults, not what the last one was given
   const pick = (c: Client) => {
     setName(c.id === "other" ? "" : c.name);
+    setGroups(GROUPS.filter((g) => !g.sensitive).map((g) => g.key));
+    setDetail(false);
+    setDays(90);
+    setExpiry(90);
+    setWrite("none");
+    setReports(false);
+    setProfile(false);
+    setMsg(undefined);
     setMade(undefined);
     nav(`agents/connect/${c.id}`);
   };
   const create = async () => {
-    if (!client) return;
+    if (!client || creating) return;
     setMsg(undefined);
+    setCreating(true);
     try {
       const r = await op<Grant & { token: string }>("grant.create", {
         name,
@@ -2918,6 +2987,8 @@ function Agents({ want, path }: { want?: string; path?: string[] }) {
       reload();
     } catch (e) {
       setMsg(errText(e));
+    } finally {
+      setCreating(false);
     }
   };
   const toggle = (k: string) => setGroups((g) => (g.includes(k) ? g.filter((x) => x !== k) : [...g, k]));
@@ -3040,7 +3111,7 @@ function Agents({ want, path }: { want?: string; path?: string[] }) {
             </Group>
 
             <Problem text={msg} />
-            <Btn type="submit" primary className="mt-4 w-full!" disabled={!groups.length || !name.trim()}>
+            <Btn type="submit" primary className="mt-4 w-full!" disabled={creating || !groups.length || !name.trim()}>
               {t("Allow access")}
             </Btn>
           </form>
@@ -3143,13 +3214,17 @@ function AuditLog() {
 }
 
 /** Backup and export (as the web's 备份与导出): save a backup, restore one, or write a table for other tools. */
-function Backup({ want }: { want?: string }) {
+function Backup({ want, go }: { want?: string; go: (p: Page) => void }) {
   const setSheet = (x: "save" | "restore" | "csv") => nav(`backup/${x}`);
   const [file, setFile] = useState<string>();
+  // a file chosen to restore is for that screen only
+  useEffect(() => {
+    if (want !== "restore") setFile(undefined);
+  }, [want]);
   const titles = { save: t("Save a backup"), restore: t("Restore a backup"), csv: t("Export a table (CSV)") };
   // each a screen of its own (#/backup/save)
   if (want === "save") return <BackupSave />;
-  if (want === "restore") return <Import file={file} onFile={setFile} go={() => goBack("backup")} kind="restore" title={titles.restore} />;
+  if (want === "restore") return <Import file={file} onFile={setFile} go={go} kind="restore" title={titles.restore} />;
   if (want === "csv") return <CsvExport />;
   return (
     <section className="mx-auto w-full max-w-3xl">
@@ -3412,11 +3487,13 @@ function HealthAccount({ go, want }: { go: (p: Page) => void; want?: string }) {
       setBusy(false);
     }
   };
+  if (acc === undefined && err) return <Failed text={err} retry={() => (setErr(undefined), load())} />;
   if (acc === undefined) return <section className="mx-auto w-full max-w-3xl" aria-busy="true"><h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Health account")}</h2></section>;
   if (view === "connect") return <ConnectDevice hasAccount={!!acc} join={() => setView("join")} give={() => setView("give")} />;
   // joined: on to sync, the reason most people connect a device
-  if (view === "join") return <LinkThis done={(ok) => { load(); setView(ok ? "sync" : "connect", true); }} />;
-  if (view === "give") return <GiveAccount done={() => setView("connect", true)} />;
+  // a match goes on to sync in place of this step; otherwise back to where it began, without a second copy of it
+  if (view === "join") return <LinkThis done={(ok) => { load(); if (ok) setView("sync", true); else goBack("account/connect"); }} />;
+  if (view === "give") return <GiveAccount done={() => goBack("account/connect")} />;
   if (view === "sync") return <SyncPage />;
   const entries = history?.state === "ok" ? history.entries.length : undefined;
   return (
@@ -3565,6 +3642,9 @@ function ConnectDevice({ hasAccount, join, give }: { hasAccount: boolean; join: 
 }
 
 /** This computer joins an account on another device: the code to show, then the check code (protocol 3.5). */
+/** The waits before each ask for the other device's answer: the first is the usual pace, the rest after failures. */
+const LINK_RETRIES = [2000, 4000, 8000, 15_000];
+
 function LinkThis({ done }: { done: (joined: boolean) => void }) {
   const [code, setCode] = useState<string>();
   // the link this screen started: adopt only that one
@@ -3590,17 +3670,23 @@ function LinkThis({ done }: { done: (joined: boolean) => void }) {
       op("link.cancel").catch(() => {});
     };
   }, [start]);
+  // asked every 2 s; a failed ask is tried again later and later, and after a few the person decides
+  const [fails, setFails] = useState(0);
   useEffect(() => {
-    if (st.state !== "waiting") return;
+    if (st.state !== "waiting" || fails >= LINK_RETRIES.length) return;
     const t = setTimeout(async () => {
       try {
-        setSt(await op<LinkState>("link.poll"));
+        const next = await op<LinkState>("link.poll");
+        setErr(undefined);
+        setFails(0);
+        setSt(next);
       } catch (e) {
-        setErr(errText(e));
+        if (fails + 1 >= LINK_RETRIES.length) setErr(errText(e));
+        setFails(fails + 1);
       }
-    }, 2000);
+    }, LINK_RETRIES[fails]);
     return () => clearTimeout(t);
-  }, [st]);
+  }, [st, fails]);
   const adopt = async () => {
     if (st.state !== "received") return;
     setBusy(true);
@@ -3669,6 +3755,11 @@ function LinkThis({ done }: { done: (joined: boolean) => void }) {
         </div>
       )}
       <Problem text={err} />
+      {st.state === "waiting" && fails >= LINK_RETRIES.length && (
+        <Btn type="button" primary className="mt-3" onClick={() => setFails(0)}>
+          {t("Try again")}
+        </Btn>
+      )}
     </section>
   );
 }
@@ -3994,15 +4085,17 @@ const birthLabel = (b: string) =>
   new Intl.DateTimeFormat(i18nLocale(), { year: "numeric", month: "long", timeZone: "UTC" }).format(Date.UTC(Number(b.slice(0, 4)), Number(b.slice(5, 7)) - 1, 1));
 
 function ProfilePage({ want }: { want?: string }) {
-  const [me, , reloadMe] = useOp(() => op<Personal>("profile.get"), []);
+  const [me, meErr, reloadMe] = useOp(() => op<Personal>("profile.get"), []);
   const [latest, , reloadLatest] = useOp(() => op<Point[]>("obs.latest"), []);
   const edit = (["sex", "birth", "height", "weight"] as const).find((f) => f === want);
   const setEdit = (f: ProfileField) => nav(`profile/${f}`);
-  if (edit)
+  // the form starts from what is saved: not before it's known (an address opened directly)
+  if (edit && !me) return meErr ? <Failed text={meErr} retry={reloadMe} /> : <section aria-busy="true" />;
+  if (edit && me)
     return (
       <ProfileEdit
         field={edit}
-        me={me ?? {}}
+        me={me}
         done={() => {
           goBack("profile");
           reloadMe();
@@ -4313,12 +4406,16 @@ function SyncPage() {
   const [busy, setBusy] = useState(false);
   // a question put aside with Esc comes back when it changes
   const [dismissed, setDismissed] = useState<string>();
+  const [failed, setFailed] = useState<string>();
   const run = (f: () => Promise<unknown>) => {
     setBusy(true);
-    f().finally(() => {
-      setBusy(false);
-      reload();
-    });
+    setFailed(undefined);
+    f()
+      .catch((e) => setFailed(errText(e)))
+      .finally(() => {
+        setBusy(false);
+        reload();
+      });
   };
   const livePeers = live?.peers ?? [];
   const known = (st?.peers ?? []).filter((p) => !livePeers.some((l) => l.device === p.device));
@@ -4328,7 +4425,7 @@ function SyncPage() {
   return (
     <section className="mx-auto w-full max-w-3xl">
       <h2 className="mb-1 text-[28px] leading-tight font-bold tracking-tight">{t("Local network sync")}</h2>
-      <Problem text={err} />
+      <Problem text={failed ?? err} />
       {st?.paused && (
         <div className="mb-4 rounded-2xl bg-amber-500/15 px-4 py-3 text-[15px] flex items-center justify-between gap-4">
           <span>{t("Sync is paused: you chose Not now when another device would delete data here.")}</span>
