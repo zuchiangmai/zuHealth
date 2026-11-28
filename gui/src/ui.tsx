@@ -299,6 +299,7 @@ const ICON: Record<string, ReactNode> = {
       <path d="M9.5 6.5a2 2 0 0 1 0 3M11.5 5a4 4 0 0 1 0 6" />
     </>
   ),
+  scan: <path d="M2 5.5v-2A1.5 1.5 0 0 1 3.5 2h2M10.5 2h2A1.5 1.5 0 0 1 14 3.5v2M14 10.5v2a1.5 1.5 0 0 1-1.5 1.5h-2M5.5 14h-2A1.5 1.5 0 0 1 2 12.5v-2M4.5 8h7" />,
   about: (
     <>
       <circle cx="8" cy="8" r="5.5" />

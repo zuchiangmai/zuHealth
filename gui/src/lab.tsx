@@ -3,7 +3,7 @@
 // it, a computer types the id beside it. The core asks the backend what the device is (lab.device) and runs each
 // flow (seca.*, fd.*, self.code); this file is the pages. Results land like any lab result.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { deviceFromCode, isMobile, op, OpError, scanCode } from "./api";
+import { codeTarget, isMobile, op, OpError, scanCode } from "./api";
 import forcedecksPhoto from "./devices/forcedecks.webp";
 import secaPhoto from "./devices/seca-mbca.webp";
 import { when } from "./format";
@@ -110,8 +110,8 @@ export function LabSelfService({
       try {
         const text = await scanCode();
         if (!text) return;
-        const d = deviceFromCode(text);
-        if (!d) return setErr(t("That isn't a lab device's code."));
+        const d = codeTarget(text);
+        if (d.kind !== "device") return setErr(t("That isn't a lab device's code."));
         if (d.page === "s") await learn(d.device);
         setDevice({ id: d.device, page: d.page });
       } catch (e) {
@@ -143,8 +143,9 @@ export function LabSelfService({
         className="flex flex-col gap-3"
         onSubmit={(e) => {
           e.preventDefault();
-          const d = deviceFromCode(typed);
-          void open(d?.device ?? typed.trim(), d?.page ?? "s");
+          // the address beside the code, or just the device's id
+          const d = codeTarget(typed);
+          void open(d.kind === "device" ? d.device : typed.trim(), d.kind === "device" ? d.page : "s");
         }}
       >
         <label className="flex flex-col gap-1.5 text-[13px] text-black/60 dark:text-white/60">

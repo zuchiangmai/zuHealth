@@ -7,6 +7,7 @@ import { KEY, nameOf } from "../names";
 import { go as nav } from "../router";
 import { Btn, C, Callout, DAY, fdBest, fdStart, figure, fixed, Flag, Group, GroupIcon, Heading, Icon, IconDot, MOD, type Page, Problem, Row, Screen, SearchPill, sourceLabel, TINT, toPts, useOp } from "../ui";
 import { FdReport, SecaReport } from "./reports";
+import { ScanButton } from "./scan";
 
 /** The last 30 days of a measure, reaching back to its latest reading's day when that is older
  *  (one request per tile, refreshed after writes). */
@@ -270,15 +271,22 @@ export function Readings({
     <section className="mx-auto w-full max-w-5xl">
       <Heading space="mb-0.5">{t("Dashboard")}</Heading>
       <p className="mb-4 text-[13px] text-black/55 dark:text-white/55">{t("Updated {{when}}", { when: when(newest) })}</p>
-      <SearchPill
-        className="mb-5"
-        ref={search}
-        placeholder={isMobile ? t("Find a measure") : `${t("Find a measure")} (${MOD}F)`}
-        aria-label={t("Find a measure")}
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        onKeyDown={(e) => e.key === "Escape" && setQ("")}
-      />
+      <div className="mb-5 flex items-center gap-3">
+        <SearchPill
+          ref={search}
+          placeholder={isMobile ? t("Find a measure") : `${t("Find a measure")} (${MOD}F)`}
+          aria-label={t("Find a measure")}
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => e.key === "Escape" && setQ("")}
+        />
+        {/* a wide window (iPad) has no top bar here: the scanner sits beside the search; a computer has no camera to scan with */}
+        {isMobile && (
+          <span className="hidden wide:block">
+            <ScanButton round />
+          </span>
+        )}
+      </div>
       {reviews > 0 && (
         <Callout
           icon={<Icon k="review" />}

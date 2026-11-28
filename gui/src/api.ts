@@ -473,9 +473,4 @@ export async function scanCode(): Promise<string | null> {
   }
 }
 
-/** A lab device's id from what its QR code holds: `https://<site>/health/s/<device>` (seca, ForceDecks) or
- *  `…/health/d/<device>` (a short code). Query and anchor are ignored; null if it isn't a device code. */
-export function deviceFromCode(text: string): { device: string; page: "s" | "d" } | null {
-  const m = /\/health\/([sd])\/([a-z0-9-]{1,64})\/?(?:[?#].*)?$/.exec(text.trim());
-  return m ? { page: m[1] as "s" | "d", device: m[2]! } : null;
-}
+export { type CodeTarget, codeTarget, SITE_HOST } from "./codes";

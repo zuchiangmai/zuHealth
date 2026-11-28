@@ -795,5 +795,16 @@
  "{{n}} matched": "已匹配 {{n}} 项",
  "{{n}} not handled: they won't be saved.": "{{n}} 项未处理，不会保存",
  "{{n}} results, all matched by themselves. Check them against the report before saving.": "共 {{n}} 项，已全部自动匹配，保存前请对照原件核对",
- "{{n}} results, {{k}} matched by themselves.": "共 {{n}} 项，已自动匹配 {{k}} 项"
+ "{{n}} results, {{k}} matched by themselves.": "共 {{n}} 项，已自动匹配 {{k}} 项",
+ "Can't connect a device": "无法连接设备",
+ "Connect a new device?": "连接新设备？",
+ "This code connects a new device of yours to your health account. Continue only if that device is in your hand now.": "这个码用来把你自己的新设备连接到你的健康账户。只有那台设备正在你手里时才继续。",
+ "This is an identity code": "这是身份码",
+ "Lab staff scan it to send you results.": "由检测室工作人员扫描，用来把结果发给你。",
+ "Not a PhysiMind code": "这不是 PhysiMind 的码",
+ "Scan the code on a lab device, or the connection code a new device of yours shows.": "请扫描检测室设备上的码，或你的新设备显示的连接码。",
+ "Can't scan": "无法扫码",
+ "Scan a code": "扫码",
+ "Scan again": "再扫一次",
+ "OK": "好"
 }

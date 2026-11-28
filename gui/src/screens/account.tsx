@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { isMobile, onSync, op, scanCode } from "../api";
+import { codeTarget, isMobile, onSync, op, scanCode } from "../api";
 import { when } from "../format";
 import { t } from "../i18n";
 import { back as goBack, go as nav } from "../router";
@@ -398,9 +398,16 @@ function LinkThis({ done }: { done: (joined: boolean) => void }) {
   );
 }
 
+/** A connection code the dashboard's scanner read, after the person confirmed it is their own new device: in memory
+ *  only (it holds a one-time key), never in the address or history. */
+let offered: string | undefined;
+export const offerLinkCode = (code: string) => void (offered = code);
+
 /** This computer hands its account to a new device showing a connection code (protocol 3.5 rule 2). */
 function GiveAccount({ done }: { done: () => void }) {
-  const [code, setCode] = useState("");
+  const [code, setCode] = useState(() => offered ?? "");
+  // taken: gone once this screen is
+  useEffect(() => () => void (offered = undefined), []);
   const [sure, setSure] = useState(false);
   const [check, setCheck] = useState<string>();
   const [err, setErr] = useState<string>();
@@ -449,8 +456,9 @@ function GiveAccount({ done }: { done: () => void }) {
                   try {
                     const text = await scanCode();
                     if (!text) return;
-                    if (!text.trim().startsWith("ZUHL1:")) return setErr(t("That isn't a connection code."));
-                    setCode(text.trim());
+                    const c = codeTarget(text);
+                    if (c.kind !== "link") return setErr(t("That isn't a connection code."));
+                    setCode(c.code);
                   } catch (x) {
                     setErr(errText(x));
                   }

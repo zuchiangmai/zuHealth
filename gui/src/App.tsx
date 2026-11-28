@@ -20,6 +20,7 @@ import { Record } from "./screens/metric";
 import { More } from "./screens/more";
 import { ProfilePage } from "./screens/profile";
 import { Review } from "./screens/review";
+import { ScanButton } from "./screens/scan";
 import { Btn, Chevron, errText, GroupIcon, Icon, LangSelect, MAC, MOD, type Page, Problem, TitleContext, useAppearance, useOp, useTitles } from "./ui";
 
 /** Narrow screens (phones): the floating tab bar's pages; the other sections are reached from More. */
@@ -480,6 +481,8 @@ function Shell({ status }: { status?: Status }) {
         <TopBar
           title={title}
           photo={dash}
+          // the dashboard's scanner (a phone's: a computer has no camera to scan with)
+          right={isMobile && page === "readings" && !metric && route[0] !== "report" ? <ScanButton /> : undefined}
           className={route.length > 1 ? "" : "wide:hidden"}
           back={route.length > 1 || !isTab ? () => goBack(parentOf(route, pathOf(tab.current))) : undefined}
         />
@@ -584,7 +587,7 @@ const PHOTO_BAR_IOS = "backdrop-blur-xl mask-b-from-40% mask-b-to-100%";
 /** The top bar, Konsta's as each platform has it: over the screen's large heading only the way back; scrolled, the
  *  content under it blurs and fades (iOS) or the bar takes its surface (Material), and the screen's name shows in it.
  *  The name is the screen's own heading (the first `Heading` on it), so no screen has to say it twice. */
-function TopBar({ title, back, photo, className = "" }: { title: string; back?: () => void; photo?: boolean; className?: string }) {
+function TopBar({ title, back, right, photo, className = "" }: { title: string; back?: () => void; right?: ReactNode; photo?: boolean; className?: string }) {
   const { theme } = useAppearance();
   return (
     <Navbar
@@ -594,6 +597,7 @@ function TopBar({ title, back, photo, className = "" }: { title: string; back?: 
       className={`-mx-4 w-[calc(100%+2rem)]! wide:-mx-9 wide:-mt-6 wide:w-[calc(100%+4.5rem)]! ${className}`}
       innerClassName="wide:mx-auto wide:max-w-3xl wide:px-0!"
       left={back && <NavbarBackLink text={t("Back")} showText={theme === "ios"} onClick={back} />}
+      right={right}
     />
   );
 }
