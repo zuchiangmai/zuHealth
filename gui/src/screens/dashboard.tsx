@@ -5,7 +5,7 @@ import { ago, asDuration, day, dayMs, GROUPS, HOME_GROUPS, num, shortDate, shown
 import { t } from "../i18n";
 import { KEY, nameOf } from "../names";
 import { go as nav } from "../router";
-import { Btn, C, Callout, DAY, fdBest, fdStart, figure, fixed, Flag, Group, GroupIcon, Heading, Icon, IconDot, MOD, type Page, Problem, Row, Screen, SearchPill, sourceLabel, TINT, toPts, useOp } from "../ui";
+import { Btn, C, Callout, DAY, fdBest, fdStart, figure, fixed, Flag, Group, GroupIcon, Heading, Icon, IconDot, legible, MOD, type Page, Problem, Row, Screen, SearchPill, sourceLabel, TINT, toPts, useOp } from "../ui";
 import { FdReport, SecaReport } from "./reports";
 
 /** The last 30 days of a measure, reaching back to its latest reading's day when that is older
@@ -116,7 +116,7 @@ function Section({
     <section className="mb-2 scroll-mt-10 break-inside-avoid" id={`g-${g.key}`} aria-labelledby={`h-${g.key}`}>
       <Group
         title={
-          <span id={`h-${g.key}`} className="flex items-center gap-2 text-[15px] font-semibold text-black dark:text-white">
+          <span id={`h-${g.key}`} className={`flex items-center gap-2 text-[15px] font-semibold text-black dark:text-white ${legible}`}>
             <IconDot color={TINT[g.key] ?? TINT.other} className="h-7! w-7!">
               <GroupIcon k={g.key} />
             </IconDot>
@@ -125,7 +125,7 @@ function Section({
         }
         after={
           !all && rows.length > fold ? (
-            <Btn type="button" link aria-expanded={more} onClick={() => setMore(!more)}>
+            <Btn type="button" link aria-expanded={more} className={legible} onClick={() => setMore(!more)}>
               {more ? t("Show fewer") : t("Show all {{n}}", { n: rows.length })}
             </Btn>
           ) : undefined
@@ -136,7 +136,7 @@ function Section({
         ))}
       </Group>
       {from.length > 0 && (
-        <p className="-mt-3 mb-5 px-4 text-[13px] text-black/55 dark:text-white/55">
+        <p className={`-mt-3 mb-5 ms-4 text-[13px] text-black/55 dark:text-white/55 ${legible}`}>
           {new Set(from).size > 3
             ? t("From {{list}} and {{n}} more", { list: [...new Set(from)].slice(0, 3).join(t(", ")), n: new Set(from).size - 3 })
             : t("From {{list}}", { list: [...new Set(from)].slice(0, 3).join(t(", ")) })}
@@ -153,7 +153,7 @@ function Start({ start }: { start: (p: Page, want: string) => void }) {
       <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
         <div>
           <Heading>{t("Dashboard")}</Heading>
-          <p className="text-[13px] text-black/55 dark:text-white/55">{(isMobile ? t("Your data is stored encrypted on this device") : t("Your data is stored encrypted on this computer"))}</p>
+          <p className={`text-[13px] text-black/55 dark:text-white/55 ${legible}`}>{(isMobile ? t("Your data is stored encrypted on this device") : t("Your data is stored encrypted on this computer"))}</p>
         </div>
       </div>
       <div className="max-w-[640px] overflow-hidden rounded-3xl bg-white/80 shadow-sm dark:bg-neutral-900/80">
@@ -170,7 +170,7 @@ function Start({ start }: { start: (p: Page, want: string) => void }) {
         </Group>
       </div>
       {/* dropping a file on the window is the desktop's */}
-      {isDesktop && <p className="text-[13px] text-black/55 dark:text-white/55 mt-3 text-[13px]">{t("You can also drop a file anywhere on this window.")}</p>}
+      {isDesktop && <p className={`mt-3 text-[13px] text-black/55 dark:text-white/55 ${legible}`}>{t("You can also drop a file anywhere on this window.")}</p>}
     </section>
   );
 }
@@ -259,7 +259,7 @@ export function Readings({
   return (
     <section className="mx-auto w-full max-w-5xl">
       <Heading space="mb-0.5">{t("Dashboard")}</Heading>
-      <p className="mb-4 text-[13px] text-black/55 dark:text-white/55">{t("Updated {{when}}", { when: when(newest) })}</p>
+      <p className={`mb-4 text-[13px] text-black/55 dark:text-white/55 ${legible}`}>{t("Updated {{when}}", { when: when(newest) })}</p>
       <SearchPill
         className="mb-5"
         ref={search}
@@ -284,7 +284,7 @@ export function Readings({
           {fdLatest && <FdCard session={fdLatest} open={() => nav("report/forcedecks")} />}
         </Group>
       )}
-      {!groups.length && <p className="text-black/55 dark:text-white/55">{t("No measure matches “{{q}}”.", { q })}</p>}
+      {!groups.length && <p className={`text-black/55 dark:text-white/55 ${legible}`}>{t("No measure matches “{{q}}”.", { q })}</p>}
       <div className="wide:columns-2 wide:gap-6">
         {groups.map(({ g, rows }) => (
           <Section key={g.key} g={g} rows={rows} sources={sources ?? []} open={open} all={!!needle} />
