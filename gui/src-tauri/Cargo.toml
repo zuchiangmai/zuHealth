@@ -38,6 +38,8 @@ hex = "0.4"
 health-runtime.workspace = true
 tauri-plugin-health-platform.workspace = true
 tauri-plugin-barcode-scanner = "2"
+# a lab device's address opened from the system camera (Universal Links / App Links)
+tauri-plugin-deep-link = "2"
 tauri-plugin-opener = "2"
 
 # Android sends a picked file in base64 chunks (its IPC can't carry raw bytes): lib.rs stage_file.

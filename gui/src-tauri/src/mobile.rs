@@ -168,6 +168,7 @@ pub(crate) fn run(builder: tauri::Builder<Wry>) {
     builder
         .plugin(tauri_plugin_health_platform::init())
         .plugin(tauri_plugin_barcode_scanner::init())
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let handle = app.handle().clone();

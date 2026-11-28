@@ -806,5 +806,8 @@
  "Can't scan": "無法掃碼",
  "Scan a code": "掃碼",
  "Scan again": "再掃一次",
- "OK": "好"
+ "OK": "好",
+ "Can't open this link": "無法打開這個鏈接",
+ "PhysiMind opens the codes on lab devices. This address isn't one.": "PhysiMind 能打開的是檢測室設備上的碼，這個地址不是。",
+ "Open the lab device {{device}}?": "打開檢測室設備 {{device}}？"
 }

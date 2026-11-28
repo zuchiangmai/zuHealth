@@ -13,6 +13,7 @@
   "dependencies": {
     "@tauri-apps/api": "^2.12.5",
     "@tauri-apps/plugin-barcode-scanner": "^2.5.3",
+    "@tauri-apps/plugin-deep-link": "^2.6.3",
     "@tauri-apps/plugin-dialog": "^2.8.4",
     "i18next": "^25.10.10",
     "konsta": "^5.5.0",

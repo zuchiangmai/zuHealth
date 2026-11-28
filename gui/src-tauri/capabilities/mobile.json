@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/mobile-schema.json",
   "identifier": "mobile",
-  "description": "Phones and tablets: the camera scanner for a lab device's code and another device's link code.",
+  "description": "Phones and tablets: the camera scanner for a lab device's code and another device's link code, and a lab device's address opened from the system camera.",
   "platforms": ["iOS", "android"],
   "windows": ["main"],
-  "permissions": ["barcode-scanner:default"]
+  "permissions": ["barcode-scanner:default", "deep-link:default"]
 }

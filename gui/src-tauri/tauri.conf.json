@@ -36,5 +36,17 @@
     "android": {
       "minSdkVersion": 31
     }
+  },
+  "plugins": {
+    "deep-link": {
+      "mobile": [
+        {
+          "scheme": ["https"],
+          "host": "zuchiangmai.com",
+          "pathPrefix": ["/health/s/", "/health/d/"],
+          "appLink": true
+        }
+      ]
+    }
   }
 }

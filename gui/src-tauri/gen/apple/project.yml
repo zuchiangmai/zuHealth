@@ -69,6 +69,10 @@ targets:
       properties:
         # push notifications (APNs); needs a paid team's signing with the Push Notifications capability
         aps-environment: development
+        # a lab device's address (zuchiangmai.com/health/s|d/...) opens the app; the site serves the
+        # apple-app-site-association file. The deep-link plugin writes the same at build time; this keeps it
+        # through `xcodegen generate`. Developer mode (?mode=developer) only by hand, never committed.
+        com.apple.developer.associated-domains: [applinks:zuchiangmai.com]
     scheme:
       environmentVariables:
         RUST_BACKTRACE: full

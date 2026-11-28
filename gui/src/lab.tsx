@@ -4,6 +4,7 @@
 // flow (seca.*, fd.*, self.code); this file is the pages. Results land like any lab result.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { codeTarget, isMobile, op, OpError, scanCode } from "./api";
+import { letThrough, openedByLink } from "./deeplink";
 import forcedecksPhoto from "./devices/forcedecks.webp";
 import secaPhoto from "./devices/seca-mbca.webp";
 import { when } from "./format";
@@ -85,11 +86,15 @@ export function LabSelfService({
   const learn = (id: string) => op<Kind>("lab.device", { device: id }).then((k) => setKnown({ device: id, kind: k }));
   const [err, setErr] = useState<string>();
   const { busy, once } = useOnce();
+  // opened by a link from anywhere (the system camera, a web page): nothing goes to the service until the person
+  // has seen which device it is and goes on
+  const [, letGo] = useState(0);
+  const held = !!device && openedByLink(`data/lab/${device.page}/${device.id}`);
   // a lab device's page needs what the device is (asked here when its address was opened directly)
   useEffect(() => {
-    if (device?.page !== "s" || kind) return;
+    if (held || device?.page !== "s" || kind) return;
     learn(device.id).catch((e) => setErr(errText(e)));
-  }, [device?.page, device?.id]);
+  }, [held, device?.page, device?.id]);
   const setDevice = (d: { id: string; page: "s" | "d" }) => go(`data/lab/${d.page}/${encodeURIComponent(d.id)}`);
 
   const open = (id: string, page: "s" | "d") =>
@@ -119,6 +124,23 @@ export function LabSelfService({
       }
     });
 
+  if (device && held)
+    return (
+      <section className="[&_h3]:mt-6">
+        <Heading>{t("Lab self-service")}</Heading>
+        <p className="mb-5 max-w-prose text-[15px] text-black/55 dark:text-white/55">{t("Open the lab device {{device}}?", { device: device.id })}</p>
+        <Btn
+          type="button"
+          primary
+          onClick={() => {
+            letThrough();
+            letGo((n) => n + 1);
+          }}
+        >
+          {t("Continue")}
+        </Btn>
+      </section>
+    );
   if (device?.page === "d") return <ShortCode device={device.id} errText={errText} pollFast={pollFast} />;
   if (device?.page === "s" && !kind) return err ? <Problem text={err} /> : <p aria-busy="true" />;
   if (device && kind?.kind === "seca") return <SecaSelf device={device.id} errText={errText} showResults={showResults} />;

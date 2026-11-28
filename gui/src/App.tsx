@@ -1,4 +1,5 @@
-import { Navbar, NavbarBackLink, Tabbar, TabbarLink, ToolbarPane } from "konsta/react";
+import { Dialog, DialogButton, Navbar, NavbarBackLink, Tabbar, TabbarLink, ToolbarPane } from "konsta/react";
+import { onLink, takeLink } from "./deeplink";
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { chooseImportFile, inBackground, initProfile, isAndroid, isDesktop, isMobile, menuOwnsKeys, onFileDrop, onMenu, onStatus, op, OpError, type Point, setBadge, setShellLanguage, type Status, unlock, unstageFile } from "./api";
@@ -249,6 +250,17 @@ function Shell({ status }: { status?: Status }) {
   const setPage = (p: Page, w?: string) => nav(w ? `${pathOf(p)}/${w}` : pathOf(p), TABS.some((x) => x.key === p) && !w);
   // ⌘F asks Readings to focus its search; Readings clears the request once its search box exists
   const [find, setFind] = useState(false);
+  // a lab device's address opened from the camera or a link: its page, now that the data is open
+  const [strangeLink, setStrangeLink] = useState(false);
+  useEffect(() => {
+    const open = () => {
+      const l = takeLink();
+      if (l && "path" in l) nav(l.path);
+      else if (l) setStrangeLink(true);
+    };
+    open();
+    return onLink(open);
+  }, []);
   useEffect(() => {
     try {
       if (PAGES.some((x) => x.key === page)) localStorage.setItem("page", page);
@@ -532,6 +544,13 @@ function Shell({ status }: { status?: Status }) {
         </div>
         </TitleContext.Provider>
       </main>
+      <Dialog
+        opened={strangeLink}
+        onBackdropClick={() => setStrangeLink(false)}
+        title={t("Can't open this link")}
+        content={t("PhysiMind opens the codes on lab devices. This address isn't one.")}
+        buttons={<DialogButton onClick={() => setStrangeLink(false)}>{t("OK")}</DialogButton>}
+      />
       {/* iOS 26's tab bar sits 13 pt into the home indicator's area (21 pt from the edge on a Face ID iPhone; Files,
           2026-11-27), not 16 pt above it as Konsta's default (pb-safe-4); Material's already sits on the edge */}
       <Tabbar labels icons className="fixed! bottom-0 left-0 wide:hidden ios:pb-[max(8px,calc(var(--k-safe-area-bottom)-13px))]!">
