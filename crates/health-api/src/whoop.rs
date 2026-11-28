@@ -85,8 +85,9 @@ fn token(net: &Net, pairs: &[(&str, &str)]) -> Result<Tokens> {
     }
     match (status / 100 == 2, j.get("access_token").and_then(Json::as_str), j.get("refresh_token").and_then(Json::as_str)) {
         (true, Some(a), Some(r)) => {
-            let ttl = j.get("expires_in").and_then(Json::as_f64).map_or(3_600_000, |s| (s * 1000.0) as i64);
-            Ok(Tokens { access: a.into(), refresh: r.into(), expires: net.now_ms + ttl })
+            // from the network: within a day, whatever it says (a token lasts an hour)
+            let ttl = j.get("expires_in").and_then(Json::as_f64).map_or(3_600_000, |s| (s * 1000.0).clamp(0.0, 86_400_000.0) as i64);
+            Ok(Tokens { access: a.into(), refresh: r.into(), expires: net.now_ms.saturating_add(ttl) })
         }
         _ => Err(stop("server")),
     }
@@ -113,6 +114,21 @@ fn keep(net: &Net, w: &Whoop) -> Result<()> {
     let w = w.clone();
     update(net, &mut |s| s.whoop = Some(w.clone()))
 }
+
+/// What a sync learned (new tokens, reauth, the last sync), kept only if the connection it ran on is still the one
+/// here: a disconnect or a new sign-in meanwhile wins, and a stale sync never writes "connected" back.
+fn keep_synced(net: &Net, w: &Whoop) -> Result<()> {
+    let w = w.clone();
+    update(net, &mut |s| {
+        if s.whoop.as_ref().is_some_and(|cur| cur.refresh.is_some() && cur.connected_at == w.connected_at) {
+            s.whoop = Some(w.clone());
+        }
+    })
+}
+
+/// One sync at a time in this process: two at once would both spend the same refresh token, and WHOOP would ask
+/// the person to sign in again.
+static SYNCING: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[derive(Serialize, JsonSchema)]
 #[serde(tag = "state", rename_all = "snake_case")]
@@ -273,7 +289,7 @@ pub struct SyncReq {
 
 #[derive(Serialize, JsonSchema)]
 pub struct Synced {
-    /// Skipped: the last sync was under an hour ago
+    /// Skipped: the last sync was under an hour ago, or another one is running
     pub skipped: bool,
     pub written: u64,
 }
@@ -283,6 +299,11 @@ fn iso(ms: i64) -> String {
 }
 
 pub(crate) fn sync(net: &Net, r: SyncReq) -> Result<Synced> {
+    let _one = match SYNCING.try_lock() {
+        Ok(g) => g,
+        Err(std::sync::TryLockError::Poisoned(e)) => e.into_inner(),
+        Err(std::sync::TryLockError::WouldBlock) => return Ok(Synced { skipped: true, written: 0 }),
+    };
     let mut s = match load(net)? {
         Some(s) if s.refresh.is_some() && s.user_id.is_some() => s,
         _ => return Err(stop("none")),
@@ -311,12 +332,12 @@ pub(crate) fn sync(net: &Net, r: SyncReq) -> Result<Synced> {
                 s.refresh = Some(t.refresh);
                 s.expires = Some(t.expires);
                 // the old refresh token is spent: save the new one before using it
-                keep(net, s)
+                keep_synced(net, s)
             }
             Err(e) => {
                 if e.code == "whoop_reauth" || e.code == "whoop_client" {
                     s.reauth = true;
-                    keep(net, s)?;
+                    keep_synced(net, s)?;
                     return Err(stop("reauth"));
                 }
                 Err(e)
@@ -398,7 +419,7 @@ pub(crate) fn sync(net: &Net, r: SyncReq) -> Result<Synced> {
         }
     })?;
     s.last_sync = Some(now);
-    keep(net, &s)?;
+    keep_synced(net, &s)?;
     Ok(Synced { skipped: false, written })
 }
 

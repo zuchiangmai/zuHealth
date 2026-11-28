@@ -14,6 +14,9 @@ fn yes() -> bool {
     true
 }
 
+/// Devices remembered in the sync state; the least recently seen go first.
+pub const MAX_PEERS: usize = 64;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SyncState {
     /// "Sync on this network" (lan-sync §11; on by default once linked, owner decision 2)
@@ -110,8 +113,21 @@ impl SyncStore {
     pub fn update<T>(&self, f: impl FnOnce(&mut SyncState) -> Result<T>) -> Result<T> {
         let mut s = self.load_or_reset()?;
         let out = f(&mut s)?;
+        s.forget_old_peers();
         self.save(&s)?;
         Ok(out)
+    }
+}
+
+impl SyncState {
+    /// Past MAX_PEERS, the devices not seen for longest are forgotten, with their entries: every change that adds a
+    /// device keeps the list bounded, not only a sync that gets as far as planning.
+    pub fn forget_old_peers(&mut self) {
+        while self.peers.len() > MAX_PEERS {
+            let Some(old) = self.peers.iter().min_by_key(|(_, v)| v.last_seen).map(|(k, _)| k.clone()) else { return };
+            self.peers.remove(&old);
+            self.skip.retain(|k| k.peer != old);
+        }
     }
 }
 
@@ -135,5 +151,21 @@ mod tests {
         // another key can't read it
         let other = SyncStore::new(d.path().join("sync"), d.path().to_path_buf(), [8; 32]);
         assert_eq!(other.load().err().unwrap().code, "sync");
+    }
+
+    #[test]
+    fn devices_past_the_limit_are_forgotten_oldest_first() {
+        let d = tempfile::tempdir().unwrap();
+        let st = SyncStore::new(d.path().join("sync"), d.path().to_path_buf(), [7; 32]);
+        for i in 0..MAX_PEERS as i64 + 6 {
+            st.update(|s| {
+                s.peers.entry(format!("{i:032x}")).or_default().last_seen = 1000 + i;
+                Ok(())
+            })
+            .unwrap();
+        }
+        let peers = st.load().unwrap().peers;
+        assert_eq!(peers.len(), MAX_PEERS);
+        assert!(!peers.contains_key(&format!("{:032x}", 5)) && peers.contains_key(&format!("{:032x}", 6)));
     }
 }

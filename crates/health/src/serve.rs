@@ -83,7 +83,7 @@ impl State {
             if self.rt.status().state != RtState::Ready {
                 return Err(Error::new(Kind::Locked, "locked", "serve is locked: run `health unlock`"));
             }
-            if self.proof.lock().unwrap().as_deref().is_some_and(|x| ct_eq(x, p)) {
+            if self.proof.lock().unwrap().as_ref().is_some_and(|(_, x)| ct_eq(x, p)) {
                 return Ok(Who::Owner);
             }
             return Err(Error::new(Kind::Denied, "denied", "bad passphrase proof"));
@@ -223,13 +223,13 @@ impl State {
         };
         if self.rt.status().state == RtState::Ready {
             // Already unlocked: only the same passphrase gives the same proof; nothing changes on a miss.
-            let same = self.proof.lock().unwrap().as_deref().is_some_and(|cur| ct_eq(cur, &proof));
+            let same = self.proof.lock().unwrap().as_ref().is_some_and(|(_, cur)| ct_eq(cur, &proof));
             if !same {
                 return fail(Error::new(Kind::Locked, "bad_passphrase", ""));
             }
         } else {
             // the proof is stored before the profile opens, so a request never sees one without the other
-            *self.proof.lock().unwrap() = Some(proof);
+            *self.proof.lock().unwrap() = Some((self.rt.locks(), proof));
             if let Err(e) = self.rt.unlock(Some(&store)) {
                 *self.proof.lock().unwrap() = None;
                 return fail(e);
@@ -256,8 +256,13 @@ pub fn run(o: Opts) -> Result<()> {
     let on_event = {
         let (events, proof) = (events.clone(), proof.clone());
         move |event: &str, data: Value| {
+            // only a lock after the unlock that made the proof clears it, not a late event from an earlier one
             if event == "locked" {
-                *proof.lock().unwrap() = None;
+                let n = data["n"].as_u64().unwrap_or(u64::MAX);
+                let mut g = proof.lock().unwrap();
+                if g.as_ref().is_some_and(|(after, _)| *after < n) {
+                    *g = None;
+                }
             }
             // the shell tracks the core's state itself; `status` is the runtime's own
             if event != "status" {
@@ -347,5 +352,6 @@ pub fn run(o: Opts) -> Result<()> {
 use std::io::{Read as _, Write as _};
 use zeroize::{Zeroize as _, Zeroizing};
 
-/// Passphrase mode: proof of the passphrase the profile was unlocked with (cleared on lock)
-type Proof = Arc<Mutex<Option<Zeroizing<String>>>>;
+/// Passphrase mode: proof of the passphrase the profile was unlocked with, and the runtime's lock count when it was
+/// made (cleared by a later lock)
+type Proof = Arc<Mutex<Option<(u64, Zeroizing<String>)>>>;

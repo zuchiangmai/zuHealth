@@ -290,6 +290,7 @@
  "This is not a WHOOP data file Health can read.": "這不是健康能讀取的 WHOOP 數據文件。",
  "A line in the file is not a reading Health understands.": "文件中有一行不是健康能識別的數據。",
  "The file can't be found. It may have been moved.": "找不到文件，可能已被移動。",
+ "Your data was deleted, but its key couldn't be removed from this device's key store. Clear data again to remove it.": "數據已刪除，但它的鑰匙沒能從這臺設備的鑰匙串中移除。再清除一次數據即可移除。",
  "A file with that name already exists. Choose another name.": "已存在同名文件。請換一個名字。",
  "This file was already imported: it is under Sources, or under Waiting for you if it hasn't been checked yet.": "這個文件已經導入過：在“來源”裡，或者如果還沒核對，在“待你確認”裡。",
  "Choose the unit your device showed.": "請選擇設備上顯示的單位。",

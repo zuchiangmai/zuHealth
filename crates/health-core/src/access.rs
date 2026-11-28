@@ -110,6 +110,13 @@ fn denied() -> Error {
 }
 
 impl AccessDb {
+    /// Ends a transaction an interrupted call left open (see `Profile::recover`).
+    pub fn recover(&self) {
+        if !self.c.is_autocommit() {
+            let _ = self.c.execute_batch("ROLLBACK");
+        }
+    }
+
     pub fn open(path: &Path, key: &[u8; 32]) -> Result<Self> {
         let c = Connection::open(path)?;
         c.pragma_update(None, "key", zeroize::Zeroizing::new(format!("x'{}'", hex::encode(key))).as_str())?;

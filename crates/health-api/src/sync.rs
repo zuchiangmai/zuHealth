@@ -22,8 +22,7 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 
 pub const PROTO: u32 = 1;
-/// Devices remembered in the sync state; the least recently seen go first.
-pub const MAX_PEERS: usize = 64;
+pub use health_core::syncstate::MAX_PEERS;
 const WEB_MAX_PACK: u64 = 256 << 20;
 
 fn web_max_pack() -> u64 {
@@ -813,11 +812,7 @@ impl Session {
         // cursors of imports no longer done here belong to nothing
         st.resume.retain(|uid, _| mine.imports.get(uid).is_some_and(|l| l.status == "done"));
         // devices not seen for long are forgotten, with their entries
-        while st.peers.len() > MAX_PEERS {
-            let old = st.peers.iter().min_by_key(|(_, v)| v.last_seen).map(|(k, _)| k.clone()).expect("peers");
-            st.peers.remove(&old);
-            st.skip.retain(|k| k.peer != old);
-        }
+        st.forget_old_peers();
         let skipped: BTreeSet<String> = st.skip.iter().filter(|k| k.peer == peer).map(|k| k.what.clone()).collect();
         let mut w = sync::wants(mine, theirs, &|uid| skipped.contains(&format!("i {uid}")));
         w.corrections &= !skipped.contains("c");

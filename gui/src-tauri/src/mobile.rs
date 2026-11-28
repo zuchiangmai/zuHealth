@@ -43,9 +43,12 @@ pub(crate) fn init_profile(app: AppHandle) -> std::result::Result<(), Value> {
 
 #[tauri::command(async)]
 pub(crate) fn clear_data(app: AppHandle, confirm: String) -> std::result::Result<(), Value> {
-    runtime(&app)?.owner("runtime.wipe", &json!({ "confirm": confirm }), Opts::default()).map_err(|e| error_json(&e))?;
-    crate::clear_cache(&app);
-    Ok(())
+    let out = runtime(&app)?.owner("runtime.wipe", &json!({ "confirm": confirm }), Opts::default());
+    // the data is gone even when only its key couldn't be removed
+    if out.as_ref().is_ok() || out.as_ref().is_err_and(|e| e.code == "key_not_deleted") {
+        crate::clear_cache(&app);
+    }
+    out.map(|_| ()).map_err(|e| error_json(&e))
 }
 
 /// Desktop-only commands: agents connect to a phone through its own LAN interface, not an MCP config here.

@@ -39,9 +39,10 @@ pub fn recognize(m: &Models, input: &input::Input, this_year: i32, progress: &mu
     let mut items = Vec::new();
     let mut texts = Vec::new();
     let mut all: Vec<Line> = Vec::new();
-    for (i, img) in input.pages.iter().enumerate() {
-        progress(i, input.pages.len());
-        let lines = m.engine.recognize(img, &mut |_, _| {})?;
+    let pages = input.page_count();
+    for i in 0..pages {
+        progress(i, pages);
+        let lines = m.engine.recognize(&input.page(i), &mut |_, _| {})?;
         texts.push(page_text(&lines));
         items.extend(rows::read_table(&lines).items);
         all.extend(lines);

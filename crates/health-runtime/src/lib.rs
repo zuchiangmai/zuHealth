@@ -138,6 +138,9 @@ pub struct Runtime {
     lan: OnceLock<lan::Lan>,
     /// Why the profile didn't open at start, for shells that report it (serve exits with it).
     open_error: Mutex<Option<Error>>,
+    /// How many times the profile has been locked: the `locked` event carries it, so a shell can tell a lock that
+    /// came before its unlock from one after.
+    locks: std::sync::atomic::AtomicU64,
 }
 
 /// Polls the app makes on its own: they must not count as the person using it.
@@ -162,6 +165,7 @@ impl Runtime {
             session: Mutex::new(Session::default()),
             lan: OnceLock::new(),
             open_error: Mutex::new(None),
+            locks: std::sync::atomic::AtomicU64::new(0),
         });
         let dir = rt.dir();
         if !dir.as_ref().is_some_and(|d| d.join("id").exists()) {
@@ -309,10 +313,16 @@ impl Runtime {
         if p.take().is_none() {
             return;
         }
+        let n = self.locks.fetch_add(1, Ordering::SeqCst) + 1;
         self.session.lock().unwrap_or_else(|e| e.into_inner()).clear();
         drop(p);
         self.set_status(State::Locked, None);
-        self.emit("locked", json!({}));
+        self.emit("locked", json!({ "n": n }));
+    }
+
+    /// Locks so far (see `locks`): read before an unlock, it names the last lock that unlock follows.
+    pub fn locks(&self) -> u64 {
+        self.locks.load(Ordering::SeqCst)
     }
 
     /// Locks once the owner has made no call for `idle` (desktop passphrase mode).
@@ -375,16 +385,19 @@ impl Runtime {
         let mut p = self.lock_profile();
         p.take();
         self.session.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        let wiped = health_core::profile::wipe(&self.platform.data_dir, &self.platform.profile);
+        drop(p);
+        // whatever happened, the status says what is on disk now: never "ready" with nothing open
+        let left = self.dir().is_some_and(|d| d.join("id").exists());
+        self.set_status(if left { State::Locked } else { State::NoProfile }, None);
         // the key last: without its database it opens nothing
-        let cleared = match health_core::profile::wipe(&self.platform.data_dir, &self.platform.profile)? {
+        let cleared = match wiped? {
             Some(id) => {
-                self.platform.keys.delete(&id)?;
+                self.platform.keys.delete(&id).map_err(|e| Error::other("key_not_deleted", e.to_string()))?;
                 true
             }
             None => false,
         };
-        drop(p);
-        self.set_status(State::NoProfile, None);
         Ok(json!({ "cleared": cleared }))
     }
 
@@ -431,13 +444,19 @@ impl Runtime {
             now_ms: now,
             tz_min: (self.platform.tz_min)(now),
         };
-        let v = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| health_api::account::call_net(&net, name, req)))
-            .map_err(|_| Error::other("internal", format!("{name} failed unexpectedly")))??;
+        let v =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| health_api::account::call_net(&net, name, req))).map_err(|_| {
+                if let Some(p) = self.lock_profile().as_ref() {
+                    p.recover();
+                }
+                Error::other("internal", format!("{name} failed unexpectedly"))
+            })??;
         let changed = match name {
             "inbox.poll" => ["saved", "review"].iter().any(|k| v[*k].as_u64().unwrap_or(0) > 0),
             "link.adopt" | "account.register" => true,
             "seca.poll" => v["state"] == "ready",
             "fd.check" | "fd.catch_up" => v["taken"].as_u64().unwrap_or(0) > 0,
+            "whoop.sync" => v["written"].as_u64().unwrap_or(0) > 0,
             _ => false,
         };
         if changed {
@@ -454,8 +473,11 @@ impl Runtime {
         let mut ctx = Ctx::new(profile, (self.platform.now_ms)(), caller);
         ctx.dry_run = owner && opts.dry_run;
         let dry = ctx.dry_run;
-        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| health_api::call(&mut ctx, name, req.clone())))
-            .map_err(|_| Error::other("internal", format!("{name} failed unexpectedly")))??;
+        let outcome =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| health_api::call(&mut ctx, name, req.clone()))).map_err(|_| {
+                profile.recover(); // else every later write fails until the profile is opened again
+                Error::other("internal", format!("{name} failed unexpectedly"))
+            })??;
         drop(p);
         if owner && !opts.background && !background(name) {
             self.touch(); // idle time counts from the end of the owner's op

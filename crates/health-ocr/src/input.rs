@@ -19,7 +19,37 @@ fn too_big_or_unreadable(e: image::ImageError) -> InputError {
 
 pub struct Input {
     pub sha: String,
-    pub pages: Vec<Img>,
+    pages: Pages,
+}
+
+/// A photo is one page, decoded; a PDF's pages are drawn one at a time as they are read, so a 12-page report
+/// never holds 12 pages of pixels at once (about 40 MB each at 3200 px).
+enum Pages {
+    Image(Img),
+    Pdf(Box<PdfDoc>),
+}
+
+struct PdfDoc {
+    pdf: hayro::hayro_interpret::hayro_syntax::Pdf,
+    settings: hayro::hayro_interpret::InterpreterSettings,
+    count: usize,
+}
+
+impl Input {
+    pub fn page_count(&self) -> usize {
+        match &self.pages {
+            Pages::Image(_) => 1,
+            Pages::Pdf(d) => d.count,
+        }
+    }
+
+    /// Page `i`'s pixels: a photo's, borrowed; a PDF page's, drawn now.
+    pub fn page(&self, i: usize) -> std::borrow::Cow<'_, Img> {
+        match &self.pages {
+            Pages::Image(img) => std::borrow::Cow::Borrowed(img),
+            Pages::Pdf(d) => std::borrow::Cow::Owned(d.render(i)),
+        }
+    }
 }
 
 /// Why a file can't be read, as a code the UI explains.
@@ -53,11 +83,12 @@ pub fn read_input(bytes: &[u8]) -> Result<Input, InputError> {
         return Err(InputError::TooBig);
     }
     let sha = sha256_hex(bytes);
-    let pages = if bytes.starts_with(b"%PDF") { pdf_pages(bytes)? } else { vec![image_page(bytes)?] };
-    if pages.is_empty() {
+    let pages = if bytes.starts_with(b"%PDF") { Pages::Pdf(Box::new(pdf_doc(bytes)?)) } else { Pages::Image(image_page(bytes)?) };
+    let input = Input { sha, pages };
+    if input.page_count() == 0 {
         return Err(InputError::Unreadable);
     }
-    Ok(Input { sha, pages })
+    Ok(input)
 }
 
 fn fit(w: u32, h: u32) -> (u32, u32) {
@@ -82,8 +113,13 @@ fn image_page(bytes: &[u8]) -> Result<Img, InputError> {
         img.apply_orientation(o);
     }
     let (w, h) = fit(img.width(), img.height());
+    // shrunk before it's widened to RGBA, so a camera photo isn't copied whole once more; the same pixels for
+    // 8-bit images (each channel is filtered on its own), so other depths keep the old order
+    let eight = matches!(img, image::DynamicImage::ImageRgb8(_) | image::DynamicImage::ImageRgba8(_) | image::DynamicImage::ImageLuma8(_));
     let rgba = if (w, h) == (img.width(), img.height()) {
-        img.to_rgba8()
+        img.into_rgba8()
+    } else if eight {
+        img.resize_exact(w, h, image::imageops::FilterType::Triangle).into_rgba8()
     } else {
         image::imageops::resize(&img.to_rgba8(), w, h, image::imageops::FilterType::Triangle)
     };
@@ -116,11 +152,9 @@ fn cjk_font() -> Option<hayro::hayro_interpret::font::FontData> {
     CANDIDATES.iter().find_map(|p| std::fs::read(p).ok()).map(|d| Arc::new(d) as hayro::hayro_interpret::font::FontData)
 }
 
-fn pdf_pages(bytes: &[u8]) -> Result<Vec<Img>, InputError> {
+fn pdf_doc(bytes: &[u8]) -> Result<PdfDoc, InputError> {
     use hayro::hayro_interpret::font::FontQuery;
     use hayro::hayro_interpret::{InterpreterSettings, hayro_syntax::Pdf};
-    use hayro::vello_cpu::color::palette::css::WHITE;
-    use hayro::{PixmapSettings, RenderCache, RenderSettings, render};
     let pdf = Pdf::new(bytes.to_vec()).map_err(|e| match e {
         hayro::hayro_syntax::LoadPdfError::Decryption(hayro::hayro_syntax::DecryptionError::PasswordProtected) => InputError::Password,
         _ => InputError::Unreadable,
@@ -140,19 +174,24 @@ fn pdf_pages(bytes: &[u8]) -> Result<Vec<Img>, InputError> {
         }),
         ..Default::default()
     };
-    let cache = RenderCache::new();
-    let mut out = Vec::new();
-    for page in pdf.pages().iter().take(MAX_PAGES) {
+    let count = pdf.pages().len().min(MAX_PAGES);
+    Ok(PdfDoc { pdf, settings, count })
+}
+
+impl PdfDoc {
+    fn render(&self, i: usize) -> Img {
+        use hayro::vello_cpu::color::palette::css::WHITE;
+        use hayro::{PixmapSettings, RenderCache, RenderSettings, render};
+        let page = &self.pdf.pages()[i];
         let (w1, h1) = page.render_dimensions();
         let scale = (3.0f32).min(MAX_SIDE as f32 / w1.max(h1));
         let px = render(
             page,
-            &cache,
-            &settings,
+            &RenderCache::new(), // borrows the document, so one per page: the same pixels
+            &self.settings,
             &RenderSettings::default(),
             &PixmapSettings { x_scale: scale, y_scale: scale, bg_color: WHITE },
         );
-        out.push(Img { data: px.data_as_u8_slice().to_vec(), width: px.width() as usize, height: px.height() as usize });
+        Img { data: px.data_as_u8_slice().to_vec(), width: px.width() as usize, height: px.height() as usize }
     }
-    Ok(out)
 }

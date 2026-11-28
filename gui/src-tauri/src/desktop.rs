@@ -302,8 +302,16 @@ fn supervise(app: AppHandle, shell: Arc<Shell>) {
             }
         };
         *shell.last_error.lock().unwrap() = None; // only this child's errors count
+        let (out, err) = (child.stdout.take(), child.stderr.take());
+        // recorded before the handshake: Clear data meanwhile stops this core too, instead of wiping under it
+        *shell.child.lock().unwrap() = Some(child);
+        let kill = || {
+            if let Some(c) = shell.child.lock().unwrap().as_mut() {
+                let _ = c.kill();
+            }
+        };
         // the core's last error line, for the UI ("no_profile: …", "running: …")
-        if let Some(err) = child.stderr.take() {
+        if let Some(err) = err {
             let s = shell.clone();
             std::thread::spawn(move || {
                 for l in BufReader::new(err).lines().map_while(Result::ok) {
@@ -315,7 +323,7 @@ fn supervise(app: AppHandle, shell: Arc<Shell>) {
             });
         }
         let mut line = String::new();
-        let ready = child.stdout.take().map(|o| BufReader::new(o).read_line(&mut line).is_ok_and(|n| n > 0)).unwrap_or(false);
+        let ready = out.map(|o| BufReader::new(o).read_line(&mut line).is_ok_and(|n| n > 0)).unwrap_or(false);
         let info: Value = serde_json::from_str(&line).unwrap_or(Value::Null);
         if let (true, Some(port), Some(token)) = (ready, info["port"].as_u64(), info["token"].as_str()) {
             let conn = Conn { port: port as u16, token: token.into() };
@@ -337,13 +345,12 @@ fn supervise(app: AppHandle, shell: Arc<Shell>) {
                     "cannot reach the health core; retrying".into()
                 });
                 status(&app, &shell, false, json!({}));
-                let _ = child.kill();
+                kill();
             }
         } else {
             // no handshake line: a core that will never answer; restart it rather than wait forever
-            let _ = child.kill();
+            kill();
         }
-        *shell.child.lock().unwrap() = Some(child);
         loop {
             std::thread::sleep(Duration::from_millis(300));
             let mut g = shell.child.lock().unwrap();

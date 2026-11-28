@@ -162,7 +162,8 @@ impl Inbox {
         if s.v != 1 || !device_ok(&s.from) || s.id.is_empty() || s.id.len() > 64 {
             return Err(Ignored::Malformed);
         }
-        if (now_ms - s.t).abs() > MAX_AGE_MS {
+        // `t` comes over the network: no overflow, whatever it holds
+        if now_ms.checked_sub(s.t).is_none_or(|d| d.unsigned_abs() > MAX_AGE_MS.unsigned_abs()) {
             return Err(Ignored::Skew);
         }
         if self.seen.contains_key(&s.id) {
@@ -261,6 +262,8 @@ mod tests {
         assert_eq!(inbox.receive(&[&d], &sealed(&d, &hello), ME, T), Err(Ignored::Replay));
         let old = sig("h2", PEER, T - 121_000, Body::Hello { name: String::new(), proto: vec![1] });
         assert_eq!(inbox.receive(&[&d], &sealed(&d, &old), ME, T), Err(Ignored::Skew));
+        let wild = sig("h3", PEER, i64::MIN, Body::Hello { name: String::new(), proto: vec![1] });
+        assert_eq!(inbox.receive(&[&d], &sealed(&d, &wild), ME, T), Err(Ignored::Skew));
         let mine = sig("h3", ME, T, Body::Hello { name: String::new(), proto: vec![1] });
         assert_eq!(inbox.receive(&[&d], &sealed(&d, &mine), ME, T), Err(Ignored::Mine));
         let other = sig("o1", PEER, T, Body::Offer { to: "f".repeat(32), sdp: String::new() });

@@ -28,20 +28,36 @@ pub fn file_sha(path: &str) -> Result<String> {
 /// for a progress bar.
 pub fn in_process(data_dir: &Path, on_page: impl Fn(usize, usize) + Send + Sync + 'static) -> Recognize {
     let dir = components::dir(data_dir);
+    // loaded on the first report and kept: hundreds of MB read and built once, not per report
+    let loaded: std::sync::Mutex<Option<std::sync::Arc<health_ocr::Models>>> = std::sync::Mutex::new(None);
     Box::new(move |path, this_year| {
         if !components::ready(&dir) {
             return Err(Error::not_found("no_ocr_component", "the OCR component isn't installed"));
         }
         file_sha(&path.to_string_lossy())?;
         let bytes = std::fs::read(path).map_err(|_| Error::not_found("no_file", path.to_string_lossy()))?;
-        let input = health_ocr::input::read_input(&bytes).map_err(|e| Error::invalid(e.code(), ""))?;
-        let models = components::load(&dir).map_err(|e| Error::other("ocr_component", e.to_string()))?;
-        let rec = health_ocr::recognize(&models, &input, this_year, &mut |page, pages| on_page(page, pages))
-            .map_err(|e| Error::other("ocr_engine", e.to_string()))?;
-        if rec.items.is_empty() {
-            return Err(Error::invalid("empty", "no lab results were found in this file"));
-        }
-        Ok((input.sha, rec))
+        // in this process (no worker to crash instead): a panic while decoding or recognising is an error, not the app
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let input = health_ocr::input::read_input(&bytes).map_err(|e| Error::invalid(e.code(), ""))?;
+            let models = {
+                let mut m = loaded.lock().unwrap_or_else(|e| e.into_inner());
+                match &*m {
+                    Some(x) => x.clone(),
+                    None => {
+                        let x = std::sync::Arc::new(components::load(&dir).map_err(|e| Error::other("ocr_component", e.to_string()))?);
+                        *m = Some(x.clone());
+                        x
+                    }
+                }
+            };
+            let rec = health_ocr::recognize(&models, &input, this_year, &mut |page, pages| on_page(page, pages))
+                .map_err(|e| Error::other("ocr_engine", e.to_string()))?;
+            if rec.items.is_empty() {
+                return Err(Error::invalid("empty", "no lab results were found in this file"));
+            }
+            Ok((input.sha, rec))
+        }))
+        .unwrap_or_else(|_| Err(Error::other("ocr_engine", "recognition failed unexpectedly")))
     })
 }
 

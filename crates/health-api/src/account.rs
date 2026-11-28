@@ -105,6 +105,9 @@ pub const LINK_MS: i64 = 10 * 60_000;
 /// A result that can't be checked yet holds the inbox at most a day (W `inbox.ts` LATER_MS).
 pub const LATER_MS: i64 = 24 * 3_600_000;
 const MAX_CT: usize = 8 * 1024 * 1024;
+/// Pages one poll reads at most: a backend that always says `more` can't hold the poll (and its lock) for good.
+/// The next poll goes on from the cursor.
+const MAX_PAGES: usize = 50;
 const LINK_INFO: &[u8] = b"health-link-1";
 const RESULT_INFO: &[u8] = b"sibian-health-1";
 
@@ -399,7 +402,12 @@ fn link_poll(net: &Net, _: Empty) -> Result<LinkState> {
     let amk: Zeroizing<[u8; 32]> = Zeroizing::new(amk.try_into().expect("32"));
     let account = Account::of(&amk).id;
     let check = codes::link_check(&channel, &pk, &account);
-    let replaces = amk_of(&state(net)?)?.is_some_and(|k| Account::of(&k).id != account);
+    // nothing may fail from here on: the relay has handed the key over once, and an error would lose it with the
+    // screen still waiting. Unreadable state here counts as another account (the warning shows).
+    let replaces = match state(net).and_then(|s| amk_of(&s)) {
+        Ok(k) => k.is_some_and(|k| Account::of(&k).id != account),
+        Err(_) => true,
+    };
     let mut g = net.session.lock().unwrap();
     let Some(l) = g.link.as_mut().filter(|l| l.channel == channel) else { return Ok(LinkState::None) };
     l.received = Some(Received { amk, account: account.clone(), check: check.clone(), replaces });
@@ -571,7 +579,7 @@ fn poll_into(net: &Net, out: &mut Polled) -> Result<()> {
     }
     let ctx = result::Context { me: &a.id, lab_keys: &net.config.lab_keys, att_key: net.config.att_key, iss: &net.config.aud };
     let mut reregistered = false;
-    loop {
+    for _ in 0..MAX_PAGES {
         let after = state(net)?.cursors.get(&pk).copied();
         let path = match after {
             Some(a) => format!("/h/1/inbox/{pk}?after={a}"),
@@ -641,7 +649,9 @@ fn poll_into(net: &Net, out: &mut Polled) -> Result<()> {
                     }
                 }
                 ctx.profile.vault.update(|s| {
-                    s.cursors.insert(pk2.clone(), seq);
+                    // forward only: an old item sent again can't move the cursor back
+                    let c = s.cursors.entry(pk2.clone()).or_insert(seq);
+                    *c = (*c).max(seq);
                     Ok(())
                 })?;
                 Ok(Json::Null)
@@ -661,6 +671,7 @@ fn poll_into(net: &Net, out: &mut Polled) -> Result<()> {
             return Ok(());
         }
     }
+    Ok(())
 }
 
 fn drop_one(net: &Net, pk: &str, seq: i64, out: &mut Polled) -> Result<()> {

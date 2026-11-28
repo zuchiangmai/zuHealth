@@ -114,6 +114,15 @@ pub fn wipe(data_dir: &Path, name: &str) -> Result<Option<String>> {
 }
 
 impl Profile {
+    /// After a call that panicked: rolls back the transaction (and any savepoint) it left open, which would
+    /// otherwise refuse every later write (`BEGIN IMMEDIATE` inside a transaction). Nothing it wrote is kept.
+    pub fn recover(&self) {
+        if !self.db.is_autocommit() {
+            let _ = self.db.execute_batch("ROLLBACK");
+        }
+        self.access.recover();
+    }
+
     /// Creates a profile: new root key in `keys`, empty database with the catalog.
     pub fn init(data_dir: &Path, name: &str, keys: &dyn KeyStore) -> Result<Profile> {
         let dir = profile_dir(data_dir, name)?;
@@ -277,5 +286,26 @@ mod passphrase_tests {
         assert!(Profile::open(d.path(), "default", &PassphraseStore::new(&file, "long passphrase"), false, 0).is_ok());
         let e = Profile::open(d.path(), "default", &PassphraseStore::new(&file, "nope"), false, 0).err().unwrap();
         assert_eq!((e.code, e.kind), ("bad_passphrase", Kind::Locked));
+    }
+}
+
+#[cfg(test)]
+mod recover_tests {
+    use super::*;
+    use crate::keys::MemoryStore;
+
+    /// A call that panicked mid-write leaves its savepoint open; without `recover` the next write's
+    /// `BEGIN IMMEDIATE` fails ("cannot start a transaction within a transaction") until the profile reopens
+    #[test]
+    fn a_write_left_open_is_rolled_back() {
+        let d = tempfile::tempdir().unwrap();
+        let p = Profile::init(d.path(), "default", &MemoryStore::default()).unwrap();
+        p.db.execute_batch("SAVEPOINT h; INSERT INTO source (connector, external_id, name, priority) VALUES ('manual', 'x', 'X', 0);")
+            .unwrap();
+        assert!(p.db.execute_batch("BEGIN IMMEDIATE").is_err());
+        p.recover();
+        p.db.execute_batch("BEGIN IMMEDIATE; COMMIT").unwrap();
+        let n: i64 = p.db.query_row("SELECT count(*) FROM source WHERE external_id = 'x'", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 0, "nothing the interrupted call wrote is kept");
     }
 }

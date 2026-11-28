@@ -204,6 +204,7 @@ export function explain(code: string, message = ""): string {
     bad_whoop: tk("This is not a WHOOP data file Health can read."),
     bad_row: tk("A line in the file is not a reading Health understands."),
     no_file: tk("The file can't be found. It may have been moved."),
+    key_not_deleted: tk("Your data was deleted, but its key couldn't be removed from this device's key store. Clear data again to remove it."),
     exists: tk("A file with that name already exists. Choose another name."),
     weak_password: tk("Use at least 8 characters."),
     blob_dup: tk("This file was already imported: it is under Sources, or under Waiting for you if it hasn't been checked yet."),
