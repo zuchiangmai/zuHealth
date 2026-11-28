@@ -75,11 +75,9 @@ export function HealthAccount({ want }: { want?: string }) {
   const view: View = want === "connect" || want === "join" || want === "give" || want === "history" ? want : "sync";
   // join and give open from connect (back returns there); a result replaces the step it ends
   const setView = (v: View, replace = false) => nav(`account/${v}`, replace);
-  const [acc, setAcc] = useState<AccountInfo | null>();
-  const load = useCallback(() => {
-    op<{ account: AccountInfo | null }>("account.show").then((r) => setAcc(r.account), () => setAcc(null));
-  }, []);
-  useEffect(load, [load]);
+  // asked again whenever the page is back on top (an account made meanwhile on the identity page)
+  const [shown, , load] = useOp(() => op<{ account: AccountInfo | null }>("account.show"), []);
+  const acc = shown?.account;
   if (view === "connect") return <ConnectDevice hasAccount={!!acc} join={() => setView("join")} give={() => setView("give")} />;
   // joined: on to sync, the reason most people connect a device
   // a match goes on to sync in place of this step; otherwise back to where it began, without a second copy of it
@@ -139,15 +137,12 @@ export function IdentityPage() {
 /** Lab results sent to the account: checked by themselves (on open and every few minutes); here, at once, and
  *  how many were discarded. A page of Data sources. */
 export function LabResults({ go }: { go: (p: Page) => void }) {
-  const [acc, setAcc] = useState<AccountInfo | null>();
+  const [shown, loadErr, load] = useOp(() => op<{ account: AccountInfo | null }>("account.show"), []);
+  const acc = shown?.account;
   const [err, setErr] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [polled, setPolled] = useState<string>();
   const [waiting, setWaiting] = useState(false);
-  const load = useCallback(() => {
-    op<{ account: AccountInfo | null }>("account.show").then((r) => setAcc(r.account), (e) => setErr(errText(e)));
-  }, []);
-  useEffect(load, [load]);
   const check = async () => {
     setErr(undefined);
     setBusy(true);
@@ -186,7 +181,7 @@ export function LabResults({ go }: { go: (p: Page) => void }) {
           </div>
         )}
         {polled && <p role="status" className="text-[13px] text-black/55 dark:text-white/55">{polled}</p>}
-        <Problem text={err} />
+        <Problem text={err ?? loadErr} />
       </div>
     </Screen>
   );

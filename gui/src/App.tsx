@@ -72,7 +72,8 @@ function savedPage(): Page {
     const p = localStorage.getItem("page");
     // before data sources were one page
     if (p === "add" || p === "sources") return "data";
-    return p && PAGES.some((x) => x.key === p) ? (p as Page) : "readings";
+    // the identity code isn't reopened by itself (opening it contacts the service)
+    return p && p !== "id" && PAGES.some((x) => x.key === p) ? (p as Page) : "readings";
   } catch {
     return "readings";
   }
@@ -160,7 +161,7 @@ function Unlock({ done }: { done: () => void }) {
             setP("");
             done();
           } catch (x) {
-            setErr(x instanceof OpError && x.code === "bad_passphrase" ? t("That passphrase is not right.") : String(x));
+            setErr(x instanceof OpError && x.code === "bad_passphrase" ? t("That passphrase is not right.") : errText(x));
           }
         }}
       >
@@ -250,6 +251,9 @@ function Shell({ status }: { status?: Status }) {
     if (!route.length) nav(pathOf(isMobile ? "readings" : savedPage()), true);
   }, [route.length]);
   const setPage = (p: Page, w?: string) => nav(w ? `${pathOf(p)}/${w}` : pathOf(p), TABS.some((x) => x.key === p) && !w);
+  // a section from the side panel, the menu or a shortcut: in place of what was open, as switching tabs does (the
+  // pages under it don't pile up)
+  const openSection = (p: Page, w?: string) => nav(w ? `${pathOf(p)}/${w}` : pathOf(p), true);
   // ⌘F asks Readings to focus its search; Readings clears the request once its search box exists
   const [find, setFind] = useState(false);
   // a lab device's address opened from the camera or a link: its page, now that the data is open
@@ -328,11 +332,12 @@ function Shell({ status }: { status?: Status }) {
   // the same commands from the macOS menu or, elsewhere, from the keyboard
   const command = useCallback((id: string) => {
     // a section's address replaces whatever was open in the last one
-    if (PAGES.some((x) => x.key === id)) setPage(id as Page);
-    else if (id === "add") setPage("add");
-    else if (id === "back") goBack(parts().slice(0, -1).join("/") || "dashboard");
+    if (PAGES.some((x) => x.key === id)) openSection(id as Page);
+    else if (id === "add") openSection("add");
+    // where the top bar's back leads
+    else if (id === "back") goBack(parentOf(parts(), pathOf(tab.current)));
     else if (id === "find") {
-      setPage("readings");
+      openSection("readings");
       setFind(true);
     } else if (id === "import")
       chooseImportFile().then((f) => {
@@ -392,7 +397,7 @@ function Shell({ status }: { status?: Status }) {
         page === p.key && !quiet,
         t(p.label),
         <Icon k={p.key} />,
-        () => setPage(p.key),
+        () => openSection(p.key),
         <>
           {p.key === "review" && status && status.reviews > 0 && <span className="inline-block min-w-5 rounded-full bg-brand-red px-1.5 text-center text-xs font-semibold text-white">{status.reviews}</span>}
         </>,
@@ -411,7 +416,7 @@ function Shell({ status }: { status?: Status }) {
           on,
           label,
           <Icon k={icon} />,
-          () => setPage("account", want),
+          () => openSection("account", want),
           asking ? <span className="inline-block h-2 w-2 rounded-full bg-brand-red align-middle" role="img" aria-label={t("Waiting for you")} /> : undefined,
           undefined,
           on ? "page" : undefined,
@@ -537,10 +542,11 @@ function Shell({ status }: { status?: Status }) {
                       t(g.label),
                       <GroupIcon k={g.key} />,
                       () => {
-                        setPage("readings");
-                        // marked at once: a short page can't scroll the section to the top
+                        if (page !== "readings" || route.length > 1) openSection("readings");
+                        // marked at once: a short page can't scroll the section to the top (in the page on top, which
+                        // may have just opened)
                         requestAnimationFrame(() => {
-                          document.querySelector(`[data-page="${stack.entries.at(-1)?.key}"] #g-${g.key}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+                          document.querySelector(`[data-page]:not([inert]) #g-${g.key}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
                           setInView(g.key);
                         });
                       },
@@ -692,7 +698,7 @@ function StackPage({ entry, at, came, photo, children }: { entry: Entry; at: key
   const [title, titles] = useTitles();
   const scroller = useRef<HTMLDivElement | null>(null);
   const layers = useRef<HTMLDivElement | null>(null);
-  const info: PageInfo = useMemo(() => ({ active, scroller: () => scroller.current, layers: () => layers.current }), [active]);
+  const info: PageInfo = useMemo(() => ({ path: entry.path, active, scroller: () => scroller.current, layers: () => layers.current }), [active, entry.path]);
   // Android: the page's own rubber band (overscroll.ts); iOS bounces scrolling content natively
   useEffect(() => (isAndroid && scroller.current ? rubberBand(scroller.current) : undefined), []);
   // made anew from history (past the pages kept, after a reload): back where it was scrolled to

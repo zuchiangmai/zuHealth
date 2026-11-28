@@ -4,13 +4,13 @@ import { ago, shortDate, shown, sourceKind, when } from "../format";
 import { t } from "../i18n";
 import { LabSelfService } from "../lab";
 import { nameOf } from "../names";
-import { back as goBack, go as nav } from "../router";
+import { back as goBack, handTo, go as nav } from "../router";
 import { Btn, card, Chevron, Copy, errText, Group, GroupIcon, Heading, Icon, type Page, PasswordField, Problem, Row, rowBg, Screen, useOp, WebLink, type WhoopStatus } from "../ui";
 import { LabResults, pollFast } from "./account";
 import { Enter } from "./add";
 import { Import } from "./import";
 import { ExportNote, SystemHealthCard } from "./syshealth";
-import { usePage } from "../page";
+import { useHanded, usePage } from "../page";
 
 const WHOOP_DASHBOARD = "https://developer-dashboard.whoop.com/";
 
@@ -158,13 +158,14 @@ function Sources({ go, path: [kind, id] }: { go: (p: Page) => void; path: string
   const open = id ? batches?.find((b) => String(b.import_id) === id) : undefined;
   const setOpen = (b: Batch) => nav(`data/manage/${encodeURIComponent(kind!)}/${b.import_id}`);
   const [msg, setMsg] = useState<string>();
+  useHanded<string>(setMsg);
   const [ordering, setOrdering] = useState(false);
   const [erasing, setErasing] = useState(false);
   const run = async (fn: () => Promise<unknown>, ok: string) => {
     setMsg(undefined);
     try {
       await fn();
-      setMsg(ok);
+      setMsg(ok || undefined);
       reload();
       reloadSources();
     } catch (e) {
@@ -199,10 +200,9 @@ function Sources({ go, path: [kind, id] }: { go: (p: Page) => void; path: string
         device={sources?.find((s) => s.id === open.source_id)?.name}
         go={go}
         erased={() => {
+          // said on the list this goes back to (its own page)
+          handTo(`data/manage/${encodeURIComponent(kind)}`, t("Deleted."));
           goBack(`data/manage/${encodeURIComponent(kind)}`);
-          setMsg(t("Deleted."));
-          reload();
-          reloadSources();
         }}
       />
     );
@@ -257,8 +257,9 @@ function Sources({ go, path: [kind, id] }: { go: (p: Page) => void; path: string
               void run(async () => {
                 await op("import.erase_source", { connector: kind });
                 if (whole) await op("whoop.disconnect");
+                handTo("data/manage", t("Deleted."));
                 goBack("data/manage");
-              }, t("Deleted.")).finally(() => setErasing(false));
+              }, "").finally(() => setErasing(false));
             }}
           />
         )}

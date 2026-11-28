@@ -83,6 +83,20 @@ export function useStack(): Stack {
   return useSyncExternalStore(subscribe, () => stack);
 }
 
+/** One-off results a page leaves for the page it returns to (each page of the stack is its own instance, so state
+ *  set before going back would land on the page that is leaving): by the receiving page's address. */
+const handed = new Map<string, unknown>();
+/** Leaves `value` for the page at `path` (as `go` names it), to take when it is on top. */
+export function handTo(path: string, value: unknown) {
+  handed.set(`#/${path}`, value);
+}
+/** What was left for the page at `path` (a hash), once. */
+export function takeHanded(path: string): unknown {
+  const v = handed.get(path);
+  handed.delete(path);
+  return v;
+}
+
 /** The element of a page in the stack (its scroller) */
 export const scrollerOf = (key: string) => document.querySelector<HTMLElement>(`[data-page="${key}"] > .k-page`);
 

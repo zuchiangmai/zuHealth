@@ -7,9 +7,25 @@ import { codeTarget } from "./codes";
 export type LinkTarget = { path: string } | { unknown: true };
 
 let pending: LinkTarget | undefined;
-/** The page a link opened, until that page has asked to be opened (it then waits for a tap before contacting the
- *  service: a link on any web page must not register anyone by itself) */
-let opened: string | undefined;
+/** The pages links opened, each until the person has gone on from it (it waits for a tap before contacting the
+ *  service: a link on any web page must not register anyone by itself). Kept for the session, so a reload of the
+ *  web view (iOS may restart it in the background) still holds them. */
+const HELD = "deep-link-held";
+const held = (): string[] => {
+  try {
+    return JSON.parse(sessionStorage.getItem(HELD) ?? "[]") as string[];
+  } catch {
+    return [];
+  }
+};
+const heldHere = new Set<string>(held());
+const keep = () => {
+  try {
+    sessionStorage.setItem(HELD, JSON.stringify([...heldHere]));
+  } catch {
+    // no storage: held for as long as this page lives
+  }
+};
 const subs = new Set<() => void>();
 const LAST = "deep-link-last";
 
@@ -39,7 +55,10 @@ if (isMobile)
 export function takeLink(): LinkTarget | undefined {
   const p = pending;
   pending = undefined;
-  if (p && "path" in p) opened = p.path;
+  if (p && "path" in p) {
+    heldHere.add(p.path);
+    keep();
+  }
   return p;
 }
 
@@ -50,6 +69,9 @@ export function onLink(f: () => void): () => void {
 }
 
 /** Whether the page at `path` was opened by a link and hasn't been let through yet. */
-export const openedByLink = (path: string) => opened === path;
+export const openedByLink = (path: string) => heldHere.has(path);
 /** The person has seen where the link leads and goes on. */
-export const letThrough = () => void (opened = undefined);
+export const letThrough = (path: string) => {
+  heldHere.delete(path);
+  keep();
+};

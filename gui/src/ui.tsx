@@ -9,7 +9,7 @@ import { dayValue, explain, sourceKind, unitLabel } from "./format";
 import { choice, choose, LANGS, locale as i18nLocale, t } from "./i18n";
 import { codesNamed, nameOf } from "./names";
 import { useLayer } from "./router";
-import { usePage } from "./page";
+import { useBackOnTop, usePage } from "./page";
 
 const darkQuery = typeof matchMedia !== "undefined" ? matchMedia("(prefers-color-scheme: dark)") : null;
 /** The system's dark mode, followed live. */
@@ -361,6 +361,8 @@ export function useOp<T>(fn: () => Promise<T>, deps: unknown[]): [T | undefined,
     };
   }, [...deps, tick]);
   useEffect(() => onChange(reload), [reload]);
+  // a page back on top asks again: what it shows may have changed meanwhile without an event (an account made)
+  useBackOnTop(reload);
   return [data, err, reload];
 }
 
@@ -521,7 +523,8 @@ export function Screen({ title, children }: { title: ReactNode; children: ReactN
  *  large window on a wide one, with the same way back at the top. Escape, the backdrop and the system's back
  *  (Android) close it too. */
 export function Sheet({ label, close: done, children }: { label: string; close: () => void; children: ReactNode }) {
-  const close = useLayer(done);
+  // a history step only while its page is on top (a hidden page's sheet takes none)
+  const close = useLayer(done, usePage().active);
   // slides in once it's on the page
   const [opened, setOpened] = useState(false);
   useEffect(() => {

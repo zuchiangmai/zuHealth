@@ -3,9 +3,9 @@ import { type Client, CLIENTS } from "../agents";
 import { agentClients, type Audit, connectAgent, corePath, type Grant, inBackground, isDesktop, op } from "../api";
 import { ago, groupLabel, GROUPS, when } from "../format";
 import { locale as i18nLocale, t, tk } from "../i18n";
-import { backBy, go as nav } from "../router";
+import { backBy, handTo, go as nav } from "../router";
 import { Btn, card, Copy, DAY, errText, Group, GroupIcon, Heading, Item, Problem, SwitchRow, useOp, writeText } from "../ui";
-import { usePage } from "../page";
+import { useHanded, usePage } from "../page";
 
 /** A card's title, with one button that turns every switch in it on (or, when all are on, off). */
 function CardHead({ title, on, set }: { title: string; on: boolean; set: (on: boolean) => void }) {
@@ -53,7 +53,7 @@ function ConnectSteps({ client, token, bin, found, done }: { client: Client; tok
                   const f = await connectAgent(client.id, token);
                   setResult({ ok: true, text: t("Added to {{file}}. Restart {{name}} to pick it up.", { file: f, name: client.name }) });
                 } catch (e) {
-                  setResult({ ok: false, text: String(e) });
+                  setResult({ ok: false, text: errText(e) });
                 }
                 setBusy(false);
               }}
@@ -151,20 +151,12 @@ export function Agents({ want, path }: { want?: string; path?: string[] }) {
   }, []);
   const [creating, setCreating] = useState(false);
   // each app starts from the defaults, not what the last one was given
-  const pick = (c: Client) => {
-    setName(c.id === "other" ? "" : c.name);
-    setGroups(GROUPS.filter((g) => !g.sensitive).map((g) => g.key));
-    setDetail(false);
-    setDays(90);
-    setExpiry(90);
-    setWrite("none");
-    setReports(false);
-    setProfile(false);
-    setSystemHealth(false);
-    setMsg(undefined);
-    setMade(undefined);
-    nav(`agents/connect/${c.id}`);
-  };
+  // each app starts from the defaults (the form is a page of its own, made anew), named after the app
+  const pick = (c: Client) => nav(`agents/connect/${c.id}`);
+  useEffect(() => {
+    if (client) setName(client.id === "other" ? "" : client.name);
+  }, [client?.id]);
+  useHanded<{ client: Client; token: string }>(setMade);
   const create = async () => {
     if (!client || creating) return;
     setMsg(undefined);
@@ -181,9 +173,9 @@ export function Agents({ want, path }: { want?: string; path?: string[] }) {
         write,
         expires_ms: Date.now() + expiry * DAY,
       });
-      setMade({ client, token: r.token });
+      // the token for the list (shown only this once), which is the page this one goes back to
+      handTo("agents", { client, token: r.token });
       backBy(2, "agents");
-      reload();
     } catch (e) {
       setMsg(errText(e));
     } finally {

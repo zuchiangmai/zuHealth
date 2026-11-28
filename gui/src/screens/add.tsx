@@ -78,6 +78,10 @@ export function Enter({ done, part }: { done: (code: string) => void; part?: boo
       await op("manual.enter", {
         entries: [{ metric: m.code, value: v, ...(unit ? { unit } : {}), at: { ms: local.getTime(), tz_min: -local.getTimezoneOffset() } }],
       });
+      // cleared for coming back to this page (it stays under the measure it opens): not a second tap away from
+      // saving the same reading again
+      setM(undefined);
+      setValue("");
       done(m.code);
     } catch (e) {
       setErr(errText(e));

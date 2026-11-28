@@ -134,7 +134,7 @@ export function LabSelfService({
           type="button"
           primary
           onClick={() => {
-            letThrough();
+            letThrough(`data/lab/${device.page}/${device.id}`);
             letGo((n) => n + 1);
           }}
         >

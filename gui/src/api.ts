@@ -324,7 +324,8 @@ export function onFileDrop(fn: { over: (hovering: boolean) => void; drop: (paths
 }
 
 /** macOS desktop: the app menu owns the shortcuts (the UI handles them itself everywhere else). */
-export const menuOwnsKeys = inTauri && /Mac/.test(navigator.userAgent);
+// (the desktop app only: an iPad with a keyboard says Mac too, and has no menu bar)
+export const menuOwnsKeys = isDesktop && /Mac/.test(navigator.userAgent);
 
 /** Items chosen in the app menu ("readings", "find", "import", …). */
 export function onMenu(fn: (id: string) => void): () => void {

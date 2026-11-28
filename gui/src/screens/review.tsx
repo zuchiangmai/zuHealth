@@ -215,13 +215,19 @@ export function Review() {
   const [items, err, reload] = useOp(() => op<BatchDetail[]>("review.list"), []);
   const [grants] = useOp(() => op<Grant[]>("grant.list"), []);
   const [msg, setMsg] = useState<{ ok: boolean; text: string }>();
+  // one at a time: a second tap while the first is on its way would act on what is already gone
+  const acting = useRef(false);
   const act = async (name: string, id: number, ok: string) => {
+    if (acting.current) return;
+    acting.current = true;
     try {
       await op(name, { id });
       setMsg({ ok: true, text: ok });
       reload();
     } catch (e) {
       setMsg({ ok: false, text: errText(e) });
+    } finally {
+      acting.current = false;
     }
   };
   // which agent proposed it: its writer key (older proposals: "g<grant id>")

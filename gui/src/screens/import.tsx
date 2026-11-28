@@ -231,6 +231,8 @@ export function Import({
       justRead = r.import_id;
       unstageFile(file); // read: the report's copy is kept in the data now
       setStep(undefined);
+      // done with it: coming back here (the page stays under the check) finds the picker again, not a dead file
+      onFile(undefined);
       if (location.hash === at) go("review");
     } catch (e) {
       setStep(undefined);
